@@ -64,40 +64,19 @@ android {
 
 
 
-// Some unused dependencies are commented out below instead of being removed.
-// This makes it easy to add them back in the future if needed.
 dependencies {
-  implementation(project(":shared-engine"))
-  implementation(platform(libs.firebase.bom))
-  implementation(libs.androidx.core.ktx)
-  implementation(libs.androidx.datastore.preferences)
-  implementation("androidx.activity:activity-ktx:1.9.3")
-  implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
-  implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
-  implementation("androidx.lifecycle:lifecycle-process:2.8.7")
-  implementation(libs.androidx.lifecycle.runtime.ktx)
-  implementation(libs.androidx.room.ktx)
-  implementation(libs.androidx.room.runtime)
-  implementation(libs.converter.moshi)
-  implementation(libs.firebase.ai)
-  implementation(libs.kotlinx.coroutines.android)
-  implementation(libs.kotlinx.coroutines.core)
-  implementation(libs.logging.interceptor)
-  implementation(libs.moshi.kotlin)
-  implementation(libs.okhttp)
-  implementation(libs.retrofit)
-  testImplementation(libs.androidx.core)
-  testImplementation(libs.androidx.junit)
-  testImplementation(libs.junit)
-  testImplementation(libs.kotlinx.coroutines.test)
-  testImplementation(libs.robolectric)
-  testImplementation(libs.roborazzi)
-  testImplementation(libs.roborazzi.junit.rule)
-  androidTestImplementation(libs.androidx.espresso.core)
-  androidTestImplementation(libs.androidx.junit)
-  androidTestImplementation(libs.androidx.runner)
-  "ksp"(libs.androidx.room.compiler)
-  "ksp"(libs.moshi.kotlin.codegen)
-}
+    implementation(project(":shared-engine"))
 
+	implementation(libs.androidx.core.ktx)
+	implementation(libs.androidx.datastore.preferences)
+	implementation("androidx.activity:activity-ktx:1.9.3")
+
+	implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
+	implementation("androidx.lifecycle:lifecycle-process:2.8.7")
+	implementation(libs.androidx.lifecycle.runtime.ktx)
+
+	implementation(libs.kotlinx.coroutines.android)
+	implementation(libs.kotlinx.coroutines.core)
+	implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+}
 

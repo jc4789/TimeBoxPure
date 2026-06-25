@@ -15,7 +15,7 @@ enum class HudAction {
 }
 
 object RetroHudComponent {
-    private const val DEBUG_DISABLE_HUD_SCENE_SWITCH = true
+    private const val DEBUG_DISABLE_HUD_SCENE_SWITCH = false
     private const val U = 16f
     private const val BUTTON_BORDER = U / 8f
     private const val ICON_SIZE = U * 2f
@@ -141,47 +141,47 @@ object RetroHudComponent {
             HudAction.SELECT_TAB_TIMER -> {
                 if (SceneManager.activeScene !is ActiveTimerScene) {
                     SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                    println("HUD_SWITCH_REQUEST target=ActiveTimerScene")
+                    println("HUD_SWITCH_REQUEST target=ActiveTimerScene active=${SceneManager.currentSceneName()}")
                     if (!DEBUG_DISABLE_HUD_SCENE_SWITCH) {
                         SceneManager.switchScene(ActiveTimerScene)
-                        println("HUD_SWITCH_REQUESTED target=ActiveTimerScene")
+                        println("HUD_SWITCH_RETURNED target=ActiveTimerScene active=${SceneManager.currentSceneName()}")
                     }
                 }
             }
             HudAction.SELECT_TAB_CARDS -> {
                 if (SceneManager.activeScene is TemplateForgeScene) {
                     SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                    println("HUD_SWITCH_REQUEST target=TemplateCustomizerScene")
+                    println("HUD_SWITCH_REQUEST target=TemplateCustomizerScene active=${SceneManager.currentSceneName()}")
                     if (!DEBUG_DISABLE_HUD_SCENE_SWITCH) {
                         SceneManager.switchScene(TemplateCustomizerScene)
-                        println("HUD_SWITCH_REQUESTED target=TemplateCustomizerScene")
+                        println("HUD_SWITCH_RETURNED target=TemplateCustomizerScene active=${SceneManager.currentSceneName()}")
                     }
                 } else if (SceneManager.activeScene !is TemplateCustomizerScene) {
                     SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                    println("HUD_SWITCH_REQUEST target=TemplateCustomizerScene")
+                    println("HUD_SWITCH_REQUEST target=TemplateCustomizerScene active=${SceneManager.currentSceneName()}")
                     if (!DEBUG_DISABLE_HUD_SCENE_SWITCH) {
                         SceneManager.switchScene(TemplateCustomizerScene)
-                        println("HUD_SWITCH_REQUESTED target=TemplateCustomizerScene")
+                        println("HUD_SWITCH_RETURNED target=TemplateCustomizerScene active=${SceneManager.currentSceneName()}")
                     }
                 }
             }
             HudAction.SELECT_TAB_BOMB -> {
                 if (SceneManager.activeScene !is EntropyScene) {
                     SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                    println("HUD_SWITCH_REQUEST target=EntropyScene")
+                    println("HUD_SWITCH_REQUEST target=EntropyScene active=${SceneManager.currentSceneName()}")
                     if (!DEBUG_DISABLE_HUD_SCENE_SWITCH) {
                         SceneManager.switchScene(EntropyScene)
-                        println("HUD_SWITCH_REQUESTED target=EntropyScene")
+                        println("HUD_SWITCH_RETURNED target=EntropyScene active=${SceneManager.currentSceneName()}")
                     }
                 }
             }
             HudAction.SELECT_TAB_SYSTEM -> {
                 if (SceneManager.activeScene !is SettingsScene) {
                     SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                    println("HUD_SWITCH_REQUEST target=SettingsScene")
+                    println("HUD_SWITCH_REQUEST target=SettingsScene active=${SceneManager.currentSceneName()}")
                     if (!DEBUG_DISABLE_HUD_SCENE_SWITCH) {
                         SceneManager.switchScene(SettingsScene)
-                        println("HUD_SWITCH_REQUESTED target=SettingsScene")
+                        println("HUD_SWITCH_RETURNED target=SettingsScene active=${SceneManager.currentSceneName()}")
                     }
                 }
             }
