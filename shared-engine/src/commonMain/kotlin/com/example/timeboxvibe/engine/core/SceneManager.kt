@@ -19,7 +19,11 @@ object SceneManager {
     private var logicalHeight = 0f
     private var inputDrainOverflowLogCooldownSeconds = 0f
     private var debugLogUpdateThisFrame = false
-    private var debugLogRenderThisFrame = false
+    private var debugRenderAfterSwitch = false
+    private var debugLanguageChangedRecently = false
+    private var debugNextTouchDispatch = false
+    private var debugNextTouchUpdate = false
+    private var debugStringsAfterLanguage = false
 
     var timerActions: TimerActions? = null
     var inputTrigger: PlatformInputTrigger? = null
@@ -40,17 +44,24 @@ object SceneManager {
 
     private fun performSceneSwitch(newScene: Scene, payload: Any? = null) {
         val old = activeScene
-        val oldName = sceneName(old)
-        val newName = sceneName(newScene)
-        println("SWITCH_BEGIN old=$oldName new=$newName")
-        println("SWITCH_BEFORE_ON_EXIT old=$oldName")
-        old?.onExit()
-        println("SWITCH_AFTER_ON_EXIT old=$oldName")
-        activeScene = newScene
-        println("SWITCH_SET_ACTIVE new=$newName")
-        println("SWITCH_BEFORE_ON_ENTER new=$newName")
-        newScene.onEnter(payload)
-        println("SWITCH_AFTER_ON_ENTER new=$newName")
+        println("SWITCH_BEGIN old=${sceneName(old)} new=${sceneName(newScene)}")
+        try {
+            println("SWITCH_BEFORE_ON_EXIT")
+            old?.onExit()
+            println("SWITCH_AFTER_ON_EXIT")
+
+            activeScene = newScene
+            debugRenderAfterSwitch = true
+            println("SWITCH_SET_ACTIVE")
+
+            println("SWITCH_BEFORE_ON_ENTER")
+            newScene.onEnter(payload)
+            println("SWITCH_AFTER_ON_ENTER")
+        } catch (t: Throwable) {
+            println("SWITCH_THROW new=${sceneName(newScene)} error=${t::class.simpleName}:${t.message}")
+            activeScene = SettingsScene
+            debugRenderAfterSwitch = true
+        }
         println("SWITCH_END active=${currentSceneName()}")
     }
 
@@ -61,9 +72,6 @@ object SceneManager {
     fun update(dt: Float, touchBuffer: IntArray, touchCount: Int) {
         val logThisFrame = touchCount > 0
         debugLogUpdateThisFrame = logThisFrame
-        if (logThisFrame) {
-            debugLogRenderThisFrame = true
-        }
         if (inputDrainOverflowLogCooldownSeconds > 0f) {
             inputDrainOverflowLogCooldownSeconds -= dt
         }
@@ -82,7 +90,15 @@ object SceneManager {
             println("AFTER APPLY_PENDING_SCENE")
             println("BEFORE ACTIVE_UPDATE scene=${currentSceneName()}")
         }
+        if (debugNextTouchUpdate) {
+            println("NEXT_TOUCH_BEFORE_UPDATE scene=${currentSceneName()}")
+        }
         activeScene?.update(dt)
+        if (debugNextTouchUpdate) {
+            println("NEXT_TOUCH_AFTER_UPDATE scene=${currentSceneName()}")
+            debugNextTouchUpdate = false
+            debugLanguageChangedRecently = false
+        }
         if (debugLogUpdateThisFrame) {
             println("AFTER ACTIVE_UPDATE scene=${currentSceneName()}")
             debugLogUpdateThisFrame = false
@@ -90,15 +106,15 @@ object SceneManager {
     }
 
     fun render(renderer: ScaledProceduralRenderer, logicalWidth: Float, logicalHeight: Float) {
-        val logThisFrame = debugLogRenderThisFrame
+        val logThisFrame = debugRenderAfterSwitch
         if (logThisFrame) {
-            println("render BEFORE scene=${currentSceneName()}")
+            println("RENDER_BEFORE scene=${currentSceneName()}")
         }
         val scene = activeScene
         if (scene == null) {
             if (logThisFrame) {
-                println("render AFTER scene=null")
-                debugLogRenderThisFrame = false
+                println("RENDER_AFTER scene=null")
+                debugRenderAfterSwitch = false
             }
             return
         }
@@ -108,8 +124,8 @@ object SceneManager {
         val playH = RetroHudComponent.playAreaHeight(logicalWidth, logicalHeight).toInt()
         scene.render(renderer, playX, playY, playW, playH)
         if (logThisFrame) {
-            println("render AFTER scene=${currentSceneName()}")
-            debugLogRenderThisFrame = false
+            println("RENDER_AFTER scene=${currentSceneName()}")
+            debugRenderAfterSwitch = false
         }
     }
 
@@ -134,6 +150,17 @@ object SceneManager {
     fun performHapticFeedback(type: Int) {
         if (DEBUG_DISABLE_PLATFORM_EFFECTS) return
         inputTrigger?.performHapticFeedback(type)
+    }
+
+    fun markLanguageChanged() {
+        debugLanguageChangedRecently = true
+        debugStringsAfterLanguage = true
+    }
+
+    fun logStringsAfterLanguageChange(scene: String, language: String) {
+        if (!debugStringsAfterLanguage) return
+        println("STRINGS language=$language scene=$scene")
+        debugStringsAfterLanguage = false
     }
 
     private fun dispatchTouch(x: Int, y: Int, actionCode: Int) {
@@ -190,6 +217,12 @@ object SceneManager {
             val playW = RetroHudComponent.playAreaWidth(logicalWidth).toInt()
             val playH = RetroHudComponent.playAreaHeight(logicalWidth, logicalHeight).toInt()
             val hudHit = RetroHudComponent.onTouch(logicalX, logicalY, playX, playY, playW, playH)
+            val logNextTouch = debugLanguageChangedRecently
+            if (logNextTouch) {
+                println("NEXT_TOUCH_AFTER_LANG scene=$sceneBefore action=${engineTouchAction(actionCode)} x=$logicalX y=$logicalY")
+                debugNextTouchDispatch = true
+                debugNextTouchUpdate = true
+            }
             println("BEFORE_TOUCH scene=$sceneBefore action=${engineTouchAction(actionCode)} x=$logicalX y=$logicalY")
             if (DEBUG_TOUCH_MODE == TOUCH_MODE_HUD_ONLY) {
                 println("BEFORE HUD")
@@ -197,6 +230,9 @@ object SceneManager {
                 println("AFTER HUD")
             } else if (!DEBUG_DISABLE_SCENE_TOUCH_DISPATCH && (DEBUG_TOUCH_MODE == TOUCH_MODE_SCENE_NO_TIMER_ACTIONS || DEBUG_TOUCH_MODE == TOUCH_MODE_FULL)) {
                 try {
+                    if (debugNextTouchDispatch) {
+                        println("NEXT_TOUCH_BEFORE_DISPATCH")
+                    }
                     println("BEFORE SCENE")
                     dispatchTouch(
                         logicalX,
@@ -204,6 +240,10 @@ object SceneManager {
                         actionCode
                     )
                     println("AFTER SCENE")
+                    if (debugNextTouchDispatch) {
+                        println("NEXT_TOUCH_AFTER_DISPATCH")
+                        debugNextTouchDispatch = false
+                    }
                 } catch (e: Throwable) {
                     println("SCENE_TOUCH_THROW scene=${currentSceneName()} action=$actionCode x=$logicalX y=$logicalY error=${e::class.simpleName}:${e.message}")
                     throw e

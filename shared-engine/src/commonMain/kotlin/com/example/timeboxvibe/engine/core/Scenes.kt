@@ -87,6 +87,7 @@ object ActiveTimerScene : Scene {
         val state = SceneManager.timerActions?.getUiState() ?: return
         // This will setup the palette in Pc98GraphicsHardware dynamically
         EngineThemes.getColors(state.appTheme, state.isBreak)
+        val strings = getStrings(state.language)
         
         // 0. Global Screen Clear to prevent transparent frame smearing
         renderer.drawRect(0f, 0f, logicalWidth, logicalHeight, PaletteIndices.BG)
@@ -172,7 +173,7 @@ object ActiveTimerScene : Scene {
                 }
                 drawAlarmTimeCentered(renderer, cx, midTimeRemaining, cy + 5f, 1, cPri)
                 drawTimeCentered(renderer, cx, bigTimeRemaining, cy + 24f, 1, cPri)
-                drawStaticTextCentered(renderer, cx, if (activeMode == "dual-sequence") "BLOCK LIMIT" else "SESSION LIMIT", cy + 42f, 1, cSec)
+                drawStaticTextCentered(renderer, cx, if (activeMode == "dual-sequence") strings.blockLimitLabel else strings.sessionLimitLabel, cy + 42f, 1, cSec)
             } else {
                 if (sequenceLength > 1) {
                     drawStepCentered(renderer, cx, currentIndex, sequenceLength, cy - 48f, 1, cSec)
@@ -181,7 +182,7 @@ object ActiveTimerScene : Scene {
                     drawTimeCentered(renderer, cx, timeRemaining, cy - 20f, 2, cPri)
                 }
                 drawTimeCentered(renderer, cx, bigTimeRemaining, cy + 18f, 1, cPri)
-                drawStaticTextCentered(renderer, cx, if (activeMode == "dual-sequence") "BLOCK LIMIT" else "SESSION LIMIT", cy + 36f, 1, cSec)
+                drawStaticTextCentered(renderer, cx, if (activeMode == "dual-sequence") strings.blockLimitLabel else strings.sessionLimitLabel, cy + 36f, 1, cSec)
             }
         } else {
             val isSeqMode = activeMode == "sequence" || activeMode == "dual-sequence" || activeMode == "calendar"
@@ -189,7 +190,7 @@ object ActiveTimerScene : Scene {
             if (isSeqMode && sequenceLength > 1) {
                 drawStepCentered(renderer, cx, currentIndex, sequenceLength, cy + 24f, 1, cSec)
             } else if (activeMode != "sequence") {
-                drawStaticTextCentered(renderer, cx, if (isBreak) "UNWINDING" else "FOCUSING", cy + 24f, 1, cSec)
+                drawStaticTextCentered(renderer, cx, if (isBreak) strings.unwindingLabel else strings.focusingLabel, cy + 24f, 1, cSec)
             }
         }
 
@@ -222,7 +223,7 @@ object ActiveTimerScene : Scene {
         }
 
         val displayText = if (taskText.isEmpty()) {
-            if (isTaskFocused) "_" else "> ENTER TASK _"
+            if (isTaskFocused) "_" else strings.enterTaskPrompt
         } else {
             taskText
         }
@@ -632,6 +633,7 @@ object TemplateCustomizerScene : Scene {
         cachedLogicalHeight = logicalHeight
         val state = SceneManager.timerActions?.getUiState() ?: return
         val strings = getStrings(state.language)
+        SceneManager.logStringsAfterLanguageChange("TemplateCustomizerScene", state.language)
         // This will setup the palette in Pc98GraphicsHardware dynamically
         EngineThemes.getColors(state.appTheme, state.isBreak)
         
@@ -962,8 +964,10 @@ object TemplateForgeScene : Scene {
             calendarRelaxFlags[i] = false
             i++
         }
-        setInput(calendarLabelInputs[0], "Focus")
-        setInput(calendarLabelInputs[1], "Break")
+        val language = SceneManager.timerActions?.getUiState()?.language ?: "en"
+        val strings = getStrings(language)
+        setInput(calendarLabelInputs[0], strings.focusLabel)
+        setInput(calendarLabelInputs[1], strings.breakLabel)
         calendarDurationsMinutes[1] = 5
         calendarRelaxFlags[1] = true
     }
@@ -981,6 +985,7 @@ object TemplateForgeScene : Scene {
         cachedLogicalHeight = logicalHeight
         val state = SceneManager.timerActions?.getUiState() ?: return
         val strings = getStrings(state.language)
+        SceneManager.logStringsAfterLanguageChange("TemplateForgeScene", state.language)
         EngineThemes.getColors(state.appTheme, state.isBreak)
         renderer.drawRect(0f, 0f, logicalWidth, logicalHeight, PaletteIndices.BG)
 
@@ -1000,14 +1005,14 @@ object TemplateForgeScene : Scene {
         val titleY = safeTop + (rowH - U) / 2f
 
         renderer.fillRectDither(playAreaStartX, 0f, playAreaStartX + playAreaW, playAreaH, PaletteIndices.BG, PaletteIndices.BG, SoftDitherPattern.SOLID)
-        renderer.drawText("DATA ENTRY / FORGE", contentX, titleY, PaletteIndices.PRIMARY, scale = 1, startX = contentX, startY = safeTop, clipWidth = titleClipW.toInt(), clipHeight = rowH.toInt())
+        renderer.drawText(strings.forgeTitle, contentX, titleY, PaletteIndices.PRIMARY, scale = 1, startX = contentX, startY = safeTop, clipWidth = titleClipW.toInt(), clipHeight = rowH.toInt())
         renderer.drawButton(strings.cancel, buttonX, safeTop, buttonW, rowH, isClicked = false)
         renderer.drawLine(playAreaStartX + U / 2f, safeTop + rowH + gap, playAreaStartX + playAreaW - U / 2f, safeTop + rowH + gap, PaletteIndices.SECONDARY, 1f)
 
         val navY = safeTop + rowH + gap * TITLE_GAP_CELLS
         renderer.drawButton("<", contentX, navY, rowH, rowH, isClicked = false)
         renderer.drawButton(">", contentX + contentW - rowH, navY, rowH, rowH, isClicked = false)
-        val pageLabel = if (page == PAGE_BASICS) "PAGE 1 / 2" else "PAGE 2 / 2"
+        val pageLabel = if (page == PAGE_BASICS) strings.pageBasicsLabel else strings.pageParamsLabel
         renderer.drawText(pageLabel, contentX + rowH + gap, navY + (rowH - U) / 2f, PaletteIndices.PRIMARY, scale = 1, startX = contentX + rowH, startY = navY, clipWidth = (contentW - rowH * 2f).toInt(), clipHeight = rowH.toInt())
 
         var y = navY + rowH + gap
@@ -1027,9 +1032,9 @@ object TemplateForgeScene : Scene {
                     y = drawStepperRow(renderer, strings.smallLoopLabel, "$dualSmallSeconds ${strings.seconds}", contentX, contentW, y, rowH)
                 }
                 "dual.5" -> {
-                    y = drawStepperRow(renderer, "MACRO BLOCK", "$dual5BigMinutes ${strings.minutes}", contentX, contentW, y, rowH)
-                    y = drawStepperRow(renderer, "MEDIUM LOOP", "$dual5MidMinutes ${strings.minutes}", contentX, contentW, y, rowH)
-                    y = drawStepperRow(renderer, "MICRO LOOP", "$dual5SmallSeconds ${strings.seconds}", contentX, contentW, y, rowH)
+                    y = drawStepperRow(renderer, strings.macroBlockLabel, "$dual5BigMinutes ${strings.minutes}", contentX, contentW, y, rowH)
+                    y = drawStepperRow(renderer, strings.mediumLoopLabel, "$dual5MidMinutes ${strings.minutes}", contentX, contentW, y, rowH)
+                    y = drawStepperRow(renderer, strings.microLoopLabel, "$dual5SmallSeconds ${strings.seconds}", contentX, contentW, y, rowH)
                 }
                 "sequence" -> {
                     y = drawInputRow(renderer, strings.sequenceLabel, inputToString(sequenceInput), strings.sequencePlaceholder, contentX, contentW, y, rowH, focusedInput == FOCUS_SEQUENCE)
@@ -1041,13 +1046,13 @@ object TemplateForgeScene : Scene {
                     y = drawStepperRow(renderer, strings.smallLoopLabel, "$dualSequenceSmallSeconds ${strings.seconds}", contentX, contentW, y, rowH)
                 }
                 "calendar" -> {
-                    y = drawStepperRow(renderer, "BLOCK", "${selectedCalendarBlock + 1} / $calendarBlockCount", contentX, contentW, y, rowH)
-                    y = drawStepperRow(renderer, "TYPE", if (calendarRelaxFlags[selectedCalendarBlock]) "RELAX" else "FOCUS", contentX, contentW, y, rowH)
-                    y = drawInputRow(renderer, "BLOCK LABEL", inputToString(calendarLabelInputs[selectedCalendarBlock]), if (calendarRelaxFlags[selectedCalendarBlock]) "RELAX THEME" else "FOCUS THEME", contentX, contentW, y, rowH, focusedInput == FOCUS_CALENDAR_LABEL)
+                    y = drawStepperRow(renderer, strings.calendarBlockLabel, "${selectedCalendarBlock + 1} / $calendarBlockCount", contentX, contentW, y, rowH)
+                    y = drawStepperRow(renderer, strings.calendarTypeLabel, if (calendarRelaxFlags[selectedCalendarBlock]) strings.calendarRelaxValue else strings.calendarFocusValue, contentX, contentW, y, rowH)
+                    y = drawInputRow(renderer, strings.calendarBlockNameLabel, inputToString(calendarLabelInputs[selectedCalendarBlock]), if (calendarRelaxFlags[selectedCalendarBlock]) strings.calendarRelaxThemePlaceholder else strings.calendarFocusThemePlaceholder, contentX, contentW, y, rowH, focusedInput == FOCUS_CALENDAR_LABEL)
                     y = drawStepperRow(renderer, strings.durationLabel, "${calendarDurationsMinutes[selectedCalendarBlock]} ${strings.minutes}", contentX, contentW, y, rowH)
                     val halfW = (contentW - gap) / 2f
-                    renderer.drawButton("ADD BLOCK", contentX, y, halfW, rowH, isClicked = false)
-                    renderer.drawButton("DEL BLOCK", contentX + halfW + gap, y, halfW, rowH, isClicked = calendarBlockCount > 1)
+                    renderer.drawButton(strings.addBlockLabel, contentX, y, halfW, rowH, isClicked = false)
+                    renderer.drawButton(strings.deleteBlockLabel, contentX + halfW + gap, y, halfW, rowH, isClicked = calendarBlockCount > 1)
                     y += rowH + gap
                 }
             }
@@ -1171,19 +1176,19 @@ object TemplateForgeScene : Scene {
                         })) return
                 }
                 "dual.5" -> {
-                    if (handleStepperTap(fx, fy, "MACRO BLOCK", y, contentX, contentW, rowH, {
+                    if (handleStepperTap(fx, fy, strings.macroBlockLabel, y, contentX, contentW, rowH, {
                             dual5BigMinutes = (dual5BigMinutes - 5).coerceAtLeast(15)
                         }, {
                             dual5BigMinutes = (dual5BigMinutes + 5).coerceAtMost(180)
                         })) return
-                    y = nextRowY("MACRO BLOCK", y, contentW, rowH)
-                    if (handleStepperTap(fx, fy, "MEDIUM LOOP", y, contentX, contentW, rowH, {
+                    y = nextRowY(strings.macroBlockLabel, y, contentW, rowH)
+                    if (handleStepperTap(fx, fy, strings.mediumLoopLabel, y, contentX, contentW, rowH, {
                             dual5MidMinutes = (dual5MidMinutes - 1).coerceAtLeast(1)
                         }, {
                             dual5MidMinutes = (dual5MidMinutes + 1).coerceAtMost(60)
                         })) return
-                    y = nextRowY("MEDIUM LOOP", y, contentW, rowH)
-                    if (handleStepperTap(fx, fy, "MICRO LOOP", y, contentX, contentW, rowH, {
+                    y = nextRowY(strings.mediumLoopLabel, y, contentW, rowH)
+                    if (handleStepperTap(fx, fy, strings.microLoopLabel, y, contentX, contentW, rowH, {
                             dual5SmallSeconds = (dual5SmallSeconds - 10).coerceAtLeast(10)
                         }, {
                             dual5SmallSeconds = (dual5SmallSeconds + 10).coerceAtMost(300)
@@ -1224,25 +1229,25 @@ object TemplateForgeScene : Scene {
                         })) return
                 }
                 "calendar" -> {
-                    if (handleStepperTap(fx, fy, "BLOCK", y, contentX, contentW, rowH, {
+                    if (handleStepperTap(fx, fy, strings.calendarBlockLabel, y, contentX, contentW, rowH, {
                             selectedCalendarBlock = (selectedCalendarBlock - 1 + calendarBlockCount) % calendarBlockCount
                         }, {
                             selectedCalendarBlock = (selectedCalendarBlock + 1) % calendarBlockCount
                         })) return
-                    y = nextRowY("BLOCK", y, contentW, rowH)
-                    if (handleStepperTap(fx, fy, "TYPE", y, contentX, contentW, rowH, {
+                    y = nextRowY(strings.calendarBlockLabel, y, contentW, rowH)
+                    if (handleStepperTap(fx, fy, strings.calendarTypeLabel, y, contentX, contentW, rowH, {
                             calendarRelaxFlags[selectedCalendarBlock] = false
                         }, {
                             calendarRelaxFlags[selectedCalendarBlock] = true
                         })) return
-                    y = nextRowY("TYPE", y, contentW, rowH)
-                    if (hitInputRow(fx, fy, "BLOCK LABEL", y, contentX, contentW, rowH)) {
+                    y = nextRowY(strings.calendarTypeLabel, y, contentW, rowH)
+                    if (hitInputRow(fx, fy, strings.calendarBlockNameLabel, y, contentX, contentW, rowH)) {
                         SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                         focusedInput = FOCUS_CALENDAR_LABEL
                         SceneManager.triggerKeyboard()
                         return
                     }
-                    y = nextRowY("BLOCK LABEL", y, contentW, rowH)
+                    y = nextRowY(strings.calendarBlockNameLabel, y, contentW, rowH)
                     if (handleStepperTap(fx, fy, strings.durationLabel, y, contentX, contentW, rowH, {
                             calendarDurationsMinutes[selectedCalendarBlock] = (calendarDurationsMinutes[selectedCalendarBlock] - 1).coerceAtLeast(1)
                         }, {
@@ -1284,7 +1289,7 @@ object TemplateForgeScene : Scene {
             "dual.5" -> strings.dual5BehaviorDesc
             "sequence" -> strings.sequenceBehaviorDesc
             "dual-sequence" -> strings.dualSequenceBehaviorDesc
-            else -> "Calendar blocks always require dismissal."
+            else -> strings.calendarBehaviorDesc
         }
     }
 
@@ -1307,6 +1312,7 @@ object TemplateForgeScene : Scene {
             "sequence" -> TimerPreset(id = id, name = name, mode = "sequence", sequence = parseSequenceValues(), alarmBehavior = behaviorKeys[behaviorIndex], description = "SYS.SEQUENCE // CUSTOM")
             "dual-sequence" -> TimerPreset(id = id, name = name, mode = "dual-sequence", sequence = parseSequenceValues(), dualSmallDuration = dualSequenceSmallSeconds, alarmBehavior = behaviorKeys[behaviorIndex], description = "SYS.DUAL-SEQUENCE // CUSTOM")
             else -> {
+                val strings = getStrings(state.language)
                 val seq = IntArray(calendarBlockCount)
                 val types = Array(calendarBlockCount) { "" }
                 val labels = Array(calendarBlockCount) { "" }
@@ -1316,7 +1322,7 @@ object TemplateForgeScene : Scene {
                     types[i] = if (calendarRelaxFlags[i]) "relax" else "focus"
                     val rawLabel = inputToString(calendarLabelInputs[i]).trim()
                     labels[i] = if (rawLabel.isEmpty()) {
-                        if (calendarRelaxFlags[i]) "Break" else "Focus"
+                        if (calendarRelaxFlags[i]) strings.breakLabel else strings.focusLabel
                     } else {
                         rawLabel
                     }
@@ -1362,7 +1368,8 @@ object TemplateForgeScene : Scene {
         if (calendarBlockCount >= MAX_CALENDAR_BLOCKS) return
         val idx = calendarBlockCount
         clearInput(calendarLabelInputs[idx])
-        setInput(calendarLabelInputs[idx], "Focus")
+        val language = SceneManager.timerActions?.getUiState()?.language ?: "en"
+        setInput(calendarLabelInputs[idx], getStrings(language).focusLabel)
         calendarDurationsMinutes[idx] = 25
         calendarRelaxFlags[idx] = false
         calendarBlockCount++
@@ -1584,6 +1591,7 @@ object SettingsScene : Scene {
         cachedLogicalHeight = logicalHeight
         val state = SceneManager.timerActions?.getUiState() ?: return
         val strings = getStrings(state.language)
+        SceneManager.logStringsAfterLanguageChange("SettingsScene", state.language)
         EngineThemes.getColors(state.appTheme, state.isBreak)
 
         renderer.drawRect(0f, 0f, logicalWidth, logicalHeight, PaletteIndices.BG)
@@ -1655,8 +1663,8 @@ object SettingsScene : Scene {
 
     override fun onInput(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
         if (RetroHudComponent.onTouchEvent(x, y, action, playX, playY, playW, playH)) return
-        val isDown = action == TouchAction.DOWN
-        if (!isDown) return
+        val isUp = action == TouchAction.UP
+        if (!isUp) return
 
         val state = SceneManager.timerActions?.getUiState() ?: return
         val strings = getStrings(state.language)
@@ -1690,11 +1698,19 @@ object SettingsScene : Scene {
                     if (fx >= ctrlX && fx <= ctrlX + arrowW) {
                         SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                         val prev = (idx - 1 + languages.size) % languages.size
+                        println("LANG_BEFORE current=${state.language} requested=${languages[prev]}")
                         SceneManager.timerActions?.updateLanguage(languages[prev])
+                        SceneManager.markLanguageChanged()
+                        val nextState = SceneManager.timerActions?.getUiState()
+                        println("LANG_AFTER current=${nextState?.language ?: languages[prev]}")
                     } else if (fx >= ctrlX + ctrlW - arrowW && fx <= ctrlX + ctrlW) {
                         SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                         val next = (idx + 1) % languages.size
+                        println("LANG_BEFORE current=${state.language} requested=${languages[next]}")
                         SceneManager.timerActions?.updateLanguage(languages[next])
+                        SceneManager.markLanguageChanged()
+                        val nextState = SceneManager.timerActions?.getUiState()
+                        println("LANG_AFTER current=${nextState?.language ?: languages[next]}")
                     }
                 }
             }
@@ -2071,6 +2087,7 @@ object EntropyScene : Scene {
         cachedLogicalHeight = logicalHeight
         val state = SceneManager.timerActions?.getUiState() ?: return
         val strings = getStrings(state.language)
+        SceneManager.logStringsAfterLanguageChange("EntropyScene", state.language)
         // This will setup the palette in Pc98GraphicsHardware dynamically
         EngineThemes.getColors(state.appTheme, state.isBreak)
         
