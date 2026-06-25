@@ -40,9 +40,18 @@ object SceneManager {
 
     private fun performSceneSwitch(newScene: Scene, payload: Any? = null) {
         val old = activeScene
+        val oldName = sceneName(old)
+        val newName = sceneName(newScene)
+        println("SWITCH_BEGIN old=$oldName new=$newName")
+        println("SWITCH_BEFORE_ON_EXIT old=$oldName")
         old?.onExit()
+        println("SWITCH_AFTER_ON_EXIT old=$oldName")
         activeScene = newScene
+        println("SWITCH_SET_ACTIVE new=$newName")
+        println("SWITCH_BEFORE_ON_ENTER new=$newName")
         newScene.onEnter(payload)
+        println("SWITCH_AFTER_ON_ENTER new=$newName")
+        println("SWITCH_END active=${currentSceneName()}")
     }
 
     fun update(dt: Float) {

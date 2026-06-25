@@ -15,6 +15,7 @@ enum class HudAction {
 }
 
 object RetroHudComponent {
+    private const val DEBUG_DISABLE_HUD_SCENE_SWITCH = true
     private const val U = 16f
     private const val BUTTON_BORDER = U / 8f
     private const val ICON_SIZE = U * 2f
@@ -130,6 +131,7 @@ object RetroHudComponent {
 
         val hudAct = onTouch(x, y, playX, playY, playW, playH)
         if (hudAct == HudAction.NONE) return false
+        println("HUD_TOUCH action=$action hudAct=${actionName(hudAct)} activeBefore=${SceneManager.currentSceneName()}")
         if (action == TouchAction.CANCEL) return true
         if (action != TouchAction.UP) return true
 
@@ -139,28 +141,48 @@ object RetroHudComponent {
             HudAction.SELECT_TAB_TIMER -> {
                 if (SceneManager.activeScene !is ActiveTimerScene) {
                     SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                    SceneManager.switchScene(ActiveTimerScene)
+                    println("HUD_SWITCH_REQUEST target=ActiveTimerScene")
+                    if (!DEBUG_DISABLE_HUD_SCENE_SWITCH) {
+                        SceneManager.switchScene(ActiveTimerScene)
+                        println("HUD_SWITCH_REQUESTED target=ActiveTimerScene")
+                    }
                 }
             }
             HudAction.SELECT_TAB_CARDS -> {
                 if (SceneManager.activeScene is TemplateForgeScene) {
                     SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                    SceneManager.switchScene(TemplateCustomizerScene)
+                    println("HUD_SWITCH_REQUEST target=TemplateCustomizerScene")
+                    if (!DEBUG_DISABLE_HUD_SCENE_SWITCH) {
+                        SceneManager.switchScene(TemplateCustomizerScene)
+                        println("HUD_SWITCH_REQUESTED target=TemplateCustomizerScene")
+                    }
                 } else if (SceneManager.activeScene !is TemplateCustomizerScene) {
                     SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                    SceneManager.switchScene(TemplateCustomizerScene)
+                    println("HUD_SWITCH_REQUEST target=TemplateCustomizerScene")
+                    if (!DEBUG_DISABLE_HUD_SCENE_SWITCH) {
+                        SceneManager.switchScene(TemplateCustomizerScene)
+                        println("HUD_SWITCH_REQUESTED target=TemplateCustomizerScene")
+                    }
                 }
             }
             HudAction.SELECT_TAB_BOMB -> {
                 if (SceneManager.activeScene !is EntropyScene) {
                     SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                    SceneManager.switchScene(EntropyScene)
+                    println("HUD_SWITCH_REQUEST target=EntropyScene")
+                    if (!DEBUG_DISABLE_HUD_SCENE_SWITCH) {
+                        SceneManager.switchScene(EntropyScene)
+                        println("HUD_SWITCH_REQUESTED target=EntropyScene")
+                    }
                 }
             }
             HudAction.SELECT_TAB_SYSTEM -> {
                 if (SceneManager.activeScene !is SettingsScene) {
                     SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                    SceneManager.switchScene(SettingsScene)
+                    println("HUD_SWITCH_REQUEST target=SettingsScene")
+                    if (!DEBUG_DISABLE_HUD_SCENE_SWITCH) {
+                        SceneManager.switchScene(SettingsScene)
+                        println("HUD_SWITCH_REQUESTED target=SettingsScene")
+                    }
                 }
             }
             else -> {}
