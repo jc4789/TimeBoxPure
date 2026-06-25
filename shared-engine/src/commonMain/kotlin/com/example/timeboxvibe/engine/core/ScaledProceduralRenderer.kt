@@ -120,6 +120,8 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         clipHeight: Int
     ) {
         val fScale = scale.toFloat()
+        val clipRight = startX + clipWidth
+        val clipBottom = startY + clipHeight
         var y = 0
         while (y < U.toInt()) {
             val rowBits = glyph[y]
@@ -129,8 +131,9 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
                 if ((rowBits and bitMask) != 0) {
                     val drawX = destX + (x * scale)
                     val drawY = destY + (y * scale)
-                    if (drawX >= startX + clipWidth || drawY >= startY + clipHeight) continue
-                    canvas.drawRect(drawX, drawY, fScale, fScale, colorIndex)
+                    if (drawX >= startX && drawY >= startY && drawX < clipRight && drawY < clipBottom) {
+                        canvas.drawRect(drawX, drawY, fScale, fScale, colorIndex)
+                    }
                 }
                 x++
             }

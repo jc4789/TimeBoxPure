@@ -368,3 +368,7 @@ Engine coordinates remain logical.
 EngineCanvas.width/height are logical.
 EngineCanvas.density must remain 1f in this model.
 Touch raw coordinates are divided by scaleFactor before entering SceneManager.
+
+
+FORBIDDEN:
+continue inside manual while loops unless the loop counter has already advanced.
