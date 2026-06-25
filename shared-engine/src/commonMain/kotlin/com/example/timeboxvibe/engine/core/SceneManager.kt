@@ -181,12 +181,12 @@ object SceneManager {
             val playW = RetroHudComponent.playAreaWidth(logicalWidth).toInt()
             val playH = RetroHudComponent.playAreaHeight(logicalWidth, logicalHeight).toInt()
             val hudHit = RetroHudComponent.onTouch(logicalX, logicalY, playX, playY, playW, playH)
-            println("TOUCH BEFORE mode=$DEBUG_TOUCH_MODE scene=${currentSceneName()} x=$logicalX y=$logicalY action=$actionCode rawX=$rawX rawY=$rawY")
+            println("BEFORE_TOUCH scene=$sceneBefore action=${engineTouchAction(actionCode)} x=$logicalX y=$logicalY")
             if (DEBUG_TOUCH_MODE == TOUCH_MODE_HUD_ONLY) {
                 println("BEFORE HUD")
-                RetroHudComponent.onInput(logicalX, logicalY, engineTouchAction(actionCode), playX, playY, playW, playH)
+                RetroHudComponent.onTouchEvent(logicalX, logicalY, engineTouchAction(actionCode), playX, playY, playW, playH)
                 println("AFTER HUD")
-            } else if (DEBUG_TOUCH_MODE == TOUCH_MODE_SCENE_NO_TIMER_ACTIONS || DEBUG_TOUCH_MODE == TOUCH_MODE_FULL) {
+            } else if (!DEBUG_DISABLE_SCENE_TOUCH_DISPATCH && (DEBUG_TOUCH_MODE == TOUCH_MODE_SCENE_NO_TIMER_ACTIONS || DEBUG_TOUCH_MODE == TOUCH_MODE_FULL)) {
                 println("BEFORE SCENE")
                 dispatchTouch(
                     logicalX,
@@ -196,6 +196,7 @@ object SceneManager {
                 println("AFTER SCENE")
             }
             val sceneAfter = if (pendingScene != null) sceneName(pendingScene) else currentSceneName()
+            println("AFTER_TOUCH scene=$sceneAfter")
             println("touchAction=${engineTouchAction(actionCode)} hudHit=${RetroHudComponent.actionName(hudHit)} sceneBefore=$sceneBefore sceneAfter=$sceneAfter")
             offset += TOUCH_EVENT_SLOT_COUNT
             index++
@@ -244,6 +245,7 @@ object SceneManager {
     private const val TOUCH_MODE_FULL = 3
     private const val DEBUG_TOUCH_MODE = TOUCH_MODE_SCENE_NO_TIMER_ACTIONS
     private const val DEBUG_DISABLE_PLATFORM_EFFECTS = true
+    private const val DEBUG_DISABLE_SCENE_TOUCH_DISPATCH = false
     private const val DEBUG_DISABLE_TIMER_ACTIONS_FROM_TOUCH = true
     private const val MAX_INPUT_DRAIN_PER_FRAME = 64
     private const val INPUT_DRAIN_OVERFLOW_LOG_INTERVAL_SECONDS = 1f

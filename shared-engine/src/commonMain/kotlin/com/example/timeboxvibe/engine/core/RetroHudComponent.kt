@@ -113,7 +113,7 @@ object RetroHudComponent {
         }
     }
 
-    fun onInput(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int): Boolean {
+    fun onTouchEvent(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int): Boolean {
         val fx = x.toFloat()
         val fy = y.toFloat()
         val logicalWidth = (playX + playW).toFloat()

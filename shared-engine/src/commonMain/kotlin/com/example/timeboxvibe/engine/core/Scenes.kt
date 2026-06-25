@@ -301,9 +301,13 @@ object ActiveTimerScene : Scene {
     }
 
     override fun onInput(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
-        if (RetroHudComponent.onInput(x, y, action, playX, playY, playW, playH)) return
-        val isDown = action == TouchAction.DOWN
-        if (!isDown) return
+        if (RetroHudComponent.onTouchEvent(x, y, action, playX, playY, playW, playH)) return
+        if (action == TouchAction.CANCEL) {
+            isTaskFocused = false
+            return
+        }
+        val isUp = action == TouchAction.UP
+        if (!isUp) return
 
         val state = SceneManager.timerActions?.getUiState() ?: return
         val logicalWidth = (playX + playW).toFloat()
@@ -804,7 +808,7 @@ object TemplateCustomizerScene : Scene {
     }
 
     override fun onInput(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
-        if (RetroHudComponent.onInput(x, y, action, playX, playY, playW, playH)) return
+        if (RetroHudComponent.onTouchEvent(x, y, action, playX, playY, playW, playH)) return
         val isDown = action == TouchAction.UP
         if (!isDown) return
 
@@ -1078,7 +1082,7 @@ object TemplateForgeScene : Scene {
     }
 
     override fun onInput(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
-        if (RetroHudComponent.onInput(x, y, action, playX, playY, playW, playH)) return
+        if (RetroHudComponent.onTouchEvent(x, y, action, playX, playY, playW, playH)) return
         val isDown = action == TouchAction.DOWN
         if (!isDown) return
         val state = SceneManager.timerActions?.getUiState() ?: return
@@ -1650,7 +1654,7 @@ object SettingsScene : Scene {
     }
 
     override fun onInput(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
-        if (RetroHudComponent.onInput(x, y, action, playX, playY, playW, playH)) return
+        if (RetroHudComponent.onTouchEvent(x, y, action, playX, playY, playW, playH)) return
         val isDown = action == TouchAction.DOWN
         if (!isDown) return
 
@@ -2236,7 +2240,7 @@ object EntropyScene : Scene {
     }
 
     override fun onInput(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
-        if (RetroHudComponent.onInput(x, y, action, playX, playY, playW, playH)) return
+        if (RetroHudComponent.onTouchEvent(x, y, action, playX, playY, playW, playH)) return
         val isDown = action == TouchAction.DOWN
         if (!isDown) return
 
