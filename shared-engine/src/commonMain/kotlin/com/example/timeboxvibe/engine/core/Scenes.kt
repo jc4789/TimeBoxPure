@@ -26,9 +26,7 @@ interface Scene {
 //  MAIN MENU SCENE
 // ════════════════════════════════════════════════════════════════════
 object MainMenuScene : Scene {
-    override fun onEnter(payload: Any?) {
-        SceneManager.switchScene(ActiveTimerScene)
-    }
+    override fun onEnter(payload: Any?) {}
 
     override fun onExit() {}
     override fun update(dt: Float) {}
@@ -614,6 +612,7 @@ object TemplateCustomizerScene : Scene {
     private var initialTouchX = 0f
     private var initialTouchY = 0f
     private var hasDragged = false
+    private var debugTemplateSafeRenderLogged = false
 
     override fun onEnter(payload: Any?) {
         scrollY = 0f
@@ -637,12 +636,16 @@ object TemplateCustomizerScene : Scene {
         cachedLogicalWidth = logicalWidth
         cachedLogicalHeight = logicalHeight
         if (DEBUG_TEMPLATE_SAFE_STUB) {
+            if (!debugTemplateSafeRenderLogged) {
+                println("TEMPLATE_RENDER_SAFE")
+                debugTemplateSafeRenderLogged = true
+            }
             renderer.drawRect(0f, 0f, logicalWidth, logicalHeight, PaletteIndices.BG)
             val safeX = playX.toFloat() + U
             val safeY = U
             val safeW = maxOf(U, playW.toFloat() - U * 2f)
             val safeH = maxOf(U, playH.toFloat() - U * 2f)
-            renderer.drawRect(safeX, safeY, safeW, safeH, PaletteIndices.PRIMARY)
+            renderer.drawRect(safeX, safeY, safeX + safeW, safeY + safeH, PaletteIndices.PRIMARY)
             renderer.drawText("TEMPLATE SAFE", safeX + U, safeY + U, PaletteIndices.PRIMARY, scale = 1, startX = safeX, startY = safeY, clipWidth = safeW.toInt(), clipHeight = safeH.toInt())
             renderer.drawText("CARDS SCENE REACHED", safeX + U, safeY + U * 2f, PaletteIndices.SECONDARY, scale = 1, startX = safeX, startY = safeY, clipWidth = safeW.toInt(), clipHeight = safeH.toInt())
             RetroHudComponent.render(renderer, playX, playY, playW, playH)

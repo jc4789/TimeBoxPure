@@ -7,7 +7,7 @@ import com.example.timeboxvibe.ui.main.Pc98SurfaceView
 import com.example.timeboxvibe.platform.android.AndroidHeadlessInputBridge
 import com.example.timeboxvibe.engine.core.PlatformInputTrigger
 import com.example.timeboxvibe.engine.core.SceneManager
-import com.example.timeboxvibe.engine.core.MainMenuScene
+import com.example.timeboxvibe.engine.core.ActiveTimerScene
 import android.widget.FrameLayout
 import android.view.ViewGroup
 import android.view.View
@@ -79,7 +79,7 @@ class MainActivity : ComponentActivity(), PlatformInputTrigger {
 
         // Initialize SceneManager
         SceneManager.init(viewModel, this)
-        SceneManager.switchScene(MainMenuScene)
+        SceneManager.switchScene(ActiveTimerScene)
     }
 
     override fun triggerKeyboard() {

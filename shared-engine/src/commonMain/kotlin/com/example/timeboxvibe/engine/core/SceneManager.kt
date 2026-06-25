@@ -34,17 +34,12 @@ object SceneManager {
     }
 
     fun switchScene(newScene: Scene, payload: Any? = null) {
-        val targetScene = if (DEBUG_STARTUP_TEMPLATE_TEST && newScene === MainMenuScene) {
-            TemplateCustomizerScene
-        } else {
-            newScene
-        }
         if (isDrainingInput) {
-            pendingScene = targetScene
+            pendingScene = newScene
             pendingPayload = payload
             return
         }
-        performSceneSwitch(targetScene, payload)
+        performSceneSwitch(newScene, payload)
     }
 
     private fun performSceneSwitch(newScene: Scene, payload: Any? = null) {
@@ -111,6 +106,7 @@ object SceneManager {
     }
 
     fun render(renderer: ScaledProceduralRenderer, logicalWidth: Float, logicalHeight: Float) {
+        renderer.drawRect(0f, 0f, logicalWidth, logicalHeight, PaletteIndices.BG)
         val logThisFrame = debugRenderAfterSwitch
         if (logThisFrame) {
             println("RENDER_BEFORE scene=${currentSceneName()}")
@@ -306,7 +302,6 @@ object SceneManager {
     private const val DEBUG_DISABLE_PLATFORM_EFFECTS = true
     private const val DEBUG_DISABLE_SCENE_TOUCH_DISPATCH = false
     private const val DEBUG_DISABLE_TIMER_ACTIONS_FROM_TOUCH = true
-    private const val DEBUG_STARTUP_TEMPLATE_TEST = true
     private const val MAX_INPUT_DRAIN_PER_FRAME = 64
     private const val INPUT_DRAIN_OVERFLOW_LOG_INTERVAL_SECONDS = 1f
     private const val EMPTY_INPUT_SENTINEL = -1
