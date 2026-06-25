@@ -187,13 +187,18 @@ object SceneManager {
                 RetroHudComponent.onTouchEvent(logicalX, logicalY, engineTouchAction(actionCode), playX, playY, playW, playH)
                 println("AFTER HUD")
             } else if (!DEBUG_DISABLE_SCENE_TOUCH_DISPATCH && (DEBUG_TOUCH_MODE == TOUCH_MODE_SCENE_NO_TIMER_ACTIONS || DEBUG_TOUCH_MODE == TOUCH_MODE_FULL)) {
-                println("BEFORE SCENE")
-                dispatchTouch(
-                    logicalX,
-                    logicalY,
-                    actionCode
-                )
-                println("AFTER SCENE")
+                try {
+                    println("BEFORE SCENE")
+                    dispatchTouch(
+                        logicalX,
+                        logicalY,
+                        actionCode
+                    )
+                    println("AFTER SCENE")
+                } catch (e: Throwable) {
+                    println("SCENE_TOUCH_THROW scene=${currentSceneName()} action=$actionCode x=$logicalX y=$logicalY error=${e::class.simpleName}:${e.message}")
+                    throw e
+                }
             }
             val sceneAfter = if (pendingScene != null) sceneName(pendingScene) else currentSceneName()
             println("AFTER_TOUCH scene=$sceneAfter")

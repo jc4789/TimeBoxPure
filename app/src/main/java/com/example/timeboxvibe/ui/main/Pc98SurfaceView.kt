@@ -245,9 +245,19 @@ class Pc98SurfaceView @JvmOverloads constructor(
             drainTouchInputFastCopy()
             viewRef.localTouchCountThisFrame = localTouchCount
             SceneManager.setLogicalBounds(logicalWidth, logicalHeight)
-            SceneManager.update(dt, localTouchQueue, localTouchCount)
-            viewRef.updatesCalled++
-            viewRef.lastDt = dt
+            try {
+                SceneManager.update(dt, localTouchQueue, localTouchCount)
+                viewRef.updatesCalled++
+                viewRef.lastDt = dt
+            } catch (e: Throwable) {
+                android.util.Log.e(
+                    LOG_TAG,
+                    "SceneManager.update failure touchCount=$localTouchCount scene=${SceneManager.currentSceneName()}",
+                    e
+                )
+                localTouchCount = 0
+                viewRef.localTouchCountThisFrame = 0
+            }
 
             var canvas: Canvas? = null
             try {
