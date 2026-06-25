@@ -236,20 +236,35 @@ class Pc98SurfaceView @JvmOverloads constructor(
         }
 
         private fun drawFrame(dt: Float) {
+            val viewWidth = viewRef.width.toFloat()
+            val viewHeight = viewRef.height.toFloat()
+            val scaleFactor: Int
+            val logicalWidth: Float
+            val logicalHeight: Float
+            if (viewWidth > 0f && viewHeight > 0f) {
+                scaleFactor = deriveScale(viewWidth, displayDensity)
+                logicalWidth = viewWidth / scaleFactor
+                logicalHeight = viewHeight / scaleFactor
+                viewRef.currentScaleFactor = scaleFactor
+                viewRef.dynamicLogicalWidth = logicalWidth
+                viewRef.dynamicLogicalHeight = logicalHeight
+            } else {
+                scaleFactor = viewRef.currentScaleFactor
+                logicalWidth = viewRef.dynamicLogicalWidth
+                logicalHeight = viewRef.dynamicLogicalHeight
+            }
+
+            drainTouchInputFastCopy()
+            viewRef.localTouchCountThisFrame = localTouchCount
+            SceneManager.setLogicalBounds(logicalWidth, logicalHeight)
+            SceneManager.update(dt, localTouchQueue, localTouchCount)
+            viewRef.updatesCalled++
+            viewRef.lastDt = dt
+
             var canvas: Canvas? = null
             try {
                 canvas = surfaceHolder.lockCanvas()
                 if (canvas == null) return
-
-                val viewWidth = canvas.width.toFloat()
-                val viewHeight = canvas.height.toFloat()
-                val scaleFactor = deriveScale(viewWidth, displayDensity)
-                val logicalWidth = viewWidth / scaleFactor
-                val logicalHeight = viewHeight / scaleFactor
-
-                viewRef.currentScaleFactor = scaleFactor
-                viewRef.dynamicLogicalWidth = logicalWidth
-                viewRef.dynamicLogicalHeight = logicalHeight
 
                 canvas.save()
                 canvas.scale(scaleFactor.toFloat(), scaleFactor.toFloat())
@@ -257,12 +272,6 @@ class Pc98SurfaceView @JvmOverloads constructor(
                 engineCanvas.width = logicalWidth
                 engineCanvas.height = logicalHeight
                 engineCanvas.density = MIN_SCALE.toFloat()
-                SceneManager.setLogicalBounds(logicalWidth, logicalHeight)
-                drainTouchInputFastCopy()
-                viewRef.localTouchCountThisFrame = localTouchCount
-                SceneManager.update(dt, localTouchQueue, localTouchCount)
-                viewRef.updatesCalled++
-                viewRef.lastDt = dt
                 SceneManager.render(renderer, logicalWidth, logicalHeight)
                 canvas.restore()
 

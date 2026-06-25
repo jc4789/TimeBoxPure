@@ -137,28 +137,28 @@ object RetroHudComponent {
         when (hudAct) {
             HudAction.SELECT_TAB_TIMER -> {
                 if (SceneManager.activeScene !is ActiveTimerScene) {
-                    SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                    SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                     SceneManager.switchScene(ActiveTimerScene)
                 }
             }
             HudAction.SELECT_TAB_CARDS -> {
                 if (SceneManager.activeScene is TemplateForgeScene) {
-                    SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                    SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                     SceneManager.switchScene(TemplateCustomizerScene)
                 } else if (SceneManager.activeScene !is TemplateCustomizerScene) {
-                    SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                    SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                     SceneManager.switchScene(TemplateCustomizerScene)
                 }
             }
             HudAction.SELECT_TAB_BOMB -> {
                 if (SceneManager.activeScene !is EntropyScene) {
-                    SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                    SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                     SceneManager.switchScene(EntropyScene)
                 }
             }
             HudAction.SELECT_TAB_SYSTEM -> {
                 if (SceneManager.activeScene !is SettingsScene) {
-                    SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                    SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                     SceneManager.switchScene(SettingsScene)
                 }
             }

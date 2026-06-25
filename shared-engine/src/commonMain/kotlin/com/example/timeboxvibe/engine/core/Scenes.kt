@@ -346,9 +346,9 @@ object ActiveTimerScene : Scene {
         }
 
         if (fy >= inputY && fy <= inputY + inputH && fx >= inputX && fx <= inputX + inputW) {
-            SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+            SceneManager.performHapticFeedback(EngineHaptics.CLICK)
             isTaskFocused = true
-            SceneManager.inputTrigger?.triggerKeyboard()
+            SceneManager.triggerKeyboard()
             return
         }
 
@@ -365,11 +365,11 @@ object ActiveTimerScene : Scene {
                 if (fx >= bx && fx <= bx + btnW) {
                     when (controlIndex) {
                         0 -> {
-                            SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.TICK)
+                            SceneManager.performHapticFeedback(EngineHaptics.TICK)
                             SceneManager.timerActions?.resetTimer()
                         }
                         1 -> {
-                            SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                            SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                             if (state.isRunning) {
                                 SceneManager.timerActions?.stopTimer()
                             } else {
@@ -378,7 +378,7 @@ object ActiveTimerScene : Scene {
                         }
                         2 -> {
                             if (skipVisible(state.activeMode)) {
-                                SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.TICK)
+                                SceneManager.performHapticFeedback(EngineHaptics.TICK)
                                 SceneManager.timerActions?.skipTimer()
                             }
                         }
@@ -817,7 +817,7 @@ object TemplateCustomizerScene : Scene {
         val fy = y.toFloat()
 
         if (fx >= forgeBtnX && fx <= forgeBtnX + forgeBtnW && fy >= forgeBtnY && fy <= forgeBtnY + forgeBtnH) {
-            SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+            SceneManager.performHapticFeedback(EngineHaptics.CLICK)
             SceneManager.switchScene(TemplateForgeScene)
             return
         }
@@ -839,10 +839,10 @@ object TemplateCustomizerScene : Scene {
                     val delX = playAreaStartX + playAreaW - 90f
                     val delY = cardY + (cardH - delH) / 2f
                     if (preset.id.startsWith("custom_") && fx >= delX && fx <= delX + delW && fy >= delY && fy <= delY + delH) {
-                        SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                         SceneManager.timerActions?.deletePreset(preset.id)
                     } else {
-                        SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                         SceneManager.timerActions?.selectPreset(preset.id)
                         SceneManager.switchScene(ActiveTimerScene)
                     }
@@ -1089,7 +1089,7 @@ object TemplateForgeScene : Scene {
         val fy = y.toFloat()
 
         if (fx >= buttonX && fx <= buttonX + buttonW && fy >= safeTop && fy <= safeTop + rowH) {
-            SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+            SceneManager.performHapticFeedback(EngineHaptics.CLICK)
             SceneManager.switchScene(TemplateCustomizerScene)
             return
         }
@@ -1097,13 +1097,13 @@ object TemplateForgeScene : Scene {
         val navY = safeTop + rowH + gap * TITLE_GAP_CELLS
         if (fy >= navY && fy <= navY + rowH) {
             if (fx >= contentX && fx <= contentX + rowH) {
-                SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.TICK)
+                SceneManager.performHapticFeedback(EngineHaptics.TICK)
                 page = PAGE_BASICS
                 focusedInput = FOCUS_NONE
                 return
             }
             if (fx >= contentX + contentW - rowH && fx <= contentX + contentW) {
-                SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.TICK)
+                SceneManager.performHapticFeedback(EngineHaptics.TICK)
                 page = PAGE_PARAMS
                 focusedInput = FOCUS_NONE
                 return
@@ -1113,9 +1113,9 @@ object TemplateForgeScene : Scene {
         var y = navY + rowH + gap
         if (page == PAGE_BASICS) {
             if (hitInputRow(fx, fy, strings.presetNameLabel, y, contentX, contentW, rowH)) {
-                SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                 focusedInput = FOCUS_NAME
-                SceneManager.inputTrigger?.triggerKeyboard()
+                SceneManager.triggerKeyboard()
                 return
             }
             y = nextRowY(strings.presetNameLabel, y, contentW, rowH)
@@ -1175,9 +1175,9 @@ object TemplateForgeScene : Scene {
                 }
                 "sequence" -> {
                     if (hitInputRow(fx, fy, strings.sequenceLabel, y, contentX, contentW, rowH)) {
-                        SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                         focusedInput = FOCUS_SEQUENCE
-                        SceneManager.inputTrigger?.triggerKeyboard()
+                        SceneManager.triggerKeyboard()
                         return
                     }
                     y = nextRowY(strings.sequenceLabel, y, contentW, rowH)
@@ -1189,9 +1189,9 @@ object TemplateForgeScene : Scene {
                 }
                 "dual-sequence" -> {
                     if (hitInputRow(fx, fy, strings.sequenceLabel, y, contentX, contentW, rowH)) {
-                        SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                         focusedInput = FOCUS_SEQUENCE
-                        SceneManager.inputTrigger?.triggerKeyboard()
+                        SceneManager.triggerKeyboard()
                         return
                     }
                     y = nextRowY(strings.sequenceLabel, y, contentW, rowH)
@@ -1221,9 +1221,9 @@ object TemplateForgeScene : Scene {
                         })) return
                     y = nextRowY("TYPE", y, contentW, rowH)
                     if (hitInputRow(fx, fy, "BLOCK LABEL", y, contentX, contentW, rowH)) {
-                        SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                         focusedInput = FOCUS_CALENDAR_LABEL
-                        SceneManager.inputTrigger?.triggerKeyboard()
+                        SceneManager.triggerKeyboard()
                         return
                     }
                     y = nextRowY("BLOCK LABEL", y, contentW, rowH)
@@ -1236,12 +1236,12 @@ object TemplateForgeScene : Scene {
                     val halfW = (contentW - gap) / 2f
                     if (fy >= y && fy <= y + rowH) {
                         if (fx >= contentX && fx <= contentX + halfW && calendarBlockCount < MAX_CALENDAR_BLOCKS) {
-                            SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                            SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                             addCalendarBlock()
                             return
                         }
                         if (fx >= contentX + halfW + gap && fx <= contentX + contentW && calendarBlockCount > 1) {
-                            SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.TICK)
+                            SceneManager.performHapticFeedback(EngineHaptics.TICK)
                             deleteCalendarBlock(selectedCalendarBlock)
                             return
                         }
@@ -1252,7 +1252,7 @@ object TemplateForgeScene : Scene {
 
         val saveY = playAreaH - rowH - U * SAVE_GAP_CELLS
         if (fx >= contentX && fx <= contentX + contentW && fy >= saveY && fy <= saveY + rowH && isForgeValid()) {
-            SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+            SceneManager.performHapticFeedback(EngineHaptics.CLICK)
             SceneManager.timerActions?.addCustomPreset(buildPreset(state))
             SceneManager.switchScene(TemplateCustomizerScene)
             return
@@ -1437,12 +1437,12 @@ object TemplateForgeScene : Scene {
         val controlW = controlWidthForLabel(label, width)
         if (fy < fieldY || fy > fieldY + rowH) return false
         if (fx >= controlX && fx <= controlX + rowH) {
-            SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.TICK)
+            SceneManager.performHapticFeedback(EngineHaptics.TICK)
             onLeft()
             return true
         }
         if (fx >= controlX + controlW - rowH && fx <= controlX + controlW) {
-            SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.TICK)
+            SceneManager.performHapticFeedback(EngineHaptics.TICK)
             onRight()
             return true
         }
@@ -1651,15 +1651,15 @@ object SettingsScene : Scene {
 
         if (fy >= safeTop && fy <= safeTop + tabH) {
             if (fx >= tabStartX && fx <= tabStartX + tabW) {
-                SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.TICK)
+                SceneManager.performHapticFeedback(EngineHaptics.TICK)
                 activeSubTab = 0
                 return
             } else if (fx >= tabStartX + tabW + tabSpacing && fx <= tabStartX + tabW * 2f + tabSpacing) {
-                SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.TICK)
+                SceneManager.performHapticFeedback(EngineHaptics.TICK)
                 activeSubTab = 1
                 return
             } else if (fx >= tabStartX + (tabW + tabSpacing) * 2f && fx <= tabStartX + (tabW + tabSpacing) * 2f + tabW) {
-                SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.TICK)
+                SceneManager.performHapticFeedback(EngineHaptics.TICK)
                 activeSubTab = 2
                 return
             }
@@ -1671,11 +1671,11 @@ object SettingsScene : Scene {
                 if (fy >= ctrlY && fy <= ctrlY + rowH) {
                     val idx = indexOf(languages, state.language)
                     if (fx >= ctrlX && fx <= ctrlX + arrowW) {
-                        SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                         val prev = (idx - 1 + languages.size) % languages.size
                         SceneManager.timerActions?.updateLanguage(languages[prev])
                     } else if (fx >= ctrlX + ctrlW - arrowW && fx <= ctrlX + ctrlW) {
-                        SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                         val next = (idx + 1) % languages.size
                         SceneManager.timerActions?.updateLanguage(languages[next])
                     }
@@ -1686,11 +1686,11 @@ object SettingsScene : Scene {
                 if (fy >= ctrlY && fy <= ctrlY + rowH) {
                     val currentVol = state.volume
                     if (fx >= ctrlX && fx <= ctrlX + arrowW) {
-                        SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.TICK)
+                        SceneManager.performHapticFeedback(EngineHaptics.TICK)
                         val nextVol = (currentVol - (1f / AUDIO_STEPS)).coerceAtLeast(0f)
                         SceneManager.timerActions?.updateVolume(nextVol)
                     } else if (fx >= ctrlX + ctrlW - arrowW && fx <= ctrlX + ctrlW) {
-                        SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.TICK)
+                        SceneManager.performHapticFeedback(EngineHaptics.TICK)
                         val nextVol = (currentVol + (1f / AUDIO_STEPS)).coerceAtMost(1f)
                         SceneManager.timerActions?.updateVolume(nextVol)
                     }
@@ -1700,11 +1700,11 @@ object SettingsScene : Scene {
                 if (fy >= ctrlY && fy <= ctrlY + rowH) {
                     val idx = indexOf(soundKeys, state.selectedFocusSound)
                     if (fx >= ctrlX && fx <= ctrlX + arrowW) {
-                        SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                         val prev = (idx - 1 + soundKeys.size) % soundKeys.size
                         SceneManager.timerActions?.updateFocusSound(soundKeys[prev])
                     } else if (fx >= ctrlX + ctrlW - arrowW && fx <= ctrlX + ctrlW) {
-                        SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                         val next = (idx + 1) % soundKeys.size
                         SceneManager.timerActions?.updateFocusSound(soundKeys[next])
                     }
@@ -1714,11 +1714,11 @@ object SettingsScene : Scene {
                 if (fy >= ctrlY && fy <= ctrlY + rowH) {
                     val idx = indexOf(soundKeys, state.selectedRelaxSound)
                     if (fx >= ctrlX && fx <= ctrlX + arrowW) {
-                        SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                         val prev = (idx - 1 + soundKeys.size) % soundKeys.size
                         SceneManager.timerActions?.updateRelaxSound(soundKeys[prev])
                     } else if (fx >= ctrlX + ctrlW - arrowW && fx <= ctrlX + ctrlW) {
-                        SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                         val next = (idx + 1) % soundKeys.size
                         SceneManager.timerActions?.updateRelaxSound(soundKeys[next])
                     }
@@ -1726,37 +1726,37 @@ object SettingsScene : Scene {
 
                 layoutRow(null, strings.testFocusLabel)
                 if (fx >= ctrlX && fx <= ctrlX + ctrlW && fy >= ctrlY && fy <= ctrlY + rowH) {
-                    SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                    SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                     SceneManager.timerActions?.previewSound(state.selectedFocusSound)
                 }
 
                 layoutRow(null, strings.testRelaxLabel)
                 if (fx >= ctrlX && fx <= ctrlX + ctrlW && fy >= ctrlY && fy <= ctrlY + rowH) {
-                    SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                    SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                     SceneManager.timerActions?.previewSound(state.selectedRelaxSound)
                 }
             }
             2 -> {
                 layoutRow(null, strings.strictLabel)
                 if (fx >= ctrlX && fx <= ctrlX + ctrlW && fy >= ctrlY && fy <= ctrlY + rowH) {
-                    SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.TICK)
+                    SceneManager.performHapticFeedback(EngineHaptics.TICK)
                     SceneManager.timerActions?.updateSettings(!state.strictMode, state.tickEnabled, state.selectedFocusSound, state.vibeIntensity)
                 }
 
                 layoutRow(null, strings.ticks)
                 if (fx >= ctrlX && fx <= ctrlX + ctrlW && fy >= ctrlY && fy <= ctrlY + rowH) {
-                    SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.TICK)
+                    SceneManager.performHapticFeedback(EngineHaptics.TICK)
                     SceneManager.timerActions?.updateSettings(state.strictMode, !state.tickEnabled, state.selectedFocusSound, state.vibeIntensity)
                 }
 
                 layoutRow(null, strings.vibe)
                 if (fy >= ctrlY && fy <= ctrlY + rowH) {
                     if (fx >= ctrlX && fx <= ctrlX + arrowW) {
-                        SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.TICK)
+                        SceneManager.performHapticFeedback(EngineHaptics.TICK)
                         val nextVibe = (state.vibeIntensity - (1f / AUDIO_STEPS)).coerceAtLeast(0f)
                         SceneManager.timerActions?.updateSettings(state.strictMode, state.tickEnabled, state.selectedFocusSound, nextVibe)
                     } else if (fx >= ctrlX + ctrlW - arrowW && fx <= ctrlX + ctrlW) {
-                        SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.TICK)
+                        SceneManager.performHapticFeedback(EngineHaptics.TICK)
                         val nextVibe = (state.vibeIntensity + (1f / AUDIO_STEPS)).coerceAtMost(1f)
                         SceneManager.timerActions?.updateSettings(state.strictMode, state.tickEnabled, state.selectedFocusSound, nextVibe)
                     }
@@ -1766,11 +1766,11 @@ object SettingsScene : Scene {
                 if (fy >= ctrlY && fy <= ctrlY + rowH) {
                     val idx = indexOf(themes, state.appTheme)
                     if (fx >= ctrlX && fx <= ctrlX + arrowW) {
-                        SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                         val prev = (idx - 1 + themes.size) % themes.size
                         SceneManager.timerActions?.updateTheme(themes[prev])
                     } else if (fx >= ctrlX + ctrlW - arrowW && fx <= ctrlX + ctrlW) {
-                        SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                         val next = (idx + 1) % themes.size
                         SceneManager.timerActions?.updateTheme(themes[next])
                     }
@@ -1778,7 +1778,7 @@ object SettingsScene : Scene {
 
                 layoutRow(null, strings.precisionLabel)
                 if (!state.isExactAlarmPermitted && fx >= ctrlX && fx <= ctrlX + ctrlW && fy >= ctrlY && fy <= ctrlY + rowH) {
-                    SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                    SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                     SceneManager.timerActions?.requestExactAlarmPermission()
                 }
             }
@@ -2031,7 +2031,7 @@ object EntropyScene : Scene {
             if (spinTimer >= spinDelay) {
                 spinTimer = 0f
                 animationIndex = (animationIndex + 1) % taskCount
-                SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.TICK)
+                SceneManager.performHapticFeedback(EngineHaptics.TICK)
                 
                 spinDelay *= 1.15f
                 spinCount++
@@ -2041,7 +2041,7 @@ object EntropyScene : Scene {
                     val finalIdx = nextRandomIndex(taskCount)
                     animationIndex = finalIdx
                     selectedIndex = finalIdx
-                    SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                    SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                 }
             }
         }
@@ -2246,7 +2246,7 @@ object EntropyScene : Scene {
             val closeX = popupX + popupW - closeSize - closePad
             val closeY = popupY + closePad
             if (fx >= closeX && fx <= closeX + closeSize && fy >= closeY && fy <= closeY + closeSize) {
-                SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                 selectedIndex = -1
                 return
             }
@@ -2256,7 +2256,7 @@ object EntropyScene : Scene {
             val cBtnX = popupX + (popupW - cBtnW) / 2f
             val cBtnY = popupY + popupH - cBtnH - 20f
             if (fx >= cBtnX && fx <= cBtnX + cBtnW && fy >= cBtnY && fy <= cBtnY + cBtnH) {
-                SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+                SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                 SceneManager.timerActions?.selectPreset("emergency")
                 SceneManager.timerActions?.updateTask(taskToString(selectedIndex))
                 SceneManager.timerActions?.startTimer()
@@ -2280,15 +2280,15 @@ object EntropyScene : Scene {
         val inputX = playAreaStartX + padding
         
         if (fx >= inputX && fx <= inputX + inputW && fy >= inputY && fy <= inputY + inputH && !isSpinning) {
-            SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+            SceneManager.performHapticFeedback(EngineHaptics.CLICK)
             isInputFocused = true
-            SceneManager.inputTrigger?.triggerKeyboard()
+            SceneManager.triggerKeyboard()
             return
         }
         
         val loadX = inputX + inputW + gap
         if (fx >= loadX && fx <= loadX + loadW && fy >= inputY && fy <= inputY + inputH && !isSpinning) {
-            SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+            SceneManager.performHapticFeedback(EngineHaptics.CLICK)
             isInputFocused = false
             addInputTask()
             return
@@ -2306,11 +2306,11 @@ object EntropyScene : Scene {
         val switcherY = slotsStartY + rowsPerPage * (slotH + slotSpacing)
         if (totalPages > 1 && fy >= switcherY && fy <= switcherY + switcherBtnSize && !isSpinning) {
             if (fx >= inputX && fx <= inputX + switcherBtnSize) {
-                SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.TICK)
+                SceneManager.performHapticFeedback(EngineHaptics.TICK)
                 activePage = (activePage - 1 + totalPages) % totalPages
                 return
             } else if (fx >= inputX + switcherBtnSize + U * 4f && fx <= inputX + switcherBtnSize + U * 4f + switcherBtnSize) {
-                SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.TICK)
+                SceneManager.performHapticFeedback(EngineHaptics.TICK)
                 activePage = (activePage + 1) % totalPages
                 return
             }
@@ -2326,7 +2326,7 @@ object EntropyScene : Scene {
                 val rowRight = playAreaStartX + playAreaW - padding
                 val deleteW = U * DELETE_LABEL_CELLS
                 if (fx >= rowRight - deleteW && fx <= rowRight) {
-                    SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.TICK)
+                    SceneManager.performHapticFeedback(EngineHaptics.TICK)
                     deleteTask(idx)
                     animationIndex = -1
                     selectedIndex = -1
@@ -2338,7 +2338,7 @@ object EntropyScene : Scene {
 
         val canSpin = taskCount > 0 && !isSpinning
         if (canSpin && fx >= inputX && fx <= inputX + playAreaW - padding * 2f && fy >= detY && fy <= detY + detH) {
-            SceneManager.inputTrigger?.performHapticFeedback(EngineHaptics.CLICK)
+            SceneManager.performHapticFeedback(EngineHaptics.CLICK)
             isSpinning = true
             spinTimer = 0f
             spinDelay = 0.04f

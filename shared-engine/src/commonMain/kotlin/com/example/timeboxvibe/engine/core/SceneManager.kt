@@ -17,6 +17,9 @@ object SceneManager {
     private var isDrainingInput = false
     private var logicalWidth = 0f
     private var logicalHeight = 0f
+    private var inputDrainOverflowLogCooldownSeconds = 0f
+    private var debugLogUpdateThisFrame = false
+    private var debugLogRenderThisFrame = false
 
     var timerActions: TimerActions? = null
     var inputTrigger: PlatformInputTrigger? = null
@@ -47,6 +50,14 @@ object SceneManager {
     }
 
     fun update(dt: Float, touchBuffer: IntArray, touchCount: Int) {
+        val logThisFrame = touchCount > 0
+        debugLogUpdateThisFrame = logThisFrame
+        if (logThisFrame) {
+            debugLogRenderThisFrame = true
+        }
+        if (inputDrainOverflowLogCooldownSeconds > 0f) {
+            inputDrainOverflowLogCooldownSeconds -= dt
+        }
         isDrainingInput = true
         try {
             drainInputQueue()
@@ -55,16 +66,38 @@ object SceneManager {
             isDrainingInput = false
         }
         applyPendingSceneSwitch()
+        if (debugLogUpdateThisFrame) {
+            println("update BEFORE scene=${currentSceneName()}")
+        }
         activeScene?.update(dt)
+        if (debugLogUpdateThisFrame) {
+            println("update AFTER scene=${currentSceneName()}")
+            debugLogUpdateThisFrame = false
+        }
     }
 
     fun render(renderer: ScaledProceduralRenderer, logicalWidth: Float, logicalHeight: Float) {
-        val scene = activeScene ?: return
+        val logThisFrame = debugLogRenderThisFrame
+        if (logThisFrame) {
+            println("render BEFORE scene=${currentSceneName()}")
+        }
+        val scene = activeScene
+        if (scene == null) {
+            if (logThisFrame) {
+                println("render AFTER scene=null")
+                debugLogRenderThisFrame = false
+            }
+            return
+        }
         val playX = RetroHudComponent.playAreaStartX(logicalWidth).toInt()
         val playY = 0
         val playW = RetroHudComponent.playAreaWidth(logicalWidth).toInt()
         val playH = RetroHudComponent.playAreaHeight(logicalWidth, logicalHeight).toInt()
         scene.render(renderer, playX, playY, playW, playH)
+        if (logThisFrame) {
+            println("render AFTER scene=${currentSceneName()}")
+            debugLogRenderThisFrame = false
+        }
     }
 
     fun setLogicalBounds(width: Float, height: Float) {
@@ -74,6 +107,16 @@ object SceneManager {
 
     fun currentSceneName(): String {
         return sceneName(activeScene)
+    }
+
+    fun triggerKeyboard() {
+        if (DEBUG_DISABLE_PLATFORM_EFFECTS) return
+        inputTrigger?.triggerKeyboard()
+    }
+
+    fun performHapticFeedback(type: Int) {
+        if (DEBUG_DISABLE_PLATFORM_EFFECTS) return
+        inputTrigger?.performHapticFeedback(type)
     }
 
     private fun dispatchTouch(x: Int, y: Int, actionCode: Int) {
@@ -99,10 +142,18 @@ object SceneManager {
     }
 
     private fun drainInputQueue() {
+        var drained = 0
         var inputCode = inputQueue.pop()
-        while (inputCode != EMPTY_INPUT_SENTINEL) {
+        while (inputCode != EMPTY_INPUT_SENTINEL && drained < MAX_INPUT_DRAIN_PER_FRAME) {
             onInput(inputCode)
-            inputCode = inputQueue.pop()
+            drained++
+            if (drained < MAX_INPUT_DRAIN_PER_FRAME) {
+                inputCode = inputQueue.pop()
+            }
+        }
+        if (drained >= MAX_INPUT_DRAIN_PER_FRAME && inputDrainOverflowLogCooldownSeconds <= 0f) {
+            println("inputDrain capped maxPerFrame=$MAX_INPUT_DRAIN_PER_FRAME")
+            inputDrainOverflowLogCooldownSeconds = INPUT_DRAIN_OVERFLOW_LOG_INTERVAL_SECONDS
         }
     }
 
@@ -115,16 +166,17 @@ object SceneManager {
             val rawX = touchBuffer[offset + TOUCH_SLOT_RAW_X]
             val rawY = touchBuffer[offset + TOUCH_SLOT_RAW_Y]
             val actionCode = touchBuffer[offset + TOUCH_SLOT_ACTION]
-            val logTouch = actionCode == ENGINE_TOUCH_DOWN || actionCode == ENGINE_TOUCH_UP
-            val beforeName = if (logTouch) currentSceneName() else ""
-            dispatchTouch(
-                logicalX,
-                logicalY,
-                actionCode
-            )
-            if (logTouch) {
+            println("touchDrain scene=${currentSceneName()} action=$actionCode rawX=$rawX rawY=$rawY logicalX=$logicalX logicalY=$logicalY dispatch=${!DEBUG_DISABLE_SCENE_TOUCH_DISPATCH}")
+            if (!DEBUG_DISABLE_SCENE_TOUCH_DISPATCH) {
+                val beforeName = currentSceneName()
+                println("sceneTouch BEFORE scene=$beforeName action=$actionCode x=$logicalX y=$logicalY")
+                dispatchTouch(
+                    logicalX,
+                    logicalY,
+                    actionCode
+                )
                 val afterName = if (pendingScene != null) sceneName(pendingScene) else currentSceneName()
-                println("touchInput rawX=$rawX rawY=$rawY logicalX=$logicalX logicalY=$logicalY engineAction=$actionCode currentSceneNameBefore=$beforeName currentSceneNameAfter=$afterName")
+                println("sceneTouch AFTER scene=$afterName")
             }
             offset += TOUCH_EVENT_SLOT_COUNT
             index++
@@ -158,6 +210,10 @@ object SceneManager {
     }
 
     private val emptyTouchBuffer = IntArray(0)
+    private const val DEBUG_DISABLE_PLATFORM_EFFECTS = true
+    private const val DEBUG_DISABLE_SCENE_TOUCH_DISPATCH = true
+    private const val MAX_INPUT_DRAIN_PER_FRAME = 64
+    private const val INPUT_DRAIN_OVERFLOW_LOG_INTERVAL_SECONDS = 1f
     private const val EMPTY_INPUT_SENTINEL = -1
     private const val TOUCH_EVENT_SLOT_COUNT = 5
     private const val TOUCH_SLOT_LOGICAL_X = 0
