@@ -218,8 +218,18 @@ class Pc98SurfaceView @JvmOverloads constructor(
                 lastNanos = frameStartNanos
                 val dt = (elapsedNanos / NANOS_PER_SECOND).coerceAtMost(MAX_DELTA_SECONDS)
 
-                drawFrame(dt)
-                viewRef.framesRendered++
+                try {
+                    drawFrame(dt)
+                    viewRef.framesRendered++
+                } catch (e: Throwable) {
+                    android.util.Log.e(
+                        LOG_TAG,
+                        "FRAME FAILURE scene=${SceneManager.currentSceneName()} touchCount=$localTouchCount",
+                        e
+                    )
+                    localTouchCount = 0
+                    viewRef.localTouchCountThisFrame = 0
+                }
                 logStatsIfDue(frameStartNanos)
 
                 // TEMP_FRAME_CLOCK: temporary paced loop until a Looper-backed frame clock exists here.
@@ -244,19 +254,20 @@ class Pc98SurfaceView @JvmOverloads constructor(
 
             drainTouchInputFastCopy()
             viewRef.localTouchCountThisFrame = localTouchCount
-            SceneManager.setLogicalBounds(logicalWidth, logicalHeight)
             try {
+                SceneManager.setLogicalBounds(logicalWidth, logicalHeight)
                 SceneManager.update(dt, localTouchQueue, localTouchCount)
                 viewRef.updatesCalled++
                 viewRef.lastDt = dt
             } catch (e: Throwable) {
                 android.util.Log.e(
                     LOG_TAG,
-                    "SceneManager.update failure touchCount=$localTouchCount scene=${SceneManager.currentSceneName()}",
+                    "SceneManager.update failure scene=${SceneManager.currentSceneName()} touchCount=$localTouchCount",
                     e
                 )
                 localTouchCount = 0
                 viewRef.localTouchCountThisFrame = 0
+                return
             }
 
             var canvas: Canvas? = null
