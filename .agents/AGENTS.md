@@ -353,6 +353,18 @@ Do not summarize the file.
 Do not continue editing.
 Report the path and wait.
 
+The APPENDIX section overrides everything above it!
+
+
 APPENDIX A: LOCAL BUILD ENVIRONMENT
 Always prefix Gradle build commands explicitly to override the environment:
 `$env:JAVA_HOME="D:\Programes\Android Studio\jbr"; .\gradlew :app:assembleDebug`
+
+
+
+APPENDIX B: Canvas scale model:
+Android Canvas is physically scaled once with canvas.scale(scaleFactor, scaleFactor).
+Engine coordinates remain logical.
+EngineCanvas.width/height are logical.
+EngineCanvas.density must remain 1f in this model.
+Touch raw coordinates are divided by scaleFactor before entering SceneManager.

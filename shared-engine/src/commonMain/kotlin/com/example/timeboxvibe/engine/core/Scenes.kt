@@ -9,6 +9,7 @@ object TouchAction {
     const val DOWN = 0
     const val MOVE = 1
     const val UP   = 2
+    const val CANCEL = 3
 }
 
 interface Scene {
@@ -18,7 +19,7 @@ interface Scene {
     fun render(renderer: ScaledProceduralRenderer, playX: Int, playY: Int, playW: Int, playH: Int)
     fun onInput(inputCode: Int)
     fun onTouch(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int)
-    fun onInput(x: Int, y: Int, isDown: Boolean, playX: Int, playY: Int, playW: Int, playH: Int) {}
+    fun onInput(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {}
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -296,11 +297,12 @@ object ActiveTimerScene : Scene {
     }
 
     override fun onTouch(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
-        onInput(x, y, action == TouchAction.DOWN, playX, playY, playW, playH)
+        onInput(x, y, action, playX, playY, playW, playH)
     }
 
-    override fun onInput(x: Int, y: Int, isDown: Boolean, playX: Int, playY: Int, playW: Int, playH: Int) {
-        if (RetroHudComponent.onInput(x, y, isDown, playX, playY, playW, playH)) return
+    override fun onInput(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
+        if (RetroHudComponent.onInput(x, y, action, playX, playY, playW, playH)) return
+        val isDown = action == TouchAction.DOWN
         if (!isDown) return
 
         val state = SceneManager.timerActions?.getUiState() ?: return
@@ -329,7 +331,9 @@ object ActiveTimerScene : Scene {
                 radius = minOf(playAreaW, logicalHeight) * 0.4f
             }
             if (TouchColliderManager.checkCircle(x.toFloat(), y.toFloat(), cx, cy, radius)) {
-                SceneManager.timerActions?.dismissAlarm()
+                if (SceneManager.timerActionsFromTouchEnabled()) {
+                    SceneManager.timerActions?.dismissAlarm()
+                }
             }
             isTaskFocused = false
             return
@@ -366,20 +370,26 @@ object ActiveTimerScene : Scene {
                     when (controlIndex) {
                         0 -> {
                             SceneManager.performHapticFeedback(EngineHaptics.TICK)
-                            SceneManager.timerActions?.resetTimer()
+                            if (SceneManager.timerActionsFromTouchEnabled()) {
+                                SceneManager.timerActions?.resetTimer()
+                            }
                         }
                         1 -> {
                             SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                            if (state.isRunning) {
-                                SceneManager.timerActions?.stopTimer()
-                            } else {
-                                SceneManager.timerActions?.startTimer()
+                            if (SceneManager.timerActionsFromTouchEnabled()) {
+                                if (state.isRunning) {
+                                    SceneManager.timerActions?.stopTimer()
+                                } else {
+                                    SceneManager.timerActions?.startTimer()
+                                }
                             }
                         }
                         2 -> {
                             if (skipVisible(state.activeMode)) {
                                 SceneManager.performHapticFeedback(EngineHaptics.TICK)
-                                SceneManager.timerActions?.skipTimer()
+                                if (SceneManager.timerActionsFromTouchEnabled()) {
+                                    SceneManager.timerActions?.skipTimer()
+                                }
                             }
                         }
                     }
@@ -736,13 +746,13 @@ object TemplateCustomizerScene : Scene {
         if (isPortrait) {
             if (y >= playAreaH) {
                 isDragging = false
-                onInput(x, y, action == TouchAction.DOWN, playX, playY, playW, playH)
+                onInput(x, y, action, playX, playY, playW, playH)
                 return
             }
         } else {
             if (x < playAreaStartX) {
                 isDragging = false
-                onInput(x, y, action == TouchAction.DOWN, playX, playY, playW, playH)
+                onInput(x, y, action, playX, playY, playW, playH)
                 return
             }
         }
@@ -786,15 +796,16 @@ object TemplateCustomizerScene : Scene {
                     val deltaX = x - initialTouchX
                     val deltaY = y - initialTouchY
                     if (abs(deltaX) < 8f && abs(deltaY) < 8f && !hasDragged) {
-                        onInput(x, y, true, playX, playY, playW, playH)
+                        onInput(x, y, TouchAction.UP, playX, playY, playW, playH)
                     }
                 }
             }
         }
     }
 
-    override fun onInput(x: Int, y: Int, isDown: Boolean, playX: Int, playY: Int, playW: Int, playH: Int) {
-        if (RetroHudComponent.onInput(x, y, isDown, playX, playY, playW, playH)) return
+    override fun onInput(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
+        if (RetroHudComponent.onInput(x, y, action, playX, playY, playW, playH)) return
+        val isDown = action == TouchAction.UP
         if (!isDown) return
 
         val state = SceneManager.timerActions?.getUiState() ?: return
@@ -1063,11 +1074,12 @@ object TemplateForgeScene : Scene {
     }
 
     override fun onTouch(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
-        onInput(x, y, action == TouchAction.DOWN, playX, playY, playW, playH)
+        onInput(x, y, action, playX, playY, playW, playH)
     }
 
-    override fun onInput(x: Int, y: Int, isDown: Boolean, playX: Int, playY: Int, playW: Int, playH: Int) {
-        if (RetroHudComponent.onInput(x, y, isDown, playX, playY, playW, playH)) return
+    override fun onInput(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
+        if (RetroHudComponent.onInput(x, y, action, playX, playY, playW, playH)) return
+        val isDown = action == TouchAction.DOWN
         if (!isDown) return
         val state = SceneManager.timerActions?.getUiState() ?: return
         val strings = getStrings(state.language)
@@ -1634,11 +1646,12 @@ object SettingsScene : Scene {
     override fun onInput(inputCode: Int) {}
 
     override fun onTouch(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
-        onInput(x, y, action == TouchAction.DOWN, playX, playY, playW, playH)
+        onInput(x, y, action, playX, playY, playW, playH)
     }
 
-    override fun onInput(x: Int, y: Int, isDown: Boolean, playX: Int, playY: Int, playW: Int, playH: Int) {
-        if (RetroHudComponent.onInput(x, y, isDown, playX, playY, playW, playH)) return
+    override fun onInput(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
+        if (RetroHudComponent.onInput(x, y, action, playX, playY, playW, playH)) return
+        val isDown = action == TouchAction.DOWN
         if (!isDown) return
 
         val state = SceneManager.timerActions?.getUiState() ?: return
@@ -2219,11 +2232,12 @@ object EntropyScene : Scene {
     }
 
     override fun onTouch(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
-        onInput(x, y, action == TouchAction.DOWN, playX, playY, playW, playH)
+        onInput(x, y, action, playX, playY, playW, playH)
     }
 
-    override fun onInput(x: Int, y: Int, isDown: Boolean, playX: Int, playY: Int, playW: Int, playH: Int) {
-        if (RetroHudComponent.onInput(x, y, isDown, playX, playY, playW, playH)) return
+    override fun onInput(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
+        if (RetroHudComponent.onInput(x, y, action, playX, playY, playW, playH)) return
+        val isDown = action == TouchAction.DOWN
         if (!isDown) return
 
         val state = SceneManager.timerActions?.getUiState() ?: return
@@ -2257,9 +2271,11 @@ object EntropyScene : Scene {
             val cBtnY = popupY + popupH - cBtnH - 20f
             if (fx >= cBtnX && fx <= cBtnX + cBtnW && fy >= cBtnY && fy <= cBtnY + cBtnH) {
                 SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                SceneManager.timerActions?.selectPreset("emergency")
-                SceneManager.timerActions?.updateTask(taskToString(selectedIndex))
-                SceneManager.timerActions?.startTimer()
+                if (SceneManager.timerActionsFromTouchEnabled()) {
+                    SceneManager.timerActions?.selectPreset("emergency")
+                    SceneManager.timerActions?.updateTask(taskToString(selectedIndex))
+                    SceneManager.timerActions?.startTimer()
+                }
                 selectedIndex = -1
                 SceneManager.switchScene(ActiveTimerScene)
             }

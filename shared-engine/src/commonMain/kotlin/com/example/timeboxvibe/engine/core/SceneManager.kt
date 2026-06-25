@@ -65,13 +65,17 @@ object SceneManager {
         } finally {
             isDrainingInput = false
         }
+        if (debugLogUpdateThisFrame) {
+            println("BEFORE APPLY_PENDING_SCENE")
+        }
         applyPendingSceneSwitch()
         if (debugLogUpdateThisFrame) {
-            println("update BEFORE scene=${currentSceneName()}")
+            println("AFTER APPLY_PENDING_SCENE")
+            println("BEFORE ACTIVE_UPDATE scene=${currentSceneName()}")
         }
         activeScene?.update(dt)
         if (debugLogUpdateThisFrame) {
-            println("update AFTER scene=${currentSceneName()}")
+            println("AFTER ACTIVE_UPDATE scene=${currentSceneName()}")
             debugLogUpdateThisFrame = false
         }
     }
@@ -109,6 +113,10 @@ object SceneManager {
         return sceneName(activeScene)
     }
 
+    fun timerActionsFromTouchEnabled(): Boolean {
+        return !DEBUG_DISABLE_TIMER_ACTIONS_FROM_TOUCH || DEBUG_TOUCH_MODE == TOUCH_MODE_FULL
+    }
+
     fun triggerKeyboard() {
         if (DEBUG_DISABLE_PLATFORM_EFFECTS) return
         inputTrigger?.triggerKeyboard()
@@ -123,7 +131,8 @@ object SceneManager {
         val scene = activeScene ?: return
         val sceneAction = when (actionCode) {
             ENGINE_TOUCH_DOWN -> TouchAction.DOWN
-            ENGINE_TOUCH_UP, ENGINE_TOUCH_CANCEL -> TouchAction.UP
+            ENGINE_TOUCH_UP -> TouchAction.UP
+            ENGINE_TOUCH_CANCEL -> TouchAction.CANCEL
             else -> return
         }
         val playX = RetroHudComponent.playAreaStartX(logicalWidth).toInt()
@@ -166,20 +175,39 @@ object SceneManager {
             val rawX = touchBuffer[offset + TOUCH_SLOT_RAW_X]
             val rawY = touchBuffer[offset + TOUCH_SLOT_RAW_Y]
             val actionCode = touchBuffer[offset + TOUCH_SLOT_ACTION]
-            println("touchDrain scene=${currentSceneName()} action=$actionCode rawX=$rawX rawY=$rawY logicalX=$logicalX logicalY=$logicalY dispatch=${!DEBUG_DISABLE_SCENE_TOUCH_DISPATCH}")
-            if (!DEBUG_DISABLE_SCENE_TOUCH_DISPATCH) {
-                val beforeName = currentSceneName()
-                println("sceneTouch BEFORE scene=$beforeName action=$actionCode x=$logicalX y=$logicalY")
+            val sceneBefore = currentSceneName()
+            val playX = RetroHudComponent.playAreaStartX(logicalWidth).toInt()
+            val playY = 0
+            val playW = RetroHudComponent.playAreaWidth(logicalWidth).toInt()
+            val playH = RetroHudComponent.playAreaHeight(logicalWidth, logicalHeight).toInt()
+            val hudHit = RetroHudComponent.onTouch(logicalX, logicalY, playX, playY, playW, playH)
+            println("TOUCH BEFORE mode=$DEBUG_TOUCH_MODE scene=${currentSceneName()} x=$logicalX y=$logicalY action=$actionCode rawX=$rawX rawY=$rawY")
+            if (DEBUG_TOUCH_MODE == TOUCH_MODE_HUD_ONLY) {
+                println("BEFORE HUD")
+                RetroHudComponent.onInput(logicalX, logicalY, engineTouchAction(actionCode), playX, playY, playW, playH)
+                println("AFTER HUD")
+            } else if (DEBUG_TOUCH_MODE == TOUCH_MODE_SCENE_NO_TIMER_ACTIONS || DEBUG_TOUCH_MODE == TOUCH_MODE_FULL) {
+                println("BEFORE SCENE")
                 dispatchTouch(
                     logicalX,
                     logicalY,
                     actionCode
                 )
-                val afterName = if (pendingScene != null) sceneName(pendingScene) else currentSceneName()
-                println("sceneTouch AFTER scene=$afterName")
+                println("AFTER SCENE")
             }
+            val sceneAfter = if (pendingScene != null) sceneName(pendingScene) else currentSceneName()
+            println("touchAction=${engineTouchAction(actionCode)} hudHit=${RetroHudComponent.actionName(hudHit)} sceneBefore=$sceneBefore sceneAfter=$sceneAfter")
             offset += TOUCH_EVENT_SLOT_COUNT
             index++
+        }
+    }
+
+    private fun engineTouchAction(actionCode: Int): Int {
+        return when (actionCode) {
+            ENGINE_TOUCH_DOWN -> TouchAction.DOWN
+            ENGINE_TOUCH_UP -> TouchAction.UP
+            ENGINE_TOUCH_CANCEL -> TouchAction.CANCEL
+            else -> actionCode
         }
     }
 
@@ -210,8 +238,13 @@ object SceneManager {
     }
 
     private val emptyTouchBuffer = IntArray(0)
+    private const val TOUCH_MODE_LOG_ONLY = 0
+    private const val TOUCH_MODE_HUD_ONLY = 1
+    private const val TOUCH_MODE_SCENE_NO_TIMER_ACTIONS = 2
+    private const val TOUCH_MODE_FULL = 3
+    private const val DEBUG_TOUCH_MODE = TOUCH_MODE_SCENE_NO_TIMER_ACTIONS
     private const val DEBUG_DISABLE_PLATFORM_EFFECTS = true
-    private const val DEBUG_DISABLE_SCENE_TOUCH_DISPATCH = true
+    private const val DEBUG_DISABLE_TIMER_ACTIONS_FROM_TOUCH = true
     private const val MAX_INPUT_DRAIN_PER_FRAME = 64
     private const val INPUT_DRAIN_OVERFLOW_LOG_INTERVAL_SECONDS = 1f
     private const val EMPTY_INPUT_SENTINEL = -1

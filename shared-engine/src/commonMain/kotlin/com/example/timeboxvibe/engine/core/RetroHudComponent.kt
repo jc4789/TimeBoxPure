@@ -113,8 +113,7 @@ object RetroHudComponent {
         }
     }
 
-    fun onInput(x: Int, y: Int, isDown: Boolean, playX: Int, playY: Int, playW: Int, playH: Int): Boolean {
-        if (!isDown) return false
+    fun onInput(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int): Boolean {
         val fx = x.toFloat()
         val fy = y.toFloat()
         val logicalWidth = (playX + playW).toFloat()
@@ -131,6 +130,8 @@ object RetroHudComponent {
 
         val hudAct = onTouch(x, y, playX, playY, playW, playH)
         if (hudAct == HudAction.NONE) return false
+        if (action == TouchAction.CANCEL) return true
+        if (action != TouchAction.UP) return true
 
         ActiveTimerScene.isTaskFocused = false
 
@@ -165,6 +166,22 @@ object RetroHudComponent {
             else -> {}
         }
         return true
+    }
+
+    fun actionName(action: HudAction): String {
+        return when (action) {
+            HudAction.NONE -> "NONE"
+            HudAction.SELECT_TAB_TIMER -> "SELECT_TAB_TIMER"
+            HudAction.SELECT_TAB_CARDS -> "SELECT_TAB_CARDS"
+            HudAction.SELECT_TAB_BOMB -> "SELECT_TAB_BOMB"
+            HudAction.SELECT_TAB_SYSTEM -> "SELECT_TAB_SYSTEM"
+            HudAction.TIMER_START_STOP -> "TIMER_START_STOP"
+            HudAction.TIMER_RESET -> "TIMER_RESET"
+            HudAction.TIMER_SKIP -> "TIMER_SKIP"
+            HudAction.TOGGLE_TICKS -> "TOGGLE_TICKS"
+            HudAction.TOGGLE_VIBE -> "TOGGLE_VIBE"
+            HudAction.FOCUS_INPUT -> "FOCUS_INPUT"
+        }
     }
 
     fun onTouch(x: Int, y: Int, playX: Int, playY: Int, playW: Int, playH: Int): HudAction {

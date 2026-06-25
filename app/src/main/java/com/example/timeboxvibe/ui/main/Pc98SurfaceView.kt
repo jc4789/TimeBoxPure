@@ -78,7 +78,7 @@ class Pc98SurfaceView @JvmOverloads constructor(
         
         // Pass a dummy canvas for initialization; RenderThread will pass the locked hardware canvas during draw
         val dummyCanvas = Canvas()
-        val engineCanvas = AndroidEngineCanvas(dummyCanvas, dynamicLogicalWidth, dynamicLogicalHeight, currentScaleFactor.toFloat())
+        val engineCanvas = AndroidEngineCanvas(dummyCanvas, dynamicLogicalWidth, dynamicLogicalHeight, LOGICAL_ENGINE_DENSITY)
         val renderer = ScaledProceduralRenderer(engineCanvas)
 
         renderThread = RenderThread(
@@ -238,21 +238,9 @@ class Pc98SurfaceView @JvmOverloads constructor(
         private fun drawFrame(dt: Float) {
             val viewWidth = viewRef.width.toFloat()
             val viewHeight = viewRef.height.toFloat()
-            val scaleFactor: Int
-            val logicalWidth: Float
-            val logicalHeight: Float
-            if (viewWidth > 0f && viewHeight > 0f) {
-                scaleFactor = deriveScale(viewWidth, displayDensity)
-                logicalWidth = viewWidth / scaleFactor
-                logicalHeight = viewHeight / scaleFactor
-                viewRef.currentScaleFactor = scaleFactor
-                viewRef.dynamicLogicalWidth = logicalWidth
-                viewRef.dynamicLogicalHeight = logicalHeight
-            } else {
-                scaleFactor = viewRef.currentScaleFactor
-                logicalWidth = viewRef.dynamicLogicalWidth
-                logicalHeight = viewRef.dynamicLogicalHeight
-            }
+            val scaleFactor = viewRef.currentScaleFactor
+            val logicalWidth = viewRef.dynamicLogicalWidth
+            val logicalHeight = viewRef.dynamicLogicalHeight
 
             drainTouchInputFastCopy()
             viewRef.localTouchCountThisFrame = localTouchCount
@@ -271,7 +259,7 @@ class Pc98SurfaceView @JvmOverloads constructor(
                 engineCanvas.bind(canvas)
                 engineCanvas.width = logicalWidth
                 engineCanvas.height = logicalHeight
-                engineCanvas.density = MIN_SCALE.toFloat()
+                engineCanvas.density = LOGICAL_ENGINE_DENSITY
                 SceneManager.render(renderer, logicalWidth, logicalHeight)
                 canvas.restore()
 
@@ -335,7 +323,7 @@ class Pc98SurfaceView @JvmOverloads constructor(
             lastStatsLogNanos = nowNanos
             android.util.Log.d(
                 LOG_TAG,
-                "framesRendered=${viewRef.framesRendered} updatesCalled=${viewRef.updatesCalled} currentSceneName=${SceneManager.currentSceneName()} lastDt=${viewRef.lastDt} localTouchCountThisFrame=${viewRef.localTouchCountThisFrame} totalTouchesQueued=${viewRef.touchesQueued} totalTouchesDrained=${viewRef.touchesDrained} totalTouchesDropped=${viewRef.touchesDropped}"
+                "framesRendered=${viewRef.framesRendered} updatesCalled=${viewRef.updatesCalled} physicalWidth=${viewRef.width} physicalHeight=${viewRef.height} scaleFactor=${viewRef.currentScaleFactor} logicalWidth=${viewRef.dynamicLogicalWidth} logicalHeight=${viewRef.dynamicLogicalHeight} engineCanvas.density=${engineCanvas.density} currentSceneName=${SceneManager.currentSceneName()} lastDt=${viewRef.lastDt} localTouchCountThisFrame=${viewRef.localTouchCountThisFrame} totalTouchesQueued=${viewRef.touchesQueued} totalTouchesDrained=${viewRef.touchesDrained} totalTouchesDropped=${viewRef.touchesDropped}"
             )
         }
     }
@@ -359,6 +347,7 @@ class Pc98SurfaceView @JvmOverloads constructor(
         private const val MIN_SAFE_LOGICAL_WIDTH = 320f
         private const val MAX_SAFE_LOGICAL_WIDTH = 1200f
         private const val MIN_SCALE = 1
+        private const val LOGICAL_ENGINE_DENSITY = 1f
         private const val MIN_VALID_DENSITY = 0.1f
         private const val MAX_VALID_DENSITY = 10.0f
         private const val DEFAULT_DENSITY = 1.0f
