@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
+import android.util.Log
 import com.example.timeboxvibe.FocusService
 import com.example.timeboxvibe.engine.core.PlatformAlarmScheduler
 
@@ -65,6 +66,7 @@ class AndroidAlarmScheduler(private val context: Context) : PlatformAlarmSchedul
                 }
             }
         } catch (e: SecurityException) {
+            Log.w(TAG, "scheduleExactAlarm exact alarm failed; falling back", e)
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     alarmManager.setAndAllowWhileIdle(
@@ -79,9 +81,11 @@ class AndroidAlarmScheduler(private val context: Context) : PlatformAlarmSchedul
                         pendingIntent
                     )
                 }
-            } catch (ex: Exception) {
-                ex.printStackTrace()
+            } catch (ex: RuntimeException) {
+                Log.w(TAG, "scheduleExactAlarm fallback failed", ex)
             }
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "scheduleExactAlarm failed", e)
         }
     }
 
@@ -97,8 +101,16 @@ class AndroidAlarmScheduler(private val context: Context) : PlatformAlarmSchedul
             PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
         )
         if (pendingIntent != null) {
-            alarmManager.cancel(pendingIntent)
-            pendingIntent.cancel()
+            try {
+                alarmManager.cancel(pendingIntent)
+                pendingIntent.cancel()
+            } catch (e: RuntimeException) {
+                Log.w(TAG, "cancelAlarm failed", e)
+            }
         }
+    }
+
+    private companion object {
+        private const val TAG = "AndroidAlarmScheduler"
     }
 }

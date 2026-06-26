@@ -66,53 +66,7 @@ RenderThread.drawFrame()
 
 ---
 
-## 4. Scene Navigation Architecture (Phase 1 — COMPLETE)
 
-### Command Pattern
-```
-SceneId enum     → ACTIVE_TIMER, TEMPLATES, TEMPLATE_EDITOR, SETTINGS, ENTROPY
-SceneCommand     → None | GoTo(sceneId)
-SceneManager     → executeCommand(cmd)  [single call site for all transitions]
-RetroHudComponent → queues pendingSceneCommand instead of calling switchScene directly
-```
-
-### Transition sources
-- **HUD** (5 tabs): queues `SceneCommand.GoTo(...)`, SceneManager executes via `consumeSceneCommand()` after drain.
-- **In-scene** (5 calls): `TemplateCustomizerScene` → `TemplateForgeScene` (FORGE), → `ActiveTimerScene` (card tap); `TemplateForgeScene` → `TemplateCustomizerScene` (back/save); `EntropyScene` → `ActiveTimerScene` (emergency launch).
-
-### Debug flags cleaned
-- `DEBUG_DISABLE_HUD_SCENE_SWITCH` — **removed entirely**
-- `DEBUG_DISABLE_PLATFORM_EFFECTS` — `true` → **`false`** (keyboard + haptics work now)
-- `DEBUG_DISABLE_SCENE_TOUCH_DISPATCH` — unchanged (`false`, correct)
-
----
-
-## 5. Template Forge Scroll Refactor (Phase 2 — COMPLETE)
-
-### Before
-`TemplateForgeScene` used `PAGE_BASICS`/`PAGE_PARAMS` fake pages with `<`/`>` navigation buttons. No scrolling.
-
-### After
-- `PAGE_BASICS`/`PAGE_PARAMS` constants, `page` variable, and page nav buttons **removed**
-- Real vertical scrolling: `scrollY`, `isDragging`, `lastTouchY`, `initialTouchX`, `initialTouchY`, `hasDragged`
-- `onTouch` 5-arg handles DOWN/MOVE/UP/CANCEL drag (same pattern as `TemplateCustomizerScene`)
-- `onInput` 4-arg: `isDown` → `isUp` (taps on UP); `fy` offset by `scrollY`
-- All form fields rendered sequentially in one scrollable column
-- `contentMinScroll()` calculates scroll bounds from row count + mode params
-- Header cover rect prevents scroll content from showing above header
-- Save button remains fixed footer; cancel button remains fixed header
-
----
-
-## 6. Glyph Clipping Hardening (Complete)
-
-### Before
-`drawGlyph` and `drawText` defaulted `startX = destX`, `startY = destY`. Negative destination positions (e.g., marquee scrolling at `x = -500`) shifted the clip rectangle negative, allowing pixel writes outside canvas bounds.
-
-### After
-Both `drawGlyph` overloads and both `drawText` overloads default `startX = 0f`, `startY = 0f`. Canvas-space clipping is the default. Callers needing text-box clipping pass explicit bounds. The marquee alarm overlay calls include explicit `startX = 0f, startY = 0f, clipWidth = logicalWidth.toInt(), clipHeight = logicalHeight.toInt()` as self-documenting intent.
-
----
 
 ## 7. Vector Rendering Layer
 

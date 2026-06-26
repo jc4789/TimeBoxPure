@@ -63,6 +63,17 @@ class FocusService : Service() {
     private var lastBitmapIsBreak: Boolean? = null
     private var cachedIconBitmap: Bitmap? = null
 
+    private inline fun guardedStep(label: String, block: () -> Unit) {
+        Log.d(TAG, "$label: before")
+        try {
+            block()
+            Log.d(TAG, "$label: after")
+        } catch (t: Throwable) {
+            Log.e(TAG, "$label: FAILED", t)
+            throw t
+        }
+    }
+
     private val BLOCKED_PACKAGES = listOf(
         "com.instagram.android",
         "com.zhiliaoapp.musically", // TikTok
@@ -135,12 +146,12 @@ class FocusService : Service() {
             }
             "PAUSE_TIMER" -> {
                 engine?.let {
-                    it.pause()
-                    stopTicker()
-                    saveEngineState()
-                    stopAlarmAudioAndVibe()
-                    broadcastState()
-                    updateNotification("paused")
+                    guardedStep("PAUSE_TIMER engine.pause") { it.pause() }
+                    guardedStep("PAUSE_TIMER stopTicker") { stopTicker() }
+                    guardedStep("PAUSE_TIMER saveEngineState") { saveEngineState() }
+                    guardedStep("PAUSE_TIMER stopAlarmAudioAndVibe") { stopAlarmAudioAndVibe() }
+                    guardedStep("PAUSE_TIMER broadcastState") { broadcastState() }
+                    guardedStep("PAUSE_TIMER updateNotification paused") { updateNotification("paused") }
                 }
                 return START_NOT_STICKY
             }
@@ -174,26 +185,17 @@ class FocusService : Service() {
             "DISMISS_ALARM" -> {
                 engine?.let {
                     Log.d(TAG, "DISMISS_ALARM enter mode=${it.mode} active=${it.isActive} ringing=${it.isRinging} bigRem=${it.bigTimeRemaining}")
-                    it.dismissAlarm()
+                    guardedStep("DISMISS_ALARM engine.dismissAlarm") { it.dismissAlarm() }
                     Log.d(TAG, "DISMISS_ALARM after engine mode=${it.mode} active=${it.isActive} ringing=${it.isRinging}")
                     lastTickTimestamp = SystemClock.elapsedRealtime()
-                    try {
-                        stopAlarmAudioAndVibe()
-                    } catch (e: Exception) {
-                        Log.w(TAG, "DISMISS_ALARM stopAlarmAudioAndVibe failed", e)
-                    }
-                    broadcastState()
+                    guardedStep("DISMISS_ALARM stopAlarmAudioAndVibe") { stopAlarmAudioAndVibe() }
+                    guardedStep("DISMISS_ALARM broadcastState") { broadcastState() }
                     if (it.isActive) {
-                        startTicker()
-                        Log.d(TAG, "DISMISS_ALARM updating notification to running")
-                        try {
-                            updateNotification("running")
-                        } catch (e: Exception) {
-                            Log.w(TAG, "DISMISS_ALARM updateNotification failed", e)
-                        }
+                        guardedStep("DISMISS_ALARM startTicker") { startTicker() }
+                        guardedStep("DISMISS_ALARM updateNotification running") { updateNotification("running") }
                     } else {
                         Log.d(TAG, "DISMISS_ALARM session complete, stopping service")
-                        stopAlarmAndService()
+                        guardedStep("DISMISS_ALARM stopAlarmAndService") { stopAlarmAndService() }
                     }
                     Log.d(TAG, "DISMISS_ALARM exit")
                 }
@@ -434,38 +436,35 @@ class FocusService : Service() {
         }
 
         // Start Vibration Loop
-        val vib = vibrator
-        if (vib != null && vib.hasVibrator()) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val amplitude = (255 * vibeIntensity).toInt().coerceIn(1, 255)
-                val timings = longArrayOf(0, 1000, 1000)
-                val amplitudes = intArrayOf(0, amplitude, 0)
-                val effect = VibrationEffect.createWaveform(timings, amplitudes, 0) // 0 means loop at index 0
-                vib.vibrate(effect)
-            } else {
-                val pattern = longArrayOf(0, 1000, 1000)
-                @Suppress("DEPRECATION")
-                vib.vibrate(pattern, 0) // 0 means repeat
+        try {
+            val vib = vibrator
+            if (vib != null && vib.hasVibrator()) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val amplitude = (255 * vibeIntensity).toInt().coerceIn(1, 255)
+                    val timings = longArrayOf(0, 1000, 1000)
+                    val amplitudes = intArrayOf(0, amplitude, 0)
+                    val effect = VibrationEffect.createWaveform(timings, amplitudes, 0) // 0 means loop at index 0
+                    vib.vibrate(effect)
+                } else {
+                    val pattern = longArrayOf(0, 1000, 1000)
+                    @Suppress("DEPRECATION")
+                    vib.vibrate(pattern, 0) // 0 means repeat
+                }
             }
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "triggerPersistentAlarm vibration failed", e)
         }
 
         // Wake up the screen so the user can see the dismiss button
-        if (wakeLock != null && wakeLock?.isHeld == false) {
-            wakeLock?.acquire(10 * 60 * 1000L /*10 minutes*/)
+        try {
+            if (wakeLock != null && wakeLock?.isHeld == false) {
+                wakeLock?.acquire(10 * 60 * 1000L /*10 minutes*/)
+            }
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "triggerPersistentAlarm wakeLock acquire failed", e)
         }
 
-        // Launch MainActivity over the lock screen so user can dismiss it
-        // Only if not currently in foreground (avoiding JS reloads)
-        try {
-            if (!AppLifecycleTracker.isForeground) {
-                val activityIntent = Intent(this, MainActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                }
-                startActivity(activityIntent)
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        Log.d(TAG, "triggerPersistentAlarm: notification/fullScreenIntent owns UI surfacing")
 
         // Update notification
         updateNotification("ringing")
@@ -493,29 +492,41 @@ class FocusService : Service() {
         }
 
         // Vibrate for exactly 1 second
-        val vib = vibrator
-        if (vib != null && vib.hasVibrator()) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                var amplitude = (255 * vibeIntensity).toInt()
-                if (amplitude < 1) amplitude = 1
-                val effect = VibrationEffect.createOneShot(1000, amplitude)
-                vib.vibrate(effect)
-            } else {
-                @Suppress("DEPRECATION")
-                vib.vibrate(1000)
+        try {
+            val vib = vibrator
+            if (vib != null && vib.hasVibrator()) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    var amplitude = (255 * vibeIntensity).toInt()
+                    if (amplitude < 1) amplitude = 1
+                    val effect = VibrationEffect.createOneShot(1000, amplitude)
+                    vib.vibrate(effect)
+                } else {
+                    @Suppress("DEPRECATION")
+                    vib.vibrate(1000)
+                }
             }
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "triggerGentleReminder vibration failed", e)
         }
     }
 
     private fun stopAlarmAudioAndVibe() {
-        vibrator?.cancel()
+        try {
+            vibrator?.cancel()
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "stopAlarmAudioAndVibe vibrator cancel failed", e)
+        }
         try {
             SoundPreviewPlayer.stop()
-        } catch (e: Exception) {
-            e.printStackTrace()
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "stopAlarmAudioAndVibe audio stop failed", e)
         }
-        if (wakeLock?.isHeld == true) {
-            wakeLock?.release()
+        try {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "stopAlarmAudioAndVibe wakeLock release failed", e)
         }
     }
 
@@ -527,13 +538,21 @@ class FocusService : Service() {
         FocusService.engine = null
         TimerStateHolder.clear()
         stopAlarmAudioAndVibe()
-        tickTone?.release()
+        try {
+            tickTone?.release()
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "stopAlarmAndService tickTone release failed", e)
+        }
         tickTone = null
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        } else {
-            @Suppress("DEPRECATION")
-            stopForeground(true)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "stopAlarmAndService stopForeground failed", e)
         }
         stopSelf()
     }
@@ -564,9 +583,12 @@ class FocusService : Service() {
     private fun updateNotification(stateType: String) {
         try {
             val notification = buildNotification(stateType)
+            createNotificationChannel()
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            Log.d(TAG, "updateNotification $stateType: before NotificationManager.notify")
             manager?.notify(NOTIFICATION_ID, notification)
-        } catch (e: Exception) {
+            Log.d(TAG, "updateNotification $stateType: after NotificationManager.notify")
+        } catch (e: RuntimeException) {
             Log.w(TAG, "updateNotification failed stateType=$stateType", e)
         }
     }
@@ -988,6 +1010,7 @@ class FocusService : Service() {
                 }
             }
         } catch (e: SecurityException) {
+            Log.w(TAG, "scheduleAlarm exact alarm failed; falling back", e)
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     alarmManager.setAndAllowWhileIdle(
@@ -1002,9 +1025,11 @@ class FocusService : Service() {
                         pendingIntent
                     )
                 }
-            } catch (ex: Exception) {
-                ex.printStackTrace()
+            } catch (ex: RuntimeException) {
+                Log.w(TAG, "scheduleAlarm fallback failed", ex)
             }
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "scheduleAlarm failed", e)
         }
     }
 
@@ -1020,8 +1045,12 @@ class FocusService : Service() {
             PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
         )
         if (pendingIntent != null) {
-            alarmManager.cancel(pendingIntent)
-            pendingIntent.cancel()
+            try {
+                alarmManager.cancel(pendingIntent)
+                pendingIntent.cancel()
+            } catch (e: RuntimeException) {
+                Log.w(TAG, "cancelAlarm failed", e)
+            }
         }
     }
 

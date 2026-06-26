@@ -242,13 +242,7 @@ class TimerEngine(
                     alarmScheduler?.cancelAlarm()
                     return TickEvent.IntervalComplete
                 } else {
-                    val nextIdx = currentIndex + 1
-                    currentIndex = nextIdx
-                    val nextBig = preset.sequence[nextIdx]
-                    bigTimeRemaining = nextBig; bigTotalDuration = nextBig
-                    timeRemaining = preset.dualSmallDuration; totalDuration = preset.dualSmallDuration
-                    scheduleNextAlarm()
-                    return TickEvent.IntervalComplete
+                    return advanceExpiredBlock()
                 }
             }
             // Session over
@@ -266,11 +260,7 @@ class TimerEngine(
                 alarmScheduler?.cancelAlarm()
                 return TickEvent.IntervalComplete
             } else {
-                val nextMid = minOf(preset.dualMidDuration, bigTimeRemaining)
-                midTimeRemaining = nextMid; midTotalDuration = nextMid
-                timeRemaining = preset.dualSmallDuration; totalDuration = preset.dualSmallDuration
-                scheduleNextAlarm()
-                return TickEvent.IntervalComplete
+                return advanceExpiredBlock()
             }
         }
 
@@ -288,18 +278,13 @@ class TimerEngine(
                         isActive = false; isRinging = true
                         alarmScheduler?.cancelAlarm()
                     } else {
-                        val next = minOf(preset.dualSmallDuration, bigTimeRemaining)
-                        timeRemaining = next; totalDuration = next
-                        scheduleNextAlarm()
+                        return advanceExpiredBlock()
                     }
                     TickEvent.IntervalComplete
                 }
                 "dual.5" -> {
                     // Micro stopwatch always auto-loops
-                    val next = minOf(preset.dualSmallDuration, midTimeRemaining)
-                    timeRemaining = next; totalDuration = next
-                    scheduleNextAlarm()
-                    TickEvent.IntervalComplete
+                    return advanceExpiredBlock()
                 }
                 "sequence" -> {
                     if (currentIndex < preset.sequence.size - 1) {
@@ -307,11 +292,7 @@ class TimerEngine(
                             isActive = false; isRinging = true
                             alarmScheduler?.cancelAlarm()
                         } else {
-                            val nextIdx = currentIndex + 1
-                            currentIndex = nextIdx
-                            timeRemaining = preset.sequence[nextIdx]
-                            totalDuration = preset.sequence[nextIdx]
-                            scheduleNextAlarm()
+                            return advanceExpiredBlock()
                         }
                         TickEvent.IntervalComplete
                     } else {
@@ -322,12 +303,19 @@ class TimerEngine(
                     }
                 }
                 "calendar" -> {
-                    isActive = false
-                    isRinging = true
-                    alarmScheduler?.cancelAlarm()
                     if (currentIndex < preset.sequence.size - 1) {
+                        if (preset.alarmBehavior == "alarm") {
+                            isActive = false
+                            isRinging = true
+                            alarmScheduler?.cancelAlarm()
+                        } else {
+                            return advanceExpiredBlock()
+                        }
                         TickEvent.IntervalComplete
                     } else {
+                        isActive = false
+                        if (preset.alarmBehavior == "alarm") isRinging = true
+                        alarmScheduler?.cancelAlarm()
                         TickEvent.SequenceComplete
                     }
                 }
@@ -336,9 +324,7 @@ class TimerEngine(
                         isActive = false; isRinging = true
                         alarmScheduler?.cancelAlarm()
                     } else {
-                        val next = minOf(preset.dualSmallDuration, bigTimeRemaining)
-                        timeRemaining = next; totalDuration = next
-                        scheduleNextAlarm()
+                        return advanceExpiredBlock()
                     }
                     TickEvent.IntervalComplete
                 }
@@ -358,15 +344,24 @@ class TimerEngine(
         isRinging = false
         alarmScheduler?.cancelAlarm()
 
-        if (isDual && bigTimeRemaining <= 0) {
-            // Full session ended
-            isActive = false
+        if (!wasRinging) {
             return
         }
 
+        advanceExpiredBlock()
+    }
+
+    private fun advanceExpiredBlock(): TickEvent {
+        isDirty = true
+
         when (mode) {
             "dual.5" -> {
-                if (midTimeRemaining <= 0) {
+                if (bigTimeRemaining <= 0) {
+                    isActive = false
+                    timeRemaining = 0; midTimeRemaining = 0; bigTimeRemaining = 0
+                    alarmScheduler?.cancelAlarm()
+                    return TickEvent.SequenceComplete
+                } else if (midTimeRemaining <= 0) {
                     val nextMid = minOf(preset.dualMidDuration, bigTimeRemaining)
                     midTimeRemaining = nextMid; midTotalDuration = nextMid
                     val nextSub = minOf(preset.dualSmallDuration, nextMid)
@@ -374,14 +369,21 @@ class TimerEngine(
                 }
                 isActive = true
                 scheduleNextAlarm()
+                return TickEvent.IntervalComplete
             }
             "dual" -> {
-                if (timeRemaining <= 0) {
+                if (bigTimeRemaining <= 0) {
+                    isActive = false
+                    timeRemaining = 0; bigTimeRemaining = 0
+                    alarmScheduler?.cancelAlarm()
+                    return TickEvent.SequenceComplete
+                } else if (timeRemaining <= 0) {
                     val next = minOf(preset.dualSmallDuration, bigTimeRemaining)
                     timeRemaining = next; totalDuration = next
                 }
                 isActive = true
                 scheduleNextAlarm()
+                return TickEvent.IntervalComplete
             }
             "sequence" -> {
                 if (timeRemaining <= 0 && currentIndex < preset.sequence.size - 1) {
@@ -391,6 +393,12 @@ class TimerEngine(
                     totalDuration = preset.sequence[nextIdx]
                     isActive = true
                     scheduleNextAlarm()
+                    return TickEvent.IntervalComplete
+                } else {
+                    isActive = false
+                    timeRemaining = 0
+                    alarmScheduler?.cancelAlarm()
+                    return TickEvent.SequenceComplete
                 }
             }
             "calendar" -> {
@@ -403,30 +411,49 @@ class TimerEngine(
                     bigTotalDuration = bigTimeRemaining
                     isActive = true
                     scheduleNextAlarm()
+                    return TickEvent.IntervalComplete
                 } else {
                     isActive = false
+                    timeRemaining = 0
+                    if (currentIndex >= preset.sequence.size - 1) bigTimeRemaining = 0
+                    alarmScheduler?.cancelAlarm()
+                    return TickEvent.SequenceComplete
                 }
             }
             "dual-sequence" -> {
-                if (bigTimeRemaining <= 0 && currentIndex < preset.sequence.size - 1) {
-                    val nextIdx = currentIndex + 1
-                    currentIndex = nextIdx
-                    val nextBig = preset.sequence[nextIdx]
-                    bigTimeRemaining = nextBig; bigTotalDuration = nextBig
-                    timeRemaining = preset.dualSmallDuration; totalDuration = preset.dualSmallDuration
-                    isActive = true
-                    scheduleNextAlarm()
+                if (bigTimeRemaining <= 0) {
+                    if (currentIndex < preset.sequence.size - 1) {
+                        val nextIdx = currentIndex + 1
+                        currentIndex = nextIdx
+                        val nextBig = preset.sequence[nextIdx]
+                        bigTimeRemaining = nextBig; bigTotalDuration = nextBig
+                        timeRemaining = preset.dualSmallDuration; totalDuration = preset.dualSmallDuration
+                        isActive = true
+                        scheduleNextAlarm()
+                        return TickEvent.IntervalComplete
+                    } else {
+                        isActive = false
+                        timeRemaining = 0; bigTimeRemaining = 0
+                        alarmScheduler?.cancelAlarm()
+                        return TickEvent.SequenceComplete
+                    }
                 } else if (timeRemaining <= 0) {
                     val next = minOf(preset.dualSmallDuration, bigTimeRemaining)
                     timeRemaining = next; totalDuration = next
                     isActive = true
                     scheduleNextAlarm()
+                    return TickEvent.IntervalComplete
                 }
+                return TickEvent.None
             }
             "classic" -> {
                 // Classic session is done after alarm
                 isActive = false
+                timeRemaining = 0
+                alarmScheduler?.cancelAlarm()
+                return TickEvent.SequenceComplete
             }
+            else -> return TickEvent.None
         }
     }
 
