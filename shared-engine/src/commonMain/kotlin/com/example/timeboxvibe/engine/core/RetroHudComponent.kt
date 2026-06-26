@@ -15,7 +15,6 @@ enum class HudAction {
 }
 
 object RetroHudComponent {
-    private const val DEBUG_DISABLE_HUD_SCENE_SWITCH = false
     private const val U = 16f
     private const val BUTTON_BORDER = U / 8f
     private const val ICON_SIZE = U * 2f
@@ -26,6 +25,14 @@ object RetroHudComponent {
     private const val PLAY_AREA_RATIO_DEN = 20f
     private const val MIN_LEFT_HUD_CELLS = 12
     private const val NAV_TABS = 4
+
+    private var pendingSceneCommand: SceneCommand = SceneCommand.None
+
+    fun consumeSceneCommand(): SceneCommand {
+        val cmd = pendingSceneCommand
+        pendingSceneCommand = SceneCommand.None
+        return cmd
+    }
 
     fun usesLeftHud(logicalWidth: Float): Boolean {
         return leftHudWidth(logicalWidth) >= MIN_LEFT_HUD_CELLS * U
@@ -131,58 +138,35 @@ object RetroHudComponent {
 
         val hudAct = onTouch(x, y, playX, playY, playW, playH)
         if (hudAct == HudAction.NONE) return false
-        println("HUD_TOUCH action=$action hudAct=${actionName(hudAct)} activeBefore=${SceneManager.currentSceneName()}")
         if (action == TouchAction.CANCEL) return true
         if (action != TouchAction.UP) return true
-
-        ActiveTimerScene.isTaskFocused = false
 
         when (hudAct) {
             HudAction.SELECT_TAB_TIMER -> {
                 if (SceneManager.activeScene !is ActiveTimerScene) {
                     SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                    println("HUD_SWITCH_REQUEST target=ActiveTimerScene active=${SceneManager.currentSceneName()}")
-                    if (!DEBUG_DISABLE_HUD_SCENE_SWITCH) {
-                        SceneManager.switchScene(ActiveTimerScene)
-                        println("HUD_SWITCH_RETURNED target=ActiveTimerScene active=${SceneManager.currentSceneName()}")
-                    }
+                    pendingSceneCommand = SceneCommand.GoTo(SceneId.ACTIVE_TIMER)
                 }
             }
             HudAction.SELECT_TAB_CARDS -> {
                 if (SceneManager.activeScene is TemplateForgeScene) {
                     SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                    println("HUD_SWITCH_REQUEST target=TemplateCustomizerScene active=${SceneManager.currentSceneName()}")
-                    if (!DEBUG_DISABLE_HUD_SCENE_SWITCH) {
-                        SceneManager.switchScene(TemplateCustomizerScene)
-                        println("HUD_SWITCH_RETURNED target=TemplateCustomizerScene active=${SceneManager.currentSceneName()}")
-                    }
+                    pendingSceneCommand = SceneCommand.GoTo(SceneId.TEMPLATES)
                 } else if (SceneManager.activeScene !is TemplateCustomizerScene) {
                     SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                    println("HUD_SWITCH_REQUEST target=TemplateCustomizerScene active=${SceneManager.currentSceneName()}")
-                    if (!DEBUG_DISABLE_HUD_SCENE_SWITCH) {
-                        SceneManager.switchScene(TemplateCustomizerScene)
-                        println("HUD_SWITCH_RETURNED target=TemplateCustomizerScene active=${SceneManager.currentSceneName()}")
-                    }
+                    pendingSceneCommand = SceneCommand.GoTo(SceneId.TEMPLATES)
                 }
             }
             HudAction.SELECT_TAB_BOMB -> {
                 if (SceneManager.activeScene !is EntropyScene) {
                     SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                    println("HUD_SWITCH_REQUEST target=EntropyScene active=${SceneManager.currentSceneName()}")
-                    if (!DEBUG_DISABLE_HUD_SCENE_SWITCH) {
-                        SceneManager.switchScene(EntropyScene)
-                        println("HUD_SWITCH_RETURNED target=EntropyScene active=${SceneManager.currentSceneName()}")
-                    }
+                    pendingSceneCommand = SceneCommand.GoTo(SceneId.ENTROPY)
                 }
             }
             HudAction.SELECT_TAB_SYSTEM -> {
                 if (SceneManager.activeScene !is SettingsScene) {
                     SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                    println("HUD_SWITCH_REQUEST target=SettingsScene active=${SceneManager.currentSceneName()}")
-                    if (!DEBUG_DISABLE_HUD_SCENE_SWITCH) {
-                        SceneManager.switchScene(SettingsScene)
-                        println("HUD_SWITCH_RETURNED target=SettingsScene active=${SceneManager.currentSceneName()}")
-                    }
+                    pendingSceneCommand = SceneCommand.GoTo(SceneId.SETTINGS)
                 }
             }
             else -> {}

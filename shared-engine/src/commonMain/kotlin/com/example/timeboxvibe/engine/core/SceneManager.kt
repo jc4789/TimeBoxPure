@@ -7,6 +7,13 @@ const val ENGINE_TOUCH_UP = 2
 const val ENGINE_TOUCH_CANCEL = 3
 const val ENGINE_TOUCH_MOVE = 4
 
+enum class SceneId { ACTIVE_TIMER, TEMPLATES, TEMPLATE_EDITOR, SETTINGS, ENTROPY }
+
+sealed class SceneCommand {
+    data object None : SceneCommand()
+    data class GoTo(val sceneId: SceneId) : SceneCommand()
+}
+
 object SceneManager {
     @Volatile
     var activeScene: Scene? = null
@@ -28,6 +35,24 @@ object SceneManager {
 
     var timerActions: TimerActions? = null
     var inputTrigger: PlatformInputTrigger? = null
+
+    private val sceneRegistry = mapOf(
+        SceneId.ACTIVE_TIMER to ActiveTimerScene,
+        SceneId.TEMPLATES to TemplateCustomizerScene,
+        SceneId.TEMPLATE_EDITOR to TemplateForgeScene,
+        SceneId.SETTINGS to SettingsScene,
+        SceneId.ENTROPY to EntropyScene
+    )
+
+    fun executeCommand(cmd: SceneCommand) {
+        when (cmd) {
+            is SceneCommand.GoTo -> {
+                val scene = sceneRegistry[cmd.sceneId] ?: return
+                performSceneSwitch(scene)
+            }
+            SceneCommand.None -> {}
+        }
+    }
 
     fun init(actions: TimerActions, trigger: PlatformInputTrigger) {
         this.timerActions = actions
@@ -82,6 +107,10 @@ object SceneManager {
             drainTouchBuffer(touchBuffer, touchCount)
         } finally {
             isDrainingInput = false
+        }
+        val hudCmd = RetroHudComponent.consumeSceneCommand()
+        if (hudCmd !is SceneCommand.None) {
+            executeCommand(hudCmd)
         }
         if (debugLogUpdateThisFrame) {
             println("BEFORE APPLY_PENDING_SCENE")
@@ -209,52 +238,24 @@ object SceneManager {
         var index = 0
         var offset = 0
         while (index < touchCount) {
-            val logicalX = touchBuffer[offset + TOUCH_SLOT_LOGICAL_X]
-            val logicalY = touchBuffer[offset + TOUCH_SLOT_LOGICAL_Y]
-            val rawX = touchBuffer[offset + TOUCH_SLOT_RAW_X]
-            val rawY = touchBuffer[offset + TOUCH_SLOT_RAW_Y]
-            val actionCode = touchBuffer[offset + TOUCH_SLOT_ACTION]
-            val sceneBefore = currentSceneName()
-            val playX = RetroHudComponent.playAreaStartX(logicalWidth).toInt()
-            val playY = 0
-            val playW = RetroHudComponent.playAreaWidth(logicalWidth).toInt()
-            val playH = RetroHudComponent.playAreaHeight(logicalWidth, logicalHeight).toInt()
-            val hudHit = RetroHudComponent.onTouch(logicalX, logicalY, playX, playY, playW, playH)
-            val logNextTouch = debugLanguageChangedRecently
-            if (logNextTouch) {
-                println("NEXT_TOUCH_AFTER_LANG scene=$sceneBefore action=${engineTouchAction(actionCode)} x=$logicalX y=$logicalY")
-                debugNextTouchDispatch = true
-                debugNextTouchUpdate = true
-            }
-            println("BEFORE_TOUCH scene=$sceneBefore action=${engineTouchAction(actionCode)} x=$logicalX y=$logicalY")
-            if (DEBUG_TOUCH_MODE == TOUCH_MODE_HUD_ONLY) {
-                println("BEFORE HUD")
-                RetroHudComponent.onTouchEvent(logicalX, logicalY, engineTouchAction(actionCode), playX, playY, playW, playH)
-                println("AFTER HUD")
-            } else if (!DEBUG_DISABLE_SCENE_TOUCH_DISPATCH && (DEBUG_TOUCH_MODE == TOUCH_MODE_SCENE_NO_TIMER_ACTIONS || DEBUG_TOUCH_MODE == TOUCH_MODE_FULL)) {
-                try {
-                    if (debugNextTouchDispatch) {
-                        println("NEXT_TOUCH_BEFORE_DISPATCH")
-                    }
-                    println("BEFORE SCENE")
-                    dispatchTouch(
-                        logicalX,
-                        logicalY,
-                        actionCode
-                    )
-                    println("AFTER SCENE")
-                    if (debugNextTouchDispatch) {
-                        println("NEXT_TOUCH_AFTER_DISPATCH")
-                        debugNextTouchDispatch = false
-                    }
-                } catch (e: Throwable) {
-                    println("SCENE_TOUCH_THROW scene=${currentSceneName()} action=$actionCode x=$logicalX y=$logicalY error=${e::class.simpleName}:${e.message}")
-                    throw e
+            try {
+                val logicalX = touchBuffer[offset + TOUCH_SLOT_LOGICAL_X]
+                val logicalY = touchBuffer[offset + TOUCH_SLOT_LOGICAL_Y]
+                val actionCode = touchBuffer[offset + TOUCH_SLOT_ACTION]
+                val sceneBefore = currentSceneName()
+                val playX = RetroHudComponent.playAreaStartX(logicalWidth).toInt()
+                val playY = 0
+                val playW = RetroHudComponent.playAreaWidth(logicalWidth).toInt()
+                val playH = RetroHudComponent.playAreaHeight(logicalWidth, logicalHeight).toInt()
+                RetroHudComponent.onTouch(logicalX, logicalY, playX, playY, playW, playH)
+                if (DEBUG_TOUCH_MODE == TOUCH_MODE_HUD_ONLY) {
+                    RetroHudComponent.onTouchEvent(logicalX, logicalY, engineTouchAction(actionCode), playX, playY, playW, playH)
+                } else if (!DEBUG_DISABLE_SCENE_TOUCH_DISPATCH && (DEBUG_TOUCH_MODE == TOUCH_MODE_SCENE_NO_TIMER_ACTIONS || DEBUG_TOUCH_MODE == TOUCH_MODE_FULL)) {
+                    dispatchTouch(logicalX, logicalY, actionCode)
                 }
+            } catch (e: Throwable) {
+                println("TOUCH_DRAIN_THROW scene=${currentSceneName()} action=${engineTouchAction(touchBuffer[offset + TOUCH_SLOT_ACTION])} index=$index error=${e::class.simpleName}:${e.message}")
             }
-            val sceneAfter = if (pendingScene != null) sceneName(pendingScene) else currentSceneName()
-            println("AFTER_TOUCH scene=$sceneAfter")
-            println("touchAction=${engineTouchAction(actionCode)} hudHit=${RetroHudComponent.actionName(hudHit)} sceneBefore=$sceneBefore sceneAfter=$sceneAfter")
             offset += TOUCH_EVENT_SLOT_COUNT
             index++
         }
@@ -302,7 +303,7 @@ object SceneManager {
     private const val TOUCH_MODE_SCENE_NO_TIMER_ACTIONS = 2
     private const val TOUCH_MODE_FULL = 3
     private const val DEBUG_TOUCH_MODE = TOUCH_MODE_FULL
-    private const val DEBUG_DISABLE_PLATFORM_EFFECTS = true
+    private const val DEBUG_DISABLE_PLATFORM_EFFECTS = false
     private const val DEBUG_DISABLE_SCENE_TOUCH_DISPATCH = false
     private const val MAX_INPUT_DRAIN_PER_FRAME = 64
     private const val INPUT_DRAIN_OVERFLOW_LOG_INTERVAL_SECONDS = 1f

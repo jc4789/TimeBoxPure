@@ -89,8 +89,8 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         colorIndex: Int,
         shadowColorIndex: Int = EngineCanvas.COLOR_TRANSPARENT,
         scale: Int = TEXT_SCALE_IDENTITY,
-        startX: Float = destX,
-        startY: Float = destY,
+        startX: Float = 0f,
+        startY: Float = 0f,
         clipWidth: Int = canvas.width.toInt(),
         clipHeight: Int = canvas.height.toInt()
     ) {
@@ -112,8 +112,8 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         colorIndex: Int,
         shadowColorIndex: Int = EngineCanvas.COLOR_TRANSPARENT,
         sizeMultiplier: Float = TEXT_SCALE_IDENTITY.toFloat(),
-        startX: Float = destX,
-        startY: Float = destY,
+        startX: Float = 0f,
+        startY: Float = 0f,
         clipWidth: Int = canvas.width.toInt(),
         clipHeight: Int = canvas.height.toInt()
     ) {
@@ -162,8 +162,8 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         shadowColorIndex: Int = EngineCanvas.COLOR_TRANSPARENT,
         charSpacing: Float = 0f,
         scale: Int = TEXT_SCALE_IDENTITY,
-        startX: Float = destX,
-        startY: Float = destY,
+        startX: Float = 0f,
+        startY: Float = 0f,
         clipWidth: Int = canvas.width.toInt(),
         clipHeight: Int = canvas.height.toInt()
     ) {
@@ -185,8 +185,8 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         shadowColorIndex: Int = EngineCanvas.COLOR_TRANSPARENT,
         charSpacing: Float = 0f,
         sizeMultiplier: Float = TEXT_SCALE_IDENTITY.toFloat(),
-        startX: Float = destX,
-        startY: Float = destY,
+        startX: Float = 0f,
+        startY: Float = 0f,
         clipWidth: Int = canvas.width.toInt(),
         clipHeight: Int = canvas.height.toInt()
     ) {
@@ -470,6 +470,73 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
                 }
             }
         }
+    }
+
+    // ── Aliased vector delegation layer ────────────────────────────
+
+    fun drawAliasedCircle(
+        centerX: Float, centerY: Float, radius: Float,
+        colorIndex: Int, strokeWidth: Float = 1f, dashed: Boolean = false
+    ) {
+        vector.drawAliasedCircle(centerX, centerY, radius, colorIndex, strokeWidth, dashed)
+    }
+
+    fun drawAliasedArc(
+        centerX: Float, centerY: Float, radius: Float,
+        startDegrees: Float, sweepDegrees: Float,
+        colorIndex: Int, strokeWidth: Float = 1f
+    ) {
+        vector.drawAliasedArc(centerX, centerY, radius, startDegrees, sweepDegrees, colorIndex, strokeWidth)
+    }
+
+    fun drawAliasedProgressArc(
+        centerX: Float, centerY: Float, radius: Float,
+        startDegrees: Float, fullSweepDegrees: Float,
+        progress: Float, colorIndex: Int, strokeWidth: Float = 1f
+    ) {
+        vector.drawAliasedProgressArc(centerX, centerY, radius, startDegrees, fullSweepDegrees, progress, colorIndex, strokeWidth)
+    }
+
+    fun drawAliasedLine(
+        x0: Float, y0: Float, x1: Float, y1: Float,
+        colorIndex: Int, strokeWidth: Float = 1f
+    ) {
+        vector.drawAliasedLine(x0, y0, x1, y1, colorIndex, strokeWidth)
+    }
+
+    fun drawRadialTickMarks(
+        centerX: Float, centerY: Float,
+        innerRadius: Float, outerRadius: Float,
+        tickCount: Int, startDegrees: Float,
+        colorIndex: Int, strokeWidth: Float = 1f,
+        majorEvery: Int = 0, majorExtraLength: Float = 0f
+    ) {
+        vector.drawRadialTickMarks(centerX, centerY, innerRadius, outerRadius, tickCount, startDegrees, colorIndex, strokeWidth, majorEvery, majorExtraLength)
+    }
+
+    fun drawRadialProgressTickMarks(
+        centerX: Float, centerY: Float,
+        innerRadius: Float, outerRadius: Float,
+        tickCount: Int, activeCount: Int, startDegrees: Float,
+        colorIndex: Int, strokeWidth: Float = 1f
+    ) {
+        vector.drawRadialProgressTickMarks(centerX, centerY, innerRadius, outerRadius, tickCount, activeCount, startDegrees, colorIndex, strokeWidth)
+    }
+
+    fun drawCubicBezierDeCasteljau(
+        x0: Float, y0: Float, x1: Float, y1: Float,
+        x2: Float, y2: Float, x3: Float, y3: Float,
+        colorIndex: Int, strokeWidth: Float = 1f
+    ) {
+        vector.drawCubicBezierDeCasteljau(x0, y0, x1, y1, x2, y2, x3, y3, colorIndex, strokeWidth)
+    }
+
+    fun drawQuadraticBezierDeCasteljau(
+        x0: Float, y0: Float, x1: Float, y1: Float,
+        x2: Float, y2: Float,
+        colorIndex: Int, strokeWidth: Float = 1f
+    ) {
+        vector.drawQuadraticBezierDeCasteljau(x0, y0, x1, y1, x2, y2, colorIndex, strokeWidth)
     }
 
     /**

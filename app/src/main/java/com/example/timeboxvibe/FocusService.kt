@@ -22,6 +22,7 @@ import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.util.Log
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -172,17 +173,29 @@ class FocusService : Service() {
             }
             "DISMISS_ALARM" -> {
                 engine?.let {
+                    Log.d(TAG, "DISMISS_ALARM enter mode=${it.mode} active=${it.isActive} ringing=${it.isRinging} bigRem=${it.bigTimeRemaining}")
                     it.dismissAlarm()
+                    Log.d(TAG, "DISMISS_ALARM after engine mode=${it.mode} active=${it.isActive} ringing=${it.isRinging}")
                     lastTickTimestamp = SystemClock.elapsedRealtime()
-                    stopAlarmAudioAndVibe()
+                    try {
+                        stopAlarmAudioAndVibe()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "DISMISS_ALARM stopAlarmAudioAndVibe failed", e)
+                    }
                     broadcastState()
                     if (it.isActive) {
                         startTicker()
-                        updateNotification("running")
+                        Log.d(TAG, "DISMISS_ALARM updating notification to running")
+                        try {
+                            updateNotification("running")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "DISMISS_ALARM updateNotification failed", e)
+                        }
                     } else {
-                        clearSavedEngineStateNow()
+                        Log.d(TAG, "DISMISS_ALARM session complete, stopping service")
                         stopAlarmAndService()
                     }
+                    Log.d(TAG, "DISMISS_ALARM exit")
                 }
                 return START_NOT_STICKY
             }
@@ -549,9 +562,13 @@ class FocusService : Service() {
     }
 
     private fun updateNotification(stateType: String) {
-        val notification = buildNotification(stateType)
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-        manager?.notify(NOTIFICATION_ID, notification)
+        try {
+            val notification = buildNotification(stateType)
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            manager?.notify(NOTIFICATION_ID, notification)
+        } catch (e: Exception) {
+            Log.w(TAG, "updateNotification failed stateType=$stateType", e)
+        }
     }
 
     private fun getThemeColors(themeName: String, isBreakMode: Boolean): Triple<Int, Int, Int> {
@@ -740,14 +757,31 @@ class FocusService : Service() {
         if (iconName == lastBitmapIconName && themeName == lastBitmapTheme && isBreakMode == lastBitmapIsBreak) {
             cachedIconBitmap?.let { return it }
         }
-        cachedIconBitmap?.recycle()
+        try {
+            cachedIconBitmap?.recycle()
+        } catch (e: Exception) {
+            Log.w(TAG, "getOrCreateIconBitmap recycle failed", e)
+            cachedIconBitmap = null
+        }
 
-        val newBitmap = generatePixelArtIcon(iconName, themeName, isBreakMode)
-        cachedIconBitmap = newBitmap
-        lastBitmapIconName = iconName
-        lastBitmapTheme = themeName
-        lastBitmapIsBreak = isBreakMode
-        return newBitmap
+        try {
+            val newBitmap = generatePixelArtIcon(iconName, themeName, isBreakMode)
+            cachedIconBitmap = newBitmap
+            lastBitmapIconName = iconName
+            lastBitmapTheme = themeName
+            lastBitmapIsBreak = isBreakMode
+            return newBitmap
+        } catch (e: Exception) {
+            Log.w(TAG, "generatePixelArtIcon failed icon=$iconName", e)
+            // Return a minimal 1x1 bitmap as fallback to prevent notification crash
+            val fallback = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+            fallback.setPixel(0, 0, android.graphics.Color.BLACK)
+            cachedIconBitmap = fallback
+            lastBitmapIconName = iconName
+            lastBitmapTheme = themeName
+            lastBitmapIsBreak = isBreakMode
+            return fallback
+        }
     }
 
     private fun buildNotification(stateType: String): Notification {
@@ -1130,6 +1164,7 @@ class FocusService : Service() {
     }
 
     companion object {
+        private const val TAG = "FocusService"
         @JvmStatic
         var engine: TimerEngine? = null
         private const val CHANNEL_ID = "FocusServiceChannel"

@@ -75,6 +75,7 @@ object ActiveTimerScene : Scene {
     private var initialTouchY = 0f
     private var hasDragged = false
     private const val BLINK_RATE = 0.5f
+    private var alarmMarqueeX = 0f
 
     override fun onEnter(payload: Any?) {
         isTaskFocused = false
@@ -97,7 +98,15 @@ object ActiveTimerScene : Scene {
         isDragging = false
     }
 
-    override fun update(dt: Float) {}
+    override fun update(dt: Float) {
+        val state = SceneManager.timerActions?.getUiState() ?: return
+        if (state.isRinging) {
+            alarmMarqueeX -= U * 8f * dt
+            if (alarmMarqueeX <= -500f) alarmMarqueeX += 500f
+        } else {
+            alarmMarqueeX = 0f
+        }
+    }
 
     override fun render(renderer: ScaledProceduralRenderer, playX: Int, playY: Int, playW: Int, playH: Int) {
         val logicalWidth = renderer.canvas.width
@@ -308,6 +317,96 @@ object ActiveTimerScene : Scene {
 
         RetroHudComponent.render(renderer, playX, playY, playW, playH)
 
+        if (state.isRinging) {
+            val now = getEpochMillis()
+            val flashOn = (now % 300L) < 150L
+            val bgColor = if (flashOn) PaletteIndices.HIGHLIGHT else PaletteIndices.BG
+            renderer.fillRectDither(0f, 0f, logicalWidth, logicalHeight, bgColor, bgColor, SoftDitherPattern.SOLID)
+
+            val alarmCx = logicalWidth / 2f
+
+            // Top warning bar — no local function, no allocations
+            val marqueeH = U * 2f
+            val marqueeCharH = ScaledProceduralRenderer.measureTextHeight(ScaledProceduralRenderer.TEXT_SCALE_IDENTITY)
+            val marqueeTextStr = "WARNING SPELL CARD ACTIVE "
+            val marqueeTextLen = marqueeTextStr.length
+            val marqueeMaxChars = ((logicalWidth + marqueeCharH) / marqueeCharH).toInt() + 2
+            var marqueeIdx = 0
+            val marqueeTopY = U
+            renderer.fillRectDither(0f, marqueeTopY, logicalWidth, marqueeTopY + marqueeH, PaletteIndices.HIGHLIGHT, PaletteIndices.HIGHLIGHT, SoftDitherPattern.SOLID)
+            while (marqueeIdx < marqueeMaxChars) {
+                val gx = alarmMarqueeX + marqueeIdx * marqueeCharH
+                if (gx + marqueeCharH > U / 2f && gx < logicalWidth - U / 2f) {
+                    renderer.drawGlyph(marqueeTextStr[marqueeIdx % marqueeTextLen], gx, marqueeTopY + (marqueeH - marqueeCharH) / 2f, PaletteIndices.TEXT_PRIMARY, scale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, startX = 0f, startY = 0f, clipWidth = logicalWidth.toInt(), clipHeight = logicalHeight.toInt())
+                }
+                marqueeIdx++
+            }
+
+            // Title
+            val titleText = "SPELL CARD ACTIVE"
+            val titleScale = ScaledProceduralRenderer.TEXT_SCALE_HEADER
+            val titleW = ScaledProceduralRenderer.measureTextWidth(titleText, titleScale)
+            val titleCellH = ScaledProceduralRenderer.measureTextHeight(titleScale)
+            var ti = 0
+            while (ti < ScaledProceduralRenderer.measureTextCells(titleText)) {
+                renderer.drawGlyph(titleText[ti], alarmCx - titleW / 2f + ti * titleCellH, logicalHeight * 0.15f, PaletteIndices.ACCENT_PRIMARY, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = titleScale)
+                ti++
+            }
+
+            // Vector-drawn alarm ornament (replaces ProceduralIconRenderer yinyang)
+            val ornamentR = U * 4f
+            val ornamentCy = logicalHeight * 0.28f + U * 3f
+            val arcProgress = ((now % 4000L).toFloat() / 4000f)
+            val tickRotation = ((now % 8000L).toFloat() / 8000f) * 360f
+            renderer.drawAliasedProgressArc(alarmCx, ornamentCy, ornamentR - U / 4f, -90f, 360f, arcProgress, PaletteIndices.HIGHLIGHT, 2f)
+            renderer.drawAliasedCircle(alarmCx, ornamentCy, ornamentR, PaletteIndices.BORDER, 2f, dashed = true)
+            renderer.drawAliasedCircle(alarmCx, ornamentCy, ornamentR - U, PaletteIndices.ACCENT_PRIMARY, 1f)
+            renderer.drawRadialTickMarks(alarmCx, ornamentCy, ornamentR + U / 4f, ornamentR + U, 8, tickRotation, PaletteIndices.TEXT_PRIMARY, 1f, majorEvery = 4, majorExtraLength = U / 2f)
+            renderer.fillRectDither(alarmCx - U / 2f, ornamentCy - U / 2f, alarmCx + U / 2f, ornamentCy + U / 2f, PaletteIndices.HIGHLIGHT, PaletteIndices.HIGHLIGHT, SoftDitherPattern.SOLID)
+
+            // Subtitle
+            val subText = "ADHD BLOCKADE INITIATED"
+            val subScale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
+            val subW = ScaledProceduralRenderer.measureTextWidth(subText, subScale)
+            val subCellH = ScaledProceduralRenderer.measureTextHeight(subScale)
+            val subY = ornamentCy + ornamentR + U * 2f
+            var si = 0
+            while (si < ScaledProceduralRenderer.measureTextCells(subText)) {
+                renderer.drawGlyph(subText[si], alarmCx - subW / 2f + si * subCellH, subY, PaletteIndices.TEXT_PRIMARY, scale = subScale)
+                si++
+            }
+
+            // Bottom warning bar — inline second time
+            var marqueeIdx2 = 0
+            val marqueeBotY = logicalHeight * 0.68f
+            renderer.fillRectDither(0f, marqueeBotY, logicalWidth, marqueeBotY + marqueeH, PaletteIndices.HIGHLIGHT, PaletteIndices.HIGHLIGHT, SoftDitherPattern.SOLID)
+            while (marqueeIdx2 < marqueeMaxChars) {
+                val gx = alarmMarqueeX + marqueeIdx2 * marqueeCharH
+                if (gx + marqueeCharH > U / 2f && gx < logicalWidth - U / 2f) {
+                    renderer.drawGlyph(marqueeTextStr[marqueeIdx2 % marqueeTextLen], gx, marqueeBotY + (marqueeH - marqueeCharH) / 2f, PaletteIndices.TEXT_PRIMARY, scale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, startX = 0f, startY = 0f, clipWidth = logicalWidth.toInt(), clipHeight = logicalHeight.toInt())
+                }
+                marqueeIdx2++
+            }
+
+            // "BOMB / DISMISS" dismiss button
+            val bombText = "BOMB / DISMISS"
+            val bombScale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
+            val bombTW = ScaledProceduralRenderer.measureTextWidth(bombText, bombScale)
+            val bombTH = ScaledProceduralRenderer.measureTextHeight(bombScale)
+            val bombW = maxOf(bombTW + U * 4f, logicalWidth * 0.3f)
+            val bombH = U * 3f
+            val bombX = alarmCx - bombW / 2f
+            val bombY = logicalHeight * 0.78f
+            val bombFrame = PaletteIndices.HIGHLIGHT
+            renderer.fillRectDither(bombX, bombY, bombX + bombW, bombY + bombH, bombFrame, bombFrame, SoftDitherPattern.SOLID)
+            renderer.fillRectDither(bombX + 2f, bombY + 2f, bombX + bombW - 2f, bombY + bombH - 2f, PaletteIndices.BG, PaletteIndices.BG, SoftDitherPattern.SOLID)
+            var bi = 0
+            while (bi < ScaledProceduralRenderer.measureTextCells(bombText)) {
+                renderer.drawGlyph(bombText[bi], bombX + (bombW - bombTW) / 2f + bi * bombTH, bombY + (bombH - bombTH) / 2f, bombFrame, scale = bombScale)
+                bi++
+            }
+        }
+
     }
 
     override fun onInput(inputCode: Int) {
@@ -407,22 +506,8 @@ object ActiveTimerScene : Scene {
         scrollY = scrollY.coerceIn(timerMinScroll(state, playAreaH, logicalHeight, radius, inputBaseY), 0f)
 
         if (state.isRinging) {
-            val cx: Float
-            val cy: Float
-            val alarmRadius: Float
-            if (isPortrait) {
-                cx = logicalWidth / 2f
-                cy = playAreaH / 2f
-                alarmRadius = minOf(logicalWidth, playAreaH) * 0.4f
-            } else {
-                cx = playAreaStartX + (playAreaW / 2f)
-                cy = logicalHeight / 2f
-                alarmRadius = minOf(playAreaW, logicalHeight) * 0.4f
-            }
-            if (TouchColliderManager.checkCircle(x.toFloat(), y.toFloat(), cx, cy, alarmRadius)) {
-                if (SceneManager.timerActionsFromTouchEnabled()) {
-                    SceneManager.timerActions?.dismissAlarm()
-                }
+            if (SceneManager.timerActionsFromTouchEnabled()) {
+                SceneManager.timerActions?.dismissAlarm()
             }
             isTaskFocused = false
             return
@@ -955,8 +1040,8 @@ object TemplateCustomizerScene : Scene {
 
     override fun onInput(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
         if (RetroHudComponent.onTouchEvent(x, y, action, playX, playY, playW, playH)) return
-        val isDown = action == TouchAction.UP
-        if (!isDown) return
+        val isUp = action == TouchAction.UP
+        if (!isUp) return
 
         val state = SceneManager.timerActions?.getUiState() ?: return
         val playAreaStartX = playX.toFloat()
@@ -1049,8 +1134,6 @@ object TemplateCustomizerScene : Scene {
 // ════════════════════════════════════════════════════════════════════
 object TemplateForgeScene : Scene {
     private const val U = 16f
-    private const val PAGE_BASICS = 0
-    private const val PAGE_PARAMS = 1
     private const val FOCUS_NONE = 0
     private const val FOCUS_NAME = 1
     private const val FOCUS_SEQUENCE = 2
@@ -1069,7 +1152,12 @@ object TemplateForgeScene : Scene {
 
     private var cachedLogicalWidth = 640f
     private var cachedLogicalHeight = 400f
-    private var page = PAGE_BASICS
+    private var scrollY = 0f
+    private var lastTouchY = 0f
+    private var isDragging = false
+    private var initialTouchX = 0f
+    private var initialTouchY = 0f
+    private var hasDragged = false
     private var focusedInput = FOCUS_NONE
     private var selectedCalendarBlock = 0
     private var calendarBlockCount = 2
@@ -1098,7 +1186,9 @@ object TemplateForgeScene : Scene {
     private var dualSequenceSmallSeconds = 60
 
     override fun onEnter(payload: Any?) {
-        page = PAGE_BASICS
+        scrollY = 0f
+        isDragging = false
+        hasDragged = false
         focusedInput = FOCUS_NONE
         selectedCalendarBlock = 0
         calendarBlockCount = 2
@@ -1166,54 +1256,52 @@ object TemplateForgeScene : Scene {
         renderer.drawButton(strings.cancel, buttonX, safeTop, buttonW, rowH, isClicked = false)
         renderer.drawLine(playAreaStartX + U / 2f, safeTop + rowH + gap, playAreaStartX + playAreaW - U / 2f, safeTop + rowH + gap, PaletteIndices.SECONDARY, 1f)
 
-        val navY = safeTop + rowH + gap * TITLE_GAP_CELLS
-        renderer.drawButton("<", contentX, navY, rowH, rowH, isClicked = false)
-        renderer.drawButton(">", contentX + contentW - rowH, navY, rowH, rowH, isClicked = false)
-        val pageLabel = if (page == PAGE_BASICS) strings.pageBasicsLabel else strings.pageParamsLabel
-        renderer.drawText(pageLabel, contentX + rowH + gap, navY + (rowH - U) / 2f, PaletteIndices.PRIMARY, scale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, startX = contentX + rowH, startY = navY, clipWidth = (contentW - rowH * 2f).toInt(), clipHeight = rowH.toInt())
+        scrollY = scrollY.coerceIn(contentMinScroll(playAreaH, logicalHeight), 0f)
+        val headerCoverH = safeTop + rowH + gap
+        var y = headerCoverH + gap + scrollY
 
-        var y = navY + rowH + gap
-        if (page == PAGE_BASICS) {
-            y = drawInputRow(renderer, strings.presetNameLabel, inputToString(presetNameInput), strings.presetNamePlaceholder, contentX, contentW, y, rowH, focusedInput == FOCUS_NAME)
-            y = drawStepperRow(renderer, strings.engineStyleLabel, modeLabels[modeIndex], contentX, contentW, y, rowH)
-            val behaviorLabel = if (modeKeys[modeIndex] == "calendar") behaviorLabels[0] else behaviorLabels[behaviorIndex]
-            y = drawStepperRow(renderer, strings.completionBehaviorLabel, behaviorLabel, contentX, contentW, y, rowH)
-            renderer.drawText(currentModeDescription(strings), contentX, y, PaletteIndices.SECONDARY, scale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, startX = contentX, startY = y, clipWidth = contentW.toInt(), clipHeight = (rowH * 2f).toInt())
-        } else {
-            when (modeKeys[modeIndex]) {
-                "classic" -> {
-                    y = drawStepperRow(renderer, strings.durationLabel, "$classicDurationMinutes ${strings.minutes}", contentX, contentW, y, rowH)
-                }
-                "dual" -> {
-                    y = drawStepperRow(renderer, strings.bigBoxLabel, "$dualBigMinutes ${strings.minutes}", contentX, contentW, y, rowH)
-                    y = drawStepperRow(renderer, strings.smallLoopLabel, "$dualSmallSeconds ${strings.seconds}", contentX, contentW, y, rowH)
-                }
-                "dual.5" -> {
-                    y = drawStepperRow(renderer, strings.macroBlockLabel, "$dual5BigMinutes ${strings.minutes}", contentX, contentW, y, rowH)
-                    y = drawStepperRow(renderer, strings.mediumLoopLabel, "$dual5MidMinutes ${strings.minutes}", contentX, contentW, y, rowH)
-                    y = drawStepperRow(renderer, strings.microLoopLabel, "$dual5SmallSeconds ${strings.seconds}", contentX, contentW, y, rowH)
-                }
-                "sequence" -> {
-                    y = drawInputRow(renderer, strings.sequenceLabel, inputToString(sequenceInput), strings.sequencePlaceholder, contentX, contentW, y, rowH, focusedInput == FOCUS_SEQUENCE)
-                    y = drawStepperRow(renderer, strings.unitLabel, sequenceUnitLabels[sequenceUnitIndex], contentX, contentW, y, rowH)
-                }
-                "dual-sequence" -> {
-                    y = drawInputRow(renderer, strings.sequenceLabel, inputToString(sequenceInput), strings.sequencePlaceholder, contentX, contentW, y, rowH, focusedInput == FOCUS_SEQUENCE)
-                    y = drawStepperRow(renderer, strings.unitLabel, sequenceUnitLabels[sequenceUnitIndex], contentX, contentW, y, rowH)
-                    y = drawStepperRow(renderer, strings.smallLoopLabel, "$dualSequenceSmallSeconds ${strings.seconds}", contentX, contentW, y, rowH)
-                }
-                "calendar" -> {
-                    y = drawStepperRow(renderer, strings.calendarBlockLabel, "${selectedCalendarBlock + 1} / $calendarBlockCount", contentX, contentW, y, rowH)
-                    y = drawStepperRow(renderer, strings.calendarTypeLabel, if (calendarRelaxFlags[selectedCalendarBlock]) strings.calendarRelaxValue else strings.calendarFocusValue, contentX, contentW, y, rowH)
-                    y = drawInputRow(renderer, strings.calendarBlockNameLabel, inputToString(calendarLabelInputs[selectedCalendarBlock]), if (calendarRelaxFlags[selectedCalendarBlock]) strings.calendarRelaxThemePlaceholder else strings.calendarFocusThemePlaceholder, contentX, contentW, y, rowH, focusedInput == FOCUS_CALENDAR_LABEL)
-                    y = drawStepperRow(renderer, strings.durationLabel, "${calendarDurationsMinutes[selectedCalendarBlock]} ${strings.minutes}", contentX, contentW, y, rowH)
-                    val halfW = (contentW - gap) / 2f
-                    renderer.drawButton(strings.addBlockLabel, contentX, y, halfW, rowH, isClicked = false)
-                    renderer.drawButton(strings.deleteBlockLabel, contentX + halfW + gap, y, halfW, rowH, isClicked = calendarBlockCount > 1)
-                    y += rowH + gap
-                }
+        y = drawInputRow(renderer, strings.presetNameLabel, inputToString(presetNameInput), strings.presetNamePlaceholder, contentX, contentW, y, rowH, focusedInput == FOCUS_NAME)
+        y = drawStepperRow(renderer, strings.engineStyleLabel, modeLabels[modeIndex], contentX, contentW, y, rowH)
+        val behaviorLabel = if (modeKeys[modeIndex] == "calendar") behaviorLabels[0] else behaviorLabels[behaviorIndex]
+        y = drawStepperRow(renderer, strings.completionBehaviorLabel, behaviorLabel, contentX, contentW, y, rowH)
+        renderer.drawText(currentModeDescription(strings), contentX, y, PaletteIndices.SECONDARY, scale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, startX = contentX, startY = y, clipWidth = contentW.toInt(), clipHeight = (rowH * 2f).toInt())
+        y += rowH * 2f + gap
+
+        when (modeKeys[modeIndex]) {
+            "classic" -> {
+                y = drawStepperRow(renderer, strings.durationLabel, "$classicDurationMinutes ${strings.minutes}", contentX, contentW, y, rowH)
+            }
+            "dual" -> {
+                y = drawStepperRow(renderer, strings.bigBoxLabel, "$dualBigMinutes ${strings.minutes}", contentX, contentW, y, rowH)
+                y = drawStepperRow(renderer, strings.smallLoopLabel, "$dualSmallSeconds ${strings.seconds}", contentX, contentW, y, rowH)
+            }
+            "dual.5" -> {
+                y = drawStepperRow(renderer, strings.macroBlockLabel, "$dual5BigMinutes ${strings.minutes}", contentX, contentW, y, rowH)
+                y = drawStepperRow(renderer, strings.mediumLoopLabel, "$dual5MidMinutes ${strings.minutes}", contentX, contentW, y, rowH)
+                y = drawStepperRow(renderer, strings.microLoopLabel, "$dual5SmallSeconds ${strings.seconds}", contentX, contentW, y, rowH)
+            }
+            "sequence" -> {
+                y = drawInputRow(renderer, strings.sequenceLabel, inputToString(sequenceInput), strings.sequencePlaceholder, contentX, contentW, y, rowH, focusedInput == FOCUS_SEQUENCE)
+                y = drawStepperRow(renderer, strings.unitLabel, sequenceUnitLabels[sequenceUnitIndex], contentX, contentW, y, rowH)
+            }
+            "dual-sequence" -> {
+                y = drawInputRow(renderer, strings.sequenceLabel, inputToString(sequenceInput), strings.sequencePlaceholder, contentX, contentW, y, rowH, focusedInput == FOCUS_SEQUENCE)
+                y = drawStepperRow(renderer, strings.unitLabel, sequenceUnitLabels[sequenceUnitIndex], contentX, contentW, y, rowH)
+                y = drawStepperRow(renderer, strings.smallLoopLabel, "$dualSequenceSmallSeconds ${strings.seconds}", contentX, contentW, y, rowH)
+            }
+            "calendar" -> {
+                y = drawStepperRow(renderer, strings.calendarBlockLabel, "${selectedCalendarBlock + 1} / $calendarBlockCount", contentX, contentW, y, rowH)
+                y = drawStepperRow(renderer, strings.calendarTypeLabel, if (calendarRelaxFlags[selectedCalendarBlock]) strings.calendarRelaxValue else strings.calendarFocusValue, contentX, contentW, y, rowH)
+                y = drawInputRow(renderer, strings.calendarBlockNameLabel, inputToString(calendarLabelInputs[selectedCalendarBlock]), if (calendarRelaxFlags[selectedCalendarBlock]) strings.calendarRelaxThemePlaceholder else strings.calendarFocusThemePlaceholder, contentX, contentW, y, rowH, focusedInput == FOCUS_CALENDAR_LABEL)
+                y = drawStepperRow(renderer, strings.durationLabel, "${calendarDurationsMinutes[selectedCalendarBlock]} ${strings.minutes}", contentX, contentW, y, rowH)
+                val halfW = (contentW - gap) / 2f
+                renderer.drawButton(strings.addBlockLabel, contentX, y, halfW, rowH, isClicked = false)
+                renderer.drawButton(strings.deleteBlockLabel, contentX + halfW + gap, y, halfW, rowH, isClicked = calendarBlockCount > 1)
+                y += rowH + gap
             }
         }
+
+        renderer.fillRectDither(playAreaStartX, 0f, playAreaStartX + playAreaW, headerCoverH, PaletteIndices.BG, PaletteIndices.BG, SoftDitherPattern.SOLID)
 
         val saveY = playAreaH - rowH - U * SAVE_GAP_CELLS
         if (isForgeValid()) {
@@ -1240,7 +1328,50 @@ object TemplateForgeScene : Scene {
     }
 
     override fun onTouch(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
-        onInput(x, y, action, playX, playY, playW, playH)
+        val isPortrait = playX <= 0
+        val playAreaStartX = playX.toFloat()
+        val playAreaH = playH.toFloat()
+        val logicalHeight = if (playX > 0) playH.toFloat() else playH * 20f / 17f
+        val inPlayArea = if (isPortrait) y < playAreaH else x >= playAreaStartX
+
+        if (!isDragging && !inPlayArea) {
+            onInput(x, y, action, playX, playY, playW, playH)
+            return
+        }
+
+        when (action) {
+            TouchAction.DOWN -> {
+                if (!inPlayArea) return
+                isDragging = true
+                lastTouchY = y.toFloat()
+                initialTouchX = x.toFloat()
+                initialTouchY = y.toFloat()
+                hasDragged = false
+            }
+            TouchAction.MOVE -> {
+                if (isDragging) {
+                    val deltaY = y - lastTouchY
+                    if (abs(deltaY) > 2f) hasDragged = true
+                    scrollY += deltaY
+                    lastTouchY = y.toFloat()
+                    scrollY = scrollY.coerceIn(contentMinScroll(playAreaH, logicalHeight), 0f)
+                }
+            }
+            TouchAction.UP -> {
+                if (isDragging) {
+                    isDragging = false
+                    val deltaX = x - initialTouchX
+                    val deltaY = y - initialTouchY
+                    if (inPlayArea && abs(deltaX) < 8f && abs(deltaY) < 8f && !hasDragged) {
+                        onInput(x, y, TouchAction.UP, playX, playY, playW, playH)
+                    }
+                }
+            }
+            TouchAction.CANCEL -> {
+                isDragging = false
+                hasDragged = false
+            }
+        }
     }
 
     override fun onInput(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
@@ -1264,7 +1395,7 @@ object TemplateForgeScene : Scene {
         val buttonW = maxOf(U * HEADER_BUTTON_WIDTH_CELLS, contentW * LABEL_COLUMN_RATIO_NUM / (LABEL_COLUMN_RATIO_DEN * 2f))
         val buttonX = playAreaStartX + playAreaW - padding - buttonW
         val fx = x.toFloat()
-        val fy = y.toFloat()
+        val fy = y.toFloat() - scrollY
 
         if (fx >= buttonX && fx <= buttonX + buttonW && fy >= safeTop && fy <= safeTop + rowH) {
             SceneManager.performHapticFeedback(EngineHaptics.CLICK)
@@ -1272,25 +1403,9 @@ object TemplateForgeScene : Scene {
             return
         }
 
-        val navY = safeTop + rowH + gap * TITLE_GAP_CELLS
-        if (fy >= navY && fy <= navY + rowH) {
-            if (fx >= contentX && fx <= contentX + rowH) {
-                SceneManager.performHapticFeedback(EngineHaptics.TICK)
-                page = PAGE_BASICS
-                focusedInput = FOCUS_NONE
-                return
-            }
-            if (fx >= contentX + contentW - rowH && fx <= contentX + contentW) {
-                SceneManager.performHapticFeedback(EngineHaptics.TICK)
-                page = PAGE_PARAMS
-                focusedInput = FOCUS_NONE
-                return
-            }
-        }
-
-        var y = navY + rowH + gap
-        if (page == PAGE_BASICS) {
-            if (hitInputRow(fx, fy, strings.presetNameLabel, y, contentX, contentW, rowH)) {
+        val contentTopY = safeTop + rowH + gap * TITLE_GAP_CELLS
+        var y = contentTopY
+        if (hitInputRow(fx, fy, strings.presetNameLabel, y, contentX, contentW, rowH)) {
                 SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                 focusedInput = FOCUS_NAME
                 SceneManager.triggerKeyboard()
@@ -1310,8 +1425,8 @@ object TemplateForgeScene : Scene {
                 }, {
                     behaviorIndex = 1
                 })) return
-        } else {
-            when (modeKeys[modeIndex]) {
+
+        when (modeKeys[modeIndex]) {
                 "classic" -> {
                     if (handleStepperTap(fx, fy, strings.durationLabel, y, contentX, contentW, rowH, {
                             classicDurationMinutes = (classicDurationMinutes - 1).coerceAtLeast(1)
@@ -1426,7 +1541,6 @@ object TemplateForgeScene : Scene {
                     }
                 }
             }
-        }
 
         val saveY = playAreaH - rowH - U * SAVE_GAP_CELLS
         if (fx >= contentX && fx <= contentX + contentW && fy >= saveY && fy <= saveY + rowH && isForgeValid()) {
@@ -1437,6 +1551,34 @@ object TemplateForgeScene : Scene {
         }
 
         focusedInput = FOCUS_NONE
+    }
+
+    private fun contentMinScroll(playAreaH: Float, logicalHeight: Float): Float {
+        val safeTop = maxOf(logicalHeight / SAFE_TOP_RATIO_DEN, U * TITLE_ROW_HEIGHT_CELLS)
+        val rowH = U * CONTROL_HEIGHT_CELLS
+        val gap = U / 2f
+        val headerH = safeTop + rowH + gap
+        val contentY = headerH + gap
+        var contentBottom = contentY
+        contentBottom += rowH + gap
+        contentBottom += rowH + gap
+        contentBottom += rowH + gap
+        contentBottom += rowH * 2f + gap
+        contentBottom += modeParamRows() * (rowH + gap)
+        contentBottom += U * SAVE_GAP_CELLS + rowH
+        return (playAreaH - contentBottom).coerceAtMost(0f)
+    }
+
+    private fun modeParamRows(): Int {
+        return when (modeKeys[modeIndex]) {
+            "classic" -> 1
+            "dual" -> 2
+            "dual.5" -> 3
+            "sequence" -> 2
+            "dual-sequence" -> 3
+            "calendar" -> 5
+            else -> 0
+        }
     }
 
     private fun currentModeDescription(strings: AppStrings): String {

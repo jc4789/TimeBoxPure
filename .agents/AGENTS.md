@@ -393,3 +393,12 @@ Required before patching:
 3. List the exact gates, flags, handlers, and call paths found.
 4. State which old/debug/test code is still active.
 5. Only then propose a minimal patch.
+
+
+
+No direct scene calls to drawGlyphRaw.
+No drawGlyphRaw with omitted clip arguments if the function remains public/internal.
+No glyph clip default may depend on destX or destY.
+No manual while loop may use continue before x/y counters advance.
+No canvas write may occur without final 0 <= x < width and 0 <= y < height guard.
+drawGlyphRaw must be private, or must require explicit clipLeft/clipTop/clipRight/clipBottom with no unsafe defaults.
