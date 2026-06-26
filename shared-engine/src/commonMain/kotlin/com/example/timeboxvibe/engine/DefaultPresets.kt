@@ -2,9 +2,9 @@ package com.example.timeboxvibe.engine
 
 import com.example.timeboxvibe.engine.core.TimerPreset
 
-/**
+ /**
  * Get default presets matching the original i18n.js.
- * All 7 presets with their full localized configurations.
+ * All 8 presets with their full localized configurations.
  */
 fun getDefaultPresets(lang: String): List<TimerPreset> = when (lang) {
     "zh" -> listOf(
@@ -225,5 +225,6 @@ fun getDefaultPresets(lang: String): List<TimerPreset> = when (lang) {
     )
 }
 
-// Keep a fallback static value for compatibility if needed elsewhere
+// Fallback-only static value. Runtime selection should use getDefaultPresets(lang)
+// plus user templates so localized/default presets never overwrite active choices.
 val DEFAULT_PRESETS = getDefaultPresets("en")

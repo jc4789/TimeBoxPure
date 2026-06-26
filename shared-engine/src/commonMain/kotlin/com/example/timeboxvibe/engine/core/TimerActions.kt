@@ -10,6 +10,8 @@ data class EngineUiState(
     val bigTotalDuration: Int = 0,
     val currentIndex: Int = 0,
     val sequenceLength: Int = 0,
+    val currentStageLabel: String = "",
+    val currentStageType: String = "",
     val isRunning: Boolean = false,
     val isRinging: Boolean = false,
     val isBreak: Boolean = false,
@@ -43,6 +45,7 @@ interface TimerActions {
     fun updateTheme(themeName: String)
     fun selectPreset(id: String)
     fun addCustomPreset(preset: TimerPreset)
+    fun upsertCustomPreset(preset: TimerPreset)
     fun deletePreset(id: String)
     fun previewSound(key: String)
     fun requestExactAlarmPermission()

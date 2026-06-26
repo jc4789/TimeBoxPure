@@ -207,11 +207,12 @@ object ActiveTimerScene : Scene {
         val activeMode = state.activeMode
         val isBreak = state.isBreak
         val isD = state.isDual
+        val stageLabel = state.currentStageLabel
 
         if (isD) {
             if (activeMode == "dual.5") {
                 if (sequenceLength > 1) {
-                    drawStepCentered(renderer, cx, currentIndex, sequenceLength, cy - U * 7f / 2f, 1, cSec)
+                    drawStageLabelCentered(renderer, cx, stageLabel, cy - U * 7f / 2f, 1, cSec, playAreaW - TASK_INPUT_SIDE_PAD * 2f)
                     drawTimeCentered(renderer, cx, timeRemaining, cy - U * 3f / 2f, 2, cPri)
                 } else {
                     drawTimeCentered(renderer, cx, timeRemaining, cy - U * 3f / 2f, 2, cPri)
@@ -221,7 +222,7 @@ object ActiveTimerScene : Scene {
                 drawStaticTextCentered(renderer, cx, strings.sessionLimitLabel, cy + U * 3f, 1, cSec)
             } else {
                 if (sequenceLength > 1) {
-                    drawStepCentered(renderer, cx, currentIndex, sequenceLength, cy - U * 5f / 2f, 1, cSec)
+                    drawStageLabelCentered(renderer, cx, stageLabel, cy - U * 5f / 2f, 1, cSec, playAreaW - TASK_INPUT_SIDE_PAD * 2f)
                     drawTimeCentered(renderer, cx, timeRemaining, cy - U / 2f, 2, cPri)
                 } else {
                     drawTimeCentered(renderer, cx, timeRemaining, cy - U / 2f, 2, cPri)
@@ -233,7 +234,7 @@ object ActiveTimerScene : Scene {
             val isSeqMode = activeMode == "sequence" || activeMode == "dual-sequence" || activeMode == "calendar"
             drawTimeCentered(renderer, cx, timeRemaining, cy - U / 2f, 2, cPri)
             if (isSeqMode && sequenceLength > 1) {
-                drawStepCentered(renderer, cx, currentIndex, sequenceLength, cy + U * 3f / 2f, 1, cSec)
+                drawStageLabelCentered(renderer, cx, stageLabel, cy + U * 3f / 2f, 1, cSec, playAreaW - TASK_INPUT_SIDE_PAD * 2f)
             } else if (activeMode != "sequence") {
                 drawStaticTextCentered(renderer, cx, if (isBreak) strings.unwindingLabel else strings.focusingLabel, cy + U * 3f / 2f, 1, cSec)
             }
@@ -636,7 +637,7 @@ object ActiveTimerScene : Scene {
         val titleW = panelW - U
         ProceduralTextRenderer.drawUpperClipped(
             renderer,
-            preset.name,
+            if (state.currentStageLabel.isNotEmpty()) state.currentStageLabel else preset.name,
             panelX + U / 2f,
             titleY,
             PaletteIndices.TEXT_PRIMARY,
@@ -648,6 +649,20 @@ object ActiveTimerScene : Scene {
         )
         val countY = y + U * 2f
         drawStepCentered(renderer, panelX + panelW / 2f, state.currentIndex, state.sequenceLength, countY, 1, PaletteIndices.TEXT_SECONDARY)
+        if (state.currentStageType.isNotEmpty()) {
+            ProceduralTextRenderer.drawUpperClipped(
+                renderer,
+                state.currentStageType,
+                panelX + U / 2f,
+                y + U * 2f,
+                PaletteIndices.TEXT_SECONDARY,
+                ScaledProceduralRenderer.TEXT_SCALE_IDENTITY,
+                panelX + U / 2f,
+                y + U * 2f,
+                titleW,
+                U
+            )
+        }
         drawCalendarTimeline(renderer, preset, panelX + U / 2f, y + U * 3f, panelW - U, U, true)
     }
 
@@ -738,6 +753,21 @@ object ActiveTimerScene : Scene {
         val charW = ScaledProceduralRenderer.measureTextHeight(scale)
         var i = 0
         while (i < ScaledProceduralRenderer.measureTextCells(text)) {
+            renderer.drawGlyph(text[i], startX + i * charW, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
+            i++
+        }
+    }
+
+    private fun drawStageLabelCentered(renderer: ScaledProceduralRenderer, cx: Float, text: String, centerY: Float, scale: Int, colorIndex: Int, maxWidth: Float) {
+        if (text.isEmpty()) return
+        val charW = ScaledProceduralRenderer.measureTextHeight(scale)
+        val maxCells = maxOf(1, (maxWidth / charW).toInt())
+        val cellCount = minOf(ScaledProceduralRenderer.measureTextCells(text), maxCells)
+        val textWidth = cellCount * charW
+        val startX = cx - textWidth / 2f
+        val startY = centerY - ScaledProceduralRenderer.measureTextHeight(scale) / 2f
+        var i = 0
+        while (i < cellCount && i < text.length) {
             renderer.drawGlyph(text[i], startX + i * charW, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
             i++
         }
@@ -921,9 +951,10 @@ object TemplateCustomizerScene : Scene {
             val delW = 60f
             val delH = 26f
             val delX = playAreaStartX + playAreaW - 90f
+            val editX = delX - delW - U / 2f
             val delY = currentY + (cardH - delH) / 2f
             
-            val textRightLimit = if (hasDelete) delX - 10f else cardX + cardW - 10f
+            val textRightLimit = if (hasDelete) editX - U / 2f else cardX + cardW - 10f
             val maxTextW = maxOf(16f, textRightLimit - textLeftX)
 
             val nameScale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
@@ -959,7 +990,9 @@ object TemplateCustomizerScene : Scene {
                 val delW = 60f
                 val delH = 26f
                 val delX = playAreaStartX + playAreaW - 90f
+                val editX = delX - delW - U / 2f
                 val delY = currentY + (cardH - delH) / 2f
+                renderer.drawButton("EDIT", editX, delY, delW, delH, isClicked = false)
                 renderer.drawButton("DEL", delX, delY, delW, delH, isClicked = false)
             }
             
@@ -1083,10 +1116,20 @@ object TemplateCustomizerScene : Scene {
                     val delW = 60f
                     val delH = 26f
                     val delX = playAreaStartX + playAreaW - 90f
+                    val editX = delX - delW - U / 2f
                     val delY = cardY + (cardH - delH) / 2f
-                    if (preset.id.startsWith("custom_") && fx >= delX && fx <= delX + delW && fy >= delY && fy <= delY + delH) {
-                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                        SceneManager.timerActions?.deletePreset(preset.id)
+                    if (preset.id.startsWith("custom_") && fy >= delY && fy <= delY + delH) {
+                        if (fx >= editX && fx <= editX + delW) {
+                            SceneManager.performHapticFeedback(EngineHaptics.CLICK)
+                            SceneManager.switchScene(TemplateForgeScene, preset)
+                        } else if (fx >= delX && fx <= delX + delW) {
+                            SceneManager.performHapticFeedback(EngineHaptics.CLICK)
+                            SceneManager.timerActions?.deletePreset(preset.id)
+                        } else {
+                            SceneManager.performHapticFeedback(EngineHaptics.CLICK)
+                            SceneManager.timerActions?.selectPreset(preset.id)
+                            SceneManager.switchScene(ActiveTimerScene)
+                        }
                     } else {
                         SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                         SceneManager.timerActions?.selectPreset(preset.id)
@@ -1161,6 +1204,7 @@ object TemplateForgeScene : Scene {
     private var focusedInput = FOCUS_NONE
     private var selectedCalendarBlock = 0
     private var calendarBlockCount = 2
+    private var editingPresetId: String? = null
 
     private val presetNameInput = FixedInputContainer(32)
     private val sequenceInput = FixedInputContainer(64)
@@ -1202,6 +1246,7 @@ object TemplateForgeScene : Scene {
         dual5MidMinutes = 15
         dual5SmallSeconds = 300
         dualSequenceSmallSeconds = 60
+        editingPresetId = null
         clearInput(presetNameInput)
         clearInput(sequenceInput)
         var i = 0
@@ -1217,6 +1262,9 @@ object TemplateForgeScene : Scene {
         setInput(calendarLabelInputs[1], strings.breakLabel)
         calendarDurationsMinutes[1] = 5
         calendarRelaxFlags[1] = true
+        if (payload is TimerPreset) {
+            loadPreset(payload.normalized(logFailures = true))
+        }
     }
 
     override fun onExit() {
@@ -1290,10 +1338,11 @@ object TemplateForgeScene : Scene {
                 y = drawStepperRow(renderer, strings.smallLoopLabel, "$dualSequenceSmallSeconds ${strings.seconds}", contentX, contentW, y, rowH)
             }
             "calendar" -> {
-                y = drawStepperRow(renderer, strings.calendarBlockLabel, "${selectedCalendarBlock + 1} / $calendarBlockCount", contentX, contentW, y, rowH)
-                y = drawStepperRow(renderer, strings.calendarTypeLabel, if (calendarRelaxFlags[selectedCalendarBlock]) strings.calendarRelaxValue else strings.calendarFocusValue, contentX, contentW, y, rowH)
-                y = drawInputRow(renderer, strings.calendarBlockNameLabel, inputToString(calendarLabelInputs[selectedCalendarBlock]), if (calendarRelaxFlags[selectedCalendarBlock]) strings.calendarRelaxThemePlaceholder else strings.calendarFocusThemePlaceholder, contentX, contentW, y, rowH, focusedInput == FOCUS_CALENDAR_LABEL)
-                y = drawStepperRow(renderer, strings.durationLabel, "${calendarDurationsMinutes[selectedCalendarBlock]} ${strings.minutes}", contentX, contentW, y, rowH)
+                var blockIndex = 0
+                while (blockIndex < calendarBlockCount) {
+                    y = drawCalendarBlockRows(renderer, strings, blockIndex, contentX, contentW, y, rowH)
+                    blockIndex++
+                }
                 val halfW = (contentW - gap) / 2f
                 renderer.drawButton(strings.addBlockLabel, contentX, y, halfW, rowH, isClicked = false)
                 renderer.drawButton(strings.deleteBlockLabel, contentX + halfW + gap, y, halfW, rowH, isClicked = calendarBlockCount > 1)
@@ -1376,8 +1425,8 @@ object TemplateForgeScene : Scene {
 
     override fun onInput(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
         if (RetroHudComponent.onTouchEvent(x, y, action, playX, playY, playW, playH)) return
-        val isDown = action == TouchAction.DOWN
-        if (!isDown) return
+        val isUp = action == TouchAction.UP
+        if (!isUp) return
         val state = SceneManager.timerActions?.getUiState() ?: return
         val strings = getStrings(state.language)
 
@@ -1395,15 +1444,16 @@ object TemplateForgeScene : Scene {
         val buttonW = maxOf(U * HEADER_BUTTON_WIDTH_CELLS, contentW * LABEL_COLUMN_RATIO_NUM / (LABEL_COLUMN_RATIO_DEN * 2f))
         val buttonX = playAreaStartX + playAreaW - padding - buttonW
         val fx = x.toFloat()
-        val fy = y.toFloat() - scrollY
+        val rawFy = y.toFloat()
+        val fy = rawFy - scrollY
 
-        if (fx >= buttonX && fx <= buttonX + buttonW && fy >= safeTop && fy <= safeTop + rowH) {
+        if (fx >= buttonX && fx <= buttonX + buttonW && rawFy >= safeTop && rawFy <= safeTop + rowH) {
             SceneManager.performHapticFeedback(EngineHaptics.CLICK)
             SceneManager.switchScene(TemplateCustomizerScene)
             return
         }
 
-        val contentTopY = safeTop + rowH + gap * TITLE_GAP_CELLS
+        val contentTopY = safeTop + rowH + gap + gap * TITLE_GAP_CELLS
         var y = contentTopY
         if (hitInputRow(fx, fy, strings.presetNameLabel, y, contentX, contentW, rowH)) {
                 SceneManager.performHapticFeedback(EngineHaptics.CLICK)
@@ -1425,6 +1475,8 @@ object TemplateForgeScene : Scene {
                 }, {
                     behaviorIndex = 1
                 })) return
+            y = nextRowY(strings.completionBehaviorLabel, y, contentW, rowH)
+            y += rowH * 2f + gap
 
         when (modeKeys[modeIndex]) {
                 "classic" -> {
@@ -1501,31 +1553,12 @@ object TemplateForgeScene : Scene {
                         })) return
                 }
                 "calendar" -> {
-                    if (handleStepperTap(fx, fy, strings.calendarBlockLabel, y, contentX, contentW, rowH, {
-                            selectedCalendarBlock = (selectedCalendarBlock - 1 + calendarBlockCount) % calendarBlockCount
-                        }, {
-                            selectedCalendarBlock = (selectedCalendarBlock + 1) % calendarBlockCount
-                        })) return
-                    y = nextRowY(strings.calendarBlockLabel, y, contentW, rowH)
-                    if (handleStepperTap(fx, fy, strings.calendarTypeLabel, y, contentX, contentW, rowH, {
-                            calendarRelaxFlags[selectedCalendarBlock] = false
-                        }, {
-                            calendarRelaxFlags[selectedCalendarBlock] = true
-                        })) return
-                    y = nextRowY(strings.calendarTypeLabel, y, contentW, rowH)
-                    if (hitInputRow(fx, fy, strings.calendarBlockNameLabel, y, contentX, contentW, rowH)) {
-                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                        focusedInput = FOCUS_CALENDAR_LABEL
-                        SceneManager.triggerKeyboard()
-                        return
+                    var blockIndex = 0
+                    while (blockIndex < calendarBlockCount) {
+                        if (handleCalendarBlockTap(fx, fy, strings, blockIndex, y, contentX, contentW, rowH)) return
+                        y = calendarBlockRowsEndY(strings, blockIndex, y, contentW, rowH)
+                        blockIndex++
                     }
-                    y = nextRowY(strings.calendarBlockNameLabel, y, contentW, rowH)
-                    if (handleStepperTap(fx, fy, strings.durationLabel, y, contentX, contentW, rowH, {
-                            calendarDurationsMinutes[selectedCalendarBlock] = (calendarDurationsMinutes[selectedCalendarBlock] - 1).coerceAtLeast(1)
-                        }, {
-                            calendarDurationsMinutes[selectedCalendarBlock] = (calendarDurationsMinutes[selectedCalendarBlock] + 1).coerceAtMost(120)
-                        })) return
-                    y = nextRowY(strings.durationLabel, y, contentW, rowH)
                     val halfW = (contentW - gap) / 2f
                     if (fy >= y && fy <= y + rowH) {
                         if (fx >= contentX && fx <= contentX + halfW && calendarBlockCount < MAX_CALENDAR_BLOCKS) {
@@ -1543,9 +1576,9 @@ object TemplateForgeScene : Scene {
             }
 
         val saveY = playAreaH - rowH - U * SAVE_GAP_CELLS
-        if (fx >= contentX && fx <= contentX + contentW && fy >= saveY && fy <= saveY + rowH && isForgeValid()) {
+        if (fx >= contentX && fx <= contentX + contentW && rawFy >= saveY && rawFy <= saveY + rowH && isForgeValid()) {
             SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-            SceneManager.timerActions?.addCustomPreset(buildPreset(state))
+            SceneManager.timerActions?.upsertCustomPreset(buildPreset(state))
             SceneManager.switchScene(TemplateCustomizerScene)
             return
         }
@@ -1576,7 +1609,7 @@ object TemplateForgeScene : Scene {
             "dual.5" -> 3
             "sequence" -> 2
             "dual-sequence" -> 3
-            "calendar" -> 5
+            "calendar" -> calendarBlockCount * 3 + 1
             else -> 0
         }
     }
@@ -1602,7 +1635,7 @@ object TemplateForgeScene : Scene {
     }
 
     private fun buildPreset(state: EngineUiState): TimerPreset {
-        val id = nextCustomId(state)
+        val id = editingPresetId ?: nextCustomId(state)
         val name = inputToString(presetNameInput).trim()
         return when (modeKeys[modeIndex]) {
             "classic" -> TimerPreset(id = id, name = name, mode = "classic", sequence = intArrayOf(classicDurationMinutes * 60), alarmBehavior = behaviorKeys[behaviorIndex], description = "SYS.CLASSIC // CUSTOM")
@@ -1629,7 +1662,161 @@ object TemplateForgeScene : Scene {
                 }
                 TimerPreset(id = id, name = name, mode = "calendar", sequence = seq, alarmBehavior = "alarm", description = "SYS.CALENDAR // CUSTOM TIMELINE", sequenceTypes = types, sequenceLabels = labels)
             }
+        }.normalized(logFailures = true)
+    }
+
+    private fun loadPreset(preset: TimerPreset) {
+        editingPresetId = preset.id
+        setInput(presetNameInput, preset.name)
+        var modeSlot = 0
+        while (modeSlot < modeKeys.size) {
+            if (modeKeys[modeSlot] == preset.mode) {
+                modeIndex = modeSlot
+                break
+            }
+            modeSlot++
         }
+        behaviorIndex = if (preset.alarmBehavior == "auto") 1 else 0
+        when (preset.mode) {
+            "classic" -> {
+                classicDurationMinutes = ((preset.sequence.firstOrNull() ?: 1500) / 60).coerceAtLeast(1)
+            }
+            "dual" -> {
+                dualBigMinutes = (preset.dualBigDuration / 60).coerceAtLeast(1)
+                dualSmallSeconds = preset.dualSmallDuration.coerceAtLeast(1)
+            }
+            "dual.5" -> {
+                dual5BigMinutes = (preset.dualBigDuration / 60).coerceAtLeast(1)
+                dual5MidMinutes = (preset.dualMidDuration / 60).coerceAtLeast(1)
+                dual5SmallSeconds = preset.dualSmallDuration.coerceAtLeast(1)
+            }
+            "sequence" -> setSequenceInputFromSeconds(preset.sequence)
+            "dual-sequence" -> {
+                setSequenceInputFromSeconds(preset.sequence)
+                dualSequenceSmallSeconds = preset.dualSmallDuration.coerceAtLeast(1)
+            }
+            "calendar" -> {
+                calendarBlockCount = preset.sequence.size.coerceIn(1, MAX_CALENDAR_BLOCKS)
+                selectedCalendarBlock = 0
+                var i = 0
+                while (i < calendarBlockCount) {
+                    val seconds = preset.sequence[i]
+                    calendarDurationsMinutes[i] = (seconds / 60).coerceAtLeast(1)
+                    calendarRelaxFlags[i] = preset.stageType(i) == "relax"
+                    setInput(calendarLabelInputs[i], preset.stageLabel(i))
+                    i++
+                }
+            }
+        }
+    }
+
+    private fun setSequenceInputFromSeconds(sequence: IntArray) {
+        var allMinutes = sequence.isNotEmpty()
+        var i = 0
+        while (i < sequence.size) {
+            if (sequence[i] <= 0 || sequence[i] % 60 != 0) {
+                allMinutes = false
+                break
+            }
+            i++
+        }
+        sequenceUnitIndex = if (allMinutes) 0 else 1
+        val builder = StringBuilder()
+        i = 0
+        while (i < sequence.size) {
+            if (i > 0) builder.append(',')
+            builder.append(if (sequenceUnitIndex == 0) sequence[i] / 60 else sequence[i])
+            i++
+        }
+        setInput(sequenceInput, builder.toString())
+    }
+
+    private fun drawCalendarBlockRows(
+        renderer: ScaledProceduralRenderer,
+        strings: AppStrings,
+        blockIndex: Int,
+        x: Float,
+        width: Float,
+        y: Float,
+        rowH: Float
+    ): Float {
+        val blockLabel = "${strings.calendarBlockLabel} ${blockIndex + 1}"
+        var currentY = drawStepperRow(
+            renderer,
+            blockLabel,
+            if (calendarRelaxFlags[blockIndex]) strings.calendarRelaxValue else strings.calendarFocusValue,
+            x,
+            width,
+            y,
+            rowH
+        )
+        currentY = drawInputRow(
+            renderer,
+            strings.calendarBlockNameLabel,
+            inputToString(calendarLabelInputs[blockIndex]),
+            if (calendarRelaxFlags[blockIndex]) strings.calendarRelaxThemePlaceholder else strings.calendarFocusThemePlaceholder,
+            x,
+            width,
+            currentY,
+            rowH,
+            focusedInput == FOCUS_CALENDAR_LABEL && selectedCalendarBlock == blockIndex
+        )
+        return drawStepperRow(
+            renderer,
+            strings.durationLabel,
+            "${calendarDurationsMinutes[blockIndex]} ${strings.minutes}",
+            x,
+            width,
+            currentY,
+            rowH
+        )
+    }
+
+    private fun handleCalendarBlockTap(
+        fx: Float,
+        fy: Float,
+        strings: AppStrings,
+        blockIndex: Int,
+        y: Float,
+        x: Float,
+        width: Float,
+        rowH: Float
+    ): Boolean {
+        val blockLabel = "${strings.calendarBlockLabel} ${blockIndex + 1}"
+        var currentY = y
+        if (handleStepperTap(fx, fy, blockLabel, currentY, x, width, rowH, {
+                selectedCalendarBlock = blockIndex
+                calendarRelaxFlags[blockIndex] = false
+                focusedInput = FOCUS_NONE
+            }, {
+                selectedCalendarBlock = blockIndex
+                calendarRelaxFlags[blockIndex] = true
+                focusedInput = FOCUS_NONE
+            })) return true
+        currentY = nextRowY(blockLabel, currentY, width, rowH)
+        if (hitInputRow(fx, fy, strings.calendarBlockNameLabel, currentY, x, width, rowH)) {
+            SceneManager.performHapticFeedback(EngineHaptics.CLICK)
+            selectedCalendarBlock = blockIndex
+            focusedInput = FOCUS_CALENDAR_LABEL
+            SceneManager.triggerKeyboard()
+            return true
+        }
+        currentY = nextRowY(strings.calendarBlockNameLabel, currentY, width, rowH)
+        return handleStepperTap(fx, fy, strings.durationLabel, currentY, x, width, rowH, {
+            selectedCalendarBlock = blockIndex
+            calendarDurationsMinutes[blockIndex] = (calendarDurationsMinutes[blockIndex] - 1).coerceAtLeast(1)
+            focusedInput = FOCUS_NONE
+        }, {
+            selectedCalendarBlock = blockIndex
+            calendarDurationsMinutes[blockIndex] = (calendarDurationsMinutes[blockIndex] + 1).coerceAtMost(120)
+            focusedInput = FOCUS_NONE
+        })
+    }
+
+    private fun calendarBlockRowsEndY(strings: AppStrings, blockIndex: Int, y: Float, width: Float, rowH: Float): Float {
+        var currentY = nextRowY("${strings.calendarBlockLabel} ${blockIndex + 1}", y, width, rowH)
+        currentY = nextRowY(strings.calendarBlockNameLabel, currentY, width, rowH)
+        return nextRowY(strings.durationLabel, currentY, width, rowH)
     }
 
     private fun nextCustomId(state: EngineUiState): String {

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
@@ -20,7 +21,6 @@ import com.example.timeboxvibe.engine.core.TimerPreset
 import com.example.timeboxvibe.engine.SoundMelodies
 import com.example.timeboxvibe.engine.SoundPreviewPlayer
 import com.example.timeboxvibe.engine.getDefaultPresets
-import com.example.timeboxvibe.engine.DEFAULT_PRESETS
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,6 +46,8 @@ data class TimerUiState(
     val bigTotalDuration: Int = 0,
     val currentIndex: Int = 0,
     val sequenceLength: Int = 0,
+    val currentStageLabel: String = "",
+    val currentStageType: String = "",
 
     val isRunning: Boolean = false,
     val isRinging: Boolean = false,
@@ -84,7 +86,16 @@ class MainScreenViewModel(
         viewModelScope.launch {
             TimerStateHolder.state.collect { serviceState ->
                 if (serviceState != null) {
+                    Log.d(
+                        "MainScreenViewModel",
+                        "UI_RECEIVE preset=${serviceState.presetId} mode=${serviceState.mode} " +
+                            "index=${serviceState.currentIndex} duration=${serviceState.totalDuration} " +
+                            "label=${serviceState.currentStageLabel} type=${serviceState.currentStageType} " +
+                            "time=${serviceState.timeRemaining} ringing=${serviceState.isRinging} active=${serviceState.isActive}"
+                    )
                     _uiState.value = _uiState.value.copy(
+                        activePresetId = serviceState.presetId.ifEmpty { _uiState.value.activePresetId },
+                        activeMode = serviceState.mode.ifEmpty { _uiState.value.activeMode },
                         timeRemaining = serviceState.timeRemaining.coerceAtLeast(0),
                         totalDuration = serviceState.totalDuration,
                         midTimeRemaining = serviceState.midTimeRemaining.coerceAtLeast(0),
@@ -92,6 +103,9 @@ class MainScreenViewModel(
                         bigTimeRemaining = serviceState.bigTimeRemaining.coerceAtLeast(0),
                         bigTotalDuration = serviceState.bigTotalDuration,
                         currentIndex = serviceState.currentIndex,
+                        sequenceLength = serviceState.sequenceLength,
+                        currentStageLabel = serviceState.currentStageLabel,
+                        currentStageType = serviceState.currentStageType,
                         isRunning = serviceState.isActive,
                         isRinging = serviceState.isRinging,
                         isBreak = serviceState.isBreak
@@ -117,7 +131,7 @@ class MainScreenViewModel(
                 val relaxSound = prefs[stringPreferencesKey("selectedRelaxSound")] ?: "oriental"
 
                 val customPresets = parseCustomPresets(customPresetsJson)
-                val defaultPresets = getDefaultPresets(lang)
+                val defaultPresets = getDefaultPresets(lang).map { it.normalized(logFailures = true) }
                 val emergencyPreset = TimerPreset(
                     id = "emergency",
                     name = if (lang == "zh") "紧急专注" else if (lang == "ja") "緊急セッション" else "Emergency Session",
@@ -125,7 +139,7 @@ class MainScreenViewModel(
                     sequence = intArrayOf(25 * 60),
                     alarmBehavior = "alarm",
                     description = "SYS.OVERRIDE // EMERGENCY"
-                )
+                ).normalized(logFailures = true)
                 val combined = defaultPresets + customPresets + emergencyPreset
 
                 val preset = combined.firstOrNull { it.id == savedPresetId } ?: defaultPresets.firstOrNull() ?: return@collect
@@ -164,7 +178,12 @@ class MainScreenViewModel(
     override fun startTimer() {
         SoundPreviewPlayer.stop()
         val state = _uiState.value
-        val preset = state.presets.firstOrNull { it.id == state.activePresetId } ?: return
+        val preset = state.presets.firstOrNull { it.id == state.activePresetId }?.normalized(logFailures = true) ?: return
+        val activeEngine = FocusService.engine
+        if (activeEngine != null && activeEngine.preset.id == preset.id && !activeEngine.isRinging) {
+            sendEngineCommand("RESUME_TIMER")
+            return
+        }
 
         // Fire up the unkillable foreground service
         val intent = Intent(context, FocusService::class.java).apply {
@@ -193,12 +212,6 @@ class MainScreenViewModel(
             putIntegerArrayListExtra("presetSequence", ArrayList(preset.sequence.toList()))
             putStringArrayListExtra("presetSequenceTypes", ArrayList(preset.sequenceTypes.toList()))
             putStringArrayListExtra("presetSequenceLabels", ArrayList(preset.sequenceLabels.toList()))
-
-            // Resume state values
-            putExtra("resumeTimeRemaining", state.timeRemaining)
-            putExtra("resumeMidTimeRemaining", state.midTimeRemaining)
-            putExtra("resumeBigTimeRemaining", state.bigTimeRemaining)
-            putExtra("resumeCurrentIndex", state.currentIndex)
         }
 
         ContextCompat.startForegroundService(context, intent)
@@ -426,7 +439,11 @@ class MainScreenViewModel(
             timeRemaining = smallRemaining, totalDuration = smallTotal,
             midTimeRemaining = midRemaining, midTotalDuration = midTotal,
             bigTimeRemaining = bigRemaining, bigTotalDuration = bigTotal,
-            currentIndex = 0, isRunning = false, isRinging = false,
+            currentIndex = 0,
+            sequenceLength = preset.stageCount(),
+            currentStageLabel = preset.stageLabel(0),
+            currentStageType = preset.stageType(0),
+            isRunning = false, isRinging = false,
             activeMode = preset.mode,
             isDual = preset.mode in listOf("dual", "dual.5", "dual-sequence", "calendar"),
             isBreak = if (preset.mode == "calendar") (preset.sequenceTypes.firstOrNull() == "relax") else _uiState.value.isBreak
@@ -439,6 +456,10 @@ class MainScreenViewModel(
             midTimeRemaining = activeEngine.midTimeRemaining.coerceAtLeast(0), midTotalDuration = activeEngine.midTotalDuration,
             bigTimeRemaining = activeEngine.bigTimeRemaining.coerceAtLeast(0), bigTotalDuration = activeEngine.bigTotalDuration,
             currentIndex = activeEngine.currentIndex, isRunning = activeEngine.isActive,
+            sequenceLength = activeEngine.preset.stageCount(),
+            currentStageLabel = activeEngine.currentStageLabel,
+            currentStageType = activeEngine.currentStageType,
+            activePresetId = activeEngine.preset.id,
             isRinging = activeEngine.isRinging, activeMode = activeEngine.mode, isDual = activeEngine.isDual,
             isBreak = if (activeEngine.mode == "calendar") activeEngine.isBreak else _uiState.value.isBreak
         )
@@ -461,6 +482,9 @@ class MainScreenViewModel(
             bigTimeRemaining = savedBig,
             bigTotalDuration = savedBigTotal,
             currentIndex = savedIndex,
+            sequenceLength = preset.stageCount(),
+            currentStageLabel = preset.stageLabel(savedIndex),
+            currentStageType = preset.stageType(savedIndex),
             isRunning = false,
             isRinging = false,
             activeMode = preset.mode,
@@ -474,6 +498,7 @@ class MainScreenViewModel(
     private fun parseCustomPresets(jsonStr: String): List<TimerPreset> {
         return try {
             Json.decodeFromString<List<TimerPreset>>(jsonStr)
+                .map { it.normalized(logFailures = true) }
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
@@ -481,14 +506,30 @@ class MainScreenViewModel(
     }
 
     override fun addCustomPreset(preset: TimerPreset) {
+        upsertCustomPreset(preset)
+    }
+
+    override fun upsertCustomPreset(preset: TimerPreset) {
         viewModelScope.launch {
             dataStore.edit { prefs ->
                 val customPresetsJson = prefs[stringPreferencesKey("custom_presets_json")] ?: "[]"
                 val customPresets = parseCustomPresets(customPresetsJson).toMutableList()
-                customPresets.add(preset)
+                val normalizedPreset = preset.normalized(logFailures = true)
+                var replaced = false
+                var i = 0
+                while (i < customPresets.size) {
+                    if (customPresets[i].id == normalizedPreset.id) {
+                        customPresets[i] = normalizedPreset
+                        replaced = true
+                        break
+                    }
+                    i++
+                }
+                if (!replaced) customPresets.add(normalizedPreset)
 
                 prefs[stringPreferencesKey("custom_presets_json")] = Json.encodeToString(customPresets)
-                prefs[stringPreferencesKey("activePresetId")] = preset.id
+                prefs[stringPreferencesKey("activePresetId")] = normalizedPreset.id
+                prefs[booleanPreferencesKey("has_saved_state")] = false
             }
         }
     }
@@ -510,8 +551,6 @@ class MainScreenViewModel(
 
     override fun getUiState(): EngineUiState {
         val s = _uiState.value
-        val currentPreset = s.presets.firstOrNull { it.id == s.activePresetId }
-        val seqLen = currentPreset?.sequence?.size ?: 0
         return EngineUiState(
             timeRemaining = s.timeRemaining,
             totalDuration = s.totalDuration,
@@ -520,7 +559,9 @@ class MainScreenViewModel(
             bigTimeRemaining = s.bigTimeRemaining,
             bigTotalDuration = s.bigTotalDuration,
             currentIndex = s.currentIndex,
-            sequenceLength = seqLen,
+            sequenceLength = s.sequenceLength,
+            currentStageLabel = s.currentStageLabel,
+            currentStageType = s.currentStageType,
             isRunning = s.isRunning,
             isRinging = s.isRinging,
             isBreak = s.isBreak,

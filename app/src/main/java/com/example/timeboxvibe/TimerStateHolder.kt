@@ -5,6 +5,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 data class TimerServiceState(
+    val presetId: String = "",
+    val presetName: String = "",
+    val mode: String = "",
     val timeRemaining: Int = 0,
     val totalDuration: Int = 0,
     val midTimeRemaining: Int = 0,
@@ -12,6 +15,9 @@ data class TimerServiceState(
     val bigTimeRemaining: Int = 0,
     val bigTotalDuration: Int = 0,
     val currentIndex: Int = 0,
+    val sequenceLength: Int = 0,
+    val currentStageLabel: String = "",
+    val currentStageType: String = "",
     val isActive: Boolean = false,
     val isRinging: Boolean = false,
     val isBreak: Boolean = false
@@ -22,6 +28,9 @@ object TimerStateHolder {
     val state: StateFlow<TimerServiceState?> = _state.asStateFlow()
 
     fun update(
+        presetId: String,
+        presetName: String,
+        mode: String,
         timeRemaining: Int,
         totalDuration: Int,
         midTimeRemaining: Int,
@@ -29,11 +38,17 @@ object TimerStateHolder {
         bigTimeRemaining: Int,
         bigTotalDuration: Int,
         currentIndex: Int,
+        sequenceLength: Int,
+        currentStageLabel: String,
+        currentStageType: String,
         isActive: Boolean,
         isRinging: Boolean,
         isBreak: Boolean
     ) {
         _state.value = TimerServiceState(
+            presetId = presetId,
+            presetName = presetName,
+            mode = mode,
             timeRemaining = timeRemaining,
             totalDuration = totalDuration,
             midTimeRemaining = midTimeRemaining,
@@ -41,6 +56,9 @@ object TimerStateHolder {
             bigTimeRemaining = bigTimeRemaining,
             bigTotalDuration = bigTotalDuration,
             currentIndex = currentIndex,
+            sequenceLength = sequenceLength,
+            currentStageLabel = currentStageLabel,
+            currentStageType = currentStageType,
             isActive = isActive,
             isRinging = isRinging,
             isBreak = isBreak

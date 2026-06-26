@@ -74,11 +74,11 @@ class FocusService : Service() {
         }
     }
 
-    private fun logDismissSnapshot(label: String, eng: TimerEngine) {
+    private fun logEngineSnapshot(label: String, eng: TimerEngine) {
         val idx = eng.currentIndex
         val duration = if (idx >= 0 && idx < eng.preset.sequence.size) eng.preset.sequence[idx] else -1
         val type = if (idx >= 0 && idx < eng.preset.sequenceTypes.size) eng.preset.sequenceTypes[idx] else ""
-        val blockLabel = if (idx >= 0 && idx < eng.preset.sequenceLabels.size) eng.preset.sequenceLabels[idx] else ""
+        val blockLabel = eng.currentStageLabel
         Log.d(
             TAG,
             "$label preset=${eng.preset.id} mode=${eng.mode} seqSize=${eng.preset.sequence.size} " +
@@ -190,20 +190,22 @@ class FocusService : Service() {
             }
             "SKIP_TIMER" -> {
                 engine?.let {
+                    logEngineSnapshot("SKIP_TIMER before", it)
                     it.skip()
+                    logEngineSnapshot("SKIP_TIMER afterEngine", it)
                     broadcastState()
                 }
                 return START_NOT_STICKY
             }
             "DISMISS_ALARM" -> {
                 engine?.let {
-                    logDismissSnapshot("DISMISS_ALARM before", it)
+                    logEngineSnapshot("DISMISS_ALARM before", it)
                     guardedStep("DISMISS_ALARM engine.dismissAlarm") { it.dismissAlarm() }
-                    logDismissSnapshot("DISMISS_ALARM afterEngine", it)
+                    logEngineSnapshot("DISMISS_ALARM afterEngine", it)
                     lastTickTimestamp = SystemClock.elapsedRealtime()
                     guardedStep("DISMISS_ALARM stopAlarmAudioAndVibe") { stopAlarmAudioAndVibe() }
                     guardedStep("DISMISS_ALARM broadcastState") { broadcastState() }
-                    logDismissSnapshot("DISMISS_ALARM afterBroadcast", it)
+                    logEngineSnapshot("DISMISS_ALARM afterBroadcast", it)
                     if (it.isActive) {
                         guardedStep("DISMISS_ALARM startTicker") { startTicker() }
                         guardedStep("DISMISS_ALARM updateNotification running") { updateNotification("running") }
@@ -252,30 +254,18 @@ class FocusService : Service() {
                 description = description,
                 sequenceTypes = sequenceTypes.toTypedArray(),
                 sequenceLabels = sequenceLabels.toTypedArray()
-            )
+            ).normalized(logFailures = true)
             engine = TimerEngine(preset).apply {
                 alarmScheduler = AndroidAlarmScheduler(this@FocusService)
-                
-                val resumeTime = intent.getIntExtra("resumeTimeRemaining", -1)
-                val resumeMid = intent.getIntExtra("resumeMidTimeRemaining", -1)
-                val resumeBig = intent.getIntExtra("resumeBigTimeRemaining", -1)
-                val resumeIndex = intent.getIntExtra("resumeCurrentIndex", -1)
-
-                if (resumeTime != -1 || resumeMid != -1 || resumeBig != -1 || resumeIndex != -1) {
-                    restoreState(
-                        timeRemaining = if (resumeTime != -1) resumeTime else timeRemaining,
-                        midTimeRemaining = if (resumeMid != -1) resumeMid else midTimeRemaining,
-                        bigTimeRemaining = if (resumeBig != -1) resumeBig else bigTimeRemaining,
-                        currentIndex = if (resumeIndex != -1) resumeIndex else currentIndex
-                    )
-                }
             }
             FocusService.engine = engine
+            engine?.let { logEngineSnapshot("START_TIMER constructed", it) }
         }
 
         engine?.let {
             lastTickTimestamp = SystemClock.elapsedRealtime()
             it.start()
+            logEngineSnapshot("START_TIMER afterStart", it)
             FocusService.engine = it
 
             // Start tick loop
@@ -576,7 +566,11 @@ class FocusService : Service() {
         if (eng.mode == "calendar") {
             isBreak = eng.isBreak
         }
+        logEngineSnapshot("BROADCAST_STATE", eng)
         TimerStateHolder.update(
+            presetId = eng.preset.id,
+            presetName = eng.preset.name,
+            mode = eng.mode,
             timeRemaining = eng.timeRemaining.coerceAtLeast(0),
             totalDuration = eng.totalDuration,
             midTimeRemaining = eng.midTimeRemaining.coerceAtLeast(0),
@@ -584,6 +578,9 @@ class FocusService : Service() {
             bigTimeRemaining = eng.bigTimeRemaining.coerceAtLeast(0),
             bigTotalDuration = eng.bigTotalDuration,
             currentIndex = eng.currentIndex,
+            sequenceLength = eng.preset.stageCount(),
+            currentStageLabel = eng.currentStageLabel,
+            currentStageType = eng.currentStageType,
             isActive = eng.isActive,
             isRinging = eng.isRinging,
             isBreak = if (eng.mode == "calendar") eng.isBreak else isBreak
@@ -834,9 +831,9 @@ class FocusService : Service() {
         }
 
         val content = when (stateType) {
-            "ringing" -> "Task: $taskName"
-            "paused" -> "Task: $taskName (Paused at $timeStr)"
-            else -> "Task: $taskName ($timeStr)"
+            "ringing" -> "Task: $taskName · ${eng?.currentStageLabel ?: ""}"
+            "paused" -> "${eng?.currentStageLabel ?: taskName} (Paused at $timeStr)"
+            else -> "${eng?.currentStageLabel ?: taskName} ($timeStr)"
         }
 
         val notificationIntent = Intent(this, MainActivity::class.java).apply {
