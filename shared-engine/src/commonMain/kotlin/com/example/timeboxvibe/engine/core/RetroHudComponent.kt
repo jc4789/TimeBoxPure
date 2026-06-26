@@ -151,23 +151,17 @@ object RetroHudComponent {
             HudAction.SELECT_TAB_CARDS -> {
                 if (SceneManager.activeScene is TemplateForgeScene) {
                     SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                    println("AAAA_CARDS_BRANCH_REACHED flag=$DEBUG_DISABLE_HUD_SCENE_SWITCH active=${SceneManager.currentSceneName()}")
-                    println("HUD_SWITCH_REQUEST target=SettingsScene active=${SceneManager.currentSceneName()}")
+                    println("HUD_SWITCH_REQUEST target=TemplateCustomizerScene active=${SceneManager.currentSceneName()}")
                     if (!DEBUG_DISABLE_HUD_SCENE_SWITCH) {
-                        println("AAAA_REQUEST_TEMPLATE_SWITCH")
-                        SceneManager.switchScene(SettingsScene)
-                        println("AAAA_RETURNED_FROM_TEMPLATE_SWITCH active=${SceneManager.currentSceneName()}")
-                        println("HUD_SWITCH_RETURNED target=SettingsScene active=${SceneManager.currentSceneName()}")
+                        SceneManager.switchScene(TemplateCustomizerScene)
+                        println("HUD_SWITCH_RETURNED target=TemplateCustomizerScene active=${SceneManager.currentSceneName()}")
                     }
                 } else if (SceneManager.activeScene !is TemplateCustomizerScene) {
                     SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                    println("AAAA_CARDS_BRANCH_REACHED flag=$DEBUG_DISABLE_HUD_SCENE_SWITCH active=${SceneManager.currentSceneName()}")
-                    println("HUD_SWITCH_REQUEST target=SettingsScene active=${SceneManager.currentSceneName()}")
+                    println("HUD_SWITCH_REQUEST target=TemplateCustomizerScene active=${SceneManager.currentSceneName()}")
                     if (!DEBUG_DISABLE_HUD_SCENE_SWITCH) {
-                        println("AAAA_REQUEST_TEMPLATE_SWITCH")
-                        SceneManager.switchScene(SettingsScene)
-                        println("AAAA_RETURNED_FROM_TEMPLATE_SWITCH active=${SceneManager.currentSceneName()}")
-                        println("HUD_SWITCH_RETURNED target=SettingsScene active=${SceneManager.currentSceneName()}")
+                        SceneManager.switchScene(TemplateCustomizerScene)
+                        println("HUD_SWITCH_RETURNED target=TemplateCustomizerScene active=${SceneManager.currentSceneName()}")
                     }
                 }
             }

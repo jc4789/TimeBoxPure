@@ -298,10 +298,10 @@ object SceneManager {
     private const val TOUCH_MODE_HUD_ONLY = 1
     private const val TOUCH_MODE_SCENE_NO_TIMER_ACTIONS = 2
     private const val TOUCH_MODE_FULL = 3
-    private const val DEBUG_TOUCH_MODE = TOUCH_MODE_SCENE_NO_TIMER_ACTIONS
+    private const val DEBUG_TOUCH_MODE = TOUCH_MODE_FULL
     private const val DEBUG_DISABLE_PLATFORM_EFFECTS = true
     private const val DEBUG_DISABLE_SCENE_TOUCH_DISPATCH = false
-    private const val DEBUG_DISABLE_TIMER_ACTIONS_FROM_TOUCH = true
+    private const val DEBUG_DISABLE_TIMER_ACTIONS_FROM_TOUCH = false
     private const val MAX_INPUT_DRAIN_PER_FRAME = 64
     private const val INPUT_DRAIN_OVERFLOW_LOG_INTERVAL_SECONDS = 1f
     private const val EMPTY_INPUT_SENTINEL = -1

@@ -372,3 +372,24 @@ Touch raw coordinates are divided by scaleFactor before entering SceneManager.
 
 FORBIDDEN:
 continue inside manual while loops unless the loop counter has already advanced.
+
+
+Code-reading law:
+
+For this small codebase, the agent must read complete files line by line before making architectural or behavioral claims.
+
+Search tools such as grep, ripgrep, IDE symbol search, Python scripts, AST scans, or static audits may be used only after line-by-line reading, and only to verify completeness.
+
+Forbidden:
+- using grep output as proof that the code path is understood
+- patching based only on symbol search
+- assuming there is only one handler, flag, scene path, or debug gate
+- summarizing a file that was not actually read
+- saying "the code does X" unless the relevant function and its callers were read
+
+Required before patching:
+1. Identify every file involved in the behavior.
+2. Read each relevant file line by line.
+3. List the exact gates, flags, handlers, and call paths found.
+4. State which old/debug/test code is still active.
+5. Only then propose a minimal patch.

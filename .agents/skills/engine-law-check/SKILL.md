@@ -57,6 +57,17 @@ Before implementation:
 4. State whether the change touches platform interop.
 5. State whether the change introduces data, files, or resources.
 
+For input/render/scene bugs, grep is insufficient. The agent must trace the full path:
+
+Android touch event
+primitive mailbox
+SceneManager.update
+activeScene.onTouch
+HUD handler
+scene switch
+target scene onEnter/update/render
+timerActions/platform effects if applicable
+
 After implementation:
 
 1. Review the diff against the Core Laws.

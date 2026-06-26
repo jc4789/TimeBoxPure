@@ -601,7 +601,6 @@ object ActiveTimerScene : Scene {
 //  TEMPLATE CUSTOMIZER SCENE
 // ════════════════════════════════════════════════════════════════════
 object TemplateCustomizerScene : Scene {
-    private const val DEBUG_TEMPLATE_SAFE_STUB = true
     private const val U = 16f
     private var cachedLogicalWidth = 640f
     private var cachedLogicalHeight = 400f
@@ -612,16 +611,11 @@ object TemplateCustomizerScene : Scene {
     private var initialTouchX = 0f
     private var initialTouchY = 0f
     private var hasDragged = false
-    private var debugTemplateSafeRenderLogged = false
 
     override fun onEnter(payload: Any?) {
         scrollY = 0f
         isDragging = false
         hasDragged = false
-        if (DEBUG_TEMPLATE_SAFE_STUB) {
-            println("TEMPLATE_ENTER_SAFE")
-            return
-        }
     }
 
     override fun onExit() {
@@ -635,22 +629,6 @@ object TemplateCustomizerScene : Scene {
         val logicalHeight = renderer.canvas.height
         cachedLogicalWidth = logicalWidth
         cachedLogicalHeight = logicalHeight
-        if (DEBUG_TEMPLATE_SAFE_STUB) {
-            if (!debugTemplateSafeRenderLogged) {
-                println("TEMPLATE_RENDER_SAFE")
-                debugTemplateSafeRenderLogged = true
-            }
-            renderer.drawRect(0f, 0f, logicalWidth, logicalHeight, PaletteIndices.BG)
-            val safeX = playX.toFloat() + U
-            val safeY = U
-            val safeW = maxOf(U, playW.toFloat() - U * 2f)
-            val safeH = maxOf(U, playH.toFloat() - U * 2f)
-            renderer.drawRect(safeX, safeY, safeX + safeW, safeY + safeH, PaletteIndices.PRIMARY)
-            renderer.drawText("TEMPLATE SAFE", safeX + U, safeY + U, PaletteIndices.PRIMARY, scale = 1, startX = safeX, startY = safeY, clipWidth = safeW.toInt(), clipHeight = safeH.toInt())
-            renderer.drawText("CARDS SCENE REACHED", safeX + U, safeY + U * 2f, PaletteIndices.SECONDARY, scale = 1, startX = safeX, startY = safeY, clipWidth = safeW.toInt(), clipHeight = safeH.toInt())
-            RetroHudComponent.render(renderer, playX, playY, playW, playH)
-            return
-        }
         val state = SceneManager.timerActions?.getUiState() ?: return
         val strings = getStrings(state.language)
         SceneManager.logStringsAfterLanguageChange("TemplateCustomizerScene", state.language)
@@ -764,10 +742,6 @@ object TemplateCustomizerScene : Scene {
     override fun onInput(inputCode: Int) {}
 
     override fun onTouch(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
-        if (DEBUG_TEMPLATE_SAFE_STUB) {
-            if (RetroHudComponent.onTouchEvent(x, y, action, playX, playY, playW, playH)) return
-            return
-        }
         val isPortrait = playX <= 0
         val playAreaStartX = playX.toFloat()
         val playAreaH = playH.toFloat()
@@ -834,10 +808,6 @@ object TemplateCustomizerScene : Scene {
     }
 
     override fun onInput(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
-        if (DEBUG_TEMPLATE_SAFE_STUB) {
-            if (RetroHudComponent.onTouchEvent(x, y, action, playX, playY, playW, playH)) return
-            return
-        }
         if (RetroHudComponent.onTouchEvent(x, y, action, playX, playY, playW, playH)) return
         val isDown = action == TouchAction.UP
         if (!isDown) return
