@@ -12,16 +12,29 @@ import kotlin.math.roundToInt
 class ScaledProceduralRenderer(val canvas: EngineCanvas) {
     companion object {
         private const val U = 16f
-        private const val BUTTON_TEXT_WIDTH_NUM = 9f
-        private const val BUTTON_TEXT_WIDTH_DEN = 10f
-        private const val BUTTON_TEXT_HEIGHT_NUM = 3f
-        private const val BUTTON_TEXT_HEIGHT_DEN = 5f
+        const val TEXT_SCALE_IDENTITY = 1
+        const val TEXT_SCALE_HEADER = 2
+        const val ACTIVE_INDICATOR_GLYPH = '>'
         private const val BUTTON_BORDER_CELLS_DEN = 8f
+
+        fun measureTextCells(text: String): Int {
+            return text.length
+        }
+
+        fun measureTextWidth(text: String, scale: Int = TEXT_SCALE_IDENTITY): Float {
+            return measureTextCells(text) * U * scale
+        }
+
+        fun measureTextHeight(scale: Int = TEXT_SCALE_IDENTITY): Float {
+            return U * scale
+        }
     }
 
     init {
         ShinonomeFont.initCache()
     }
+
+    private val vector = AliasedVectorLayer(canvas)
 
     fun clear(colorIndex: Int) {
         canvas.clear(colorIndex)
@@ -75,7 +88,7 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         destY: Float,
         colorIndex: Int,
         shadowColorIndex: Int = EngineCanvas.COLOR_TRANSPARENT,
-        scale: Int = 1,
+        scale: Int = TEXT_SCALE_IDENTITY,
         startX: Float = destX,
         startY: Float = destY,
         clipWidth: Int = canvas.width.toInt(),
@@ -98,13 +111,13 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         destY: Float,
         colorIndex: Int,
         shadowColorIndex: Int = EngineCanvas.COLOR_TRANSPARENT,
-        sizeMultiplier: Float = 1f,
+        sizeMultiplier: Float = TEXT_SCALE_IDENTITY.toFloat(),
         startX: Float = destX,
         startY: Float = destY,
         clipWidth: Int = canvas.width.toInt(),
         clipHeight: Int = canvas.height.toInt()
     ) {
-        val scaleInt = kotlin.math.round(sizeMultiplier).toInt().coerceAtLeast(1)
+        val scaleInt = kotlin.math.round(sizeMultiplier).toInt().coerceAtLeast(TEXT_SCALE_IDENTITY)
         drawGlyph(char, destX, destY, colorIndex, shadowColorIndex, scaleInt, startX, startY, clipWidth, clipHeight)
     }
 
@@ -148,7 +161,7 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         colorIndex: Int,
         shadowColorIndex: Int = EngineCanvas.COLOR_TRANSPARENT,
         charSpacing: Float = 0f,
-        scale: Int = 1,
+        scale: Int = TEXT_SCALE_IDENTITY,
         startX: Float = destX,
         startY: Float = destY,
         clipWidth: Int = canvas.width.toInt(),
@@ -171,55 +184,14 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         colorIndex: Int,
         shadowColorIndex: Int = EngineCanvas.COLOR_TRANSPARENT,
         charSpacing: Float = 0f,
-        sizeMultiplier: Float = 1f,
+        sizeMultiplier: Float = TEXT_SCALE_IDENTITY.toFloat(),
         startX: Float = destX,
         startY: Float = destY,
         clipWidth: Int = canvas.width.toInt(),
         clipHeight: Int = canvas.height.toInt()
     ) {
-        val scaleInt = kotlin.math.round(sizeMultiplier).toInt().coerceAtLeast(1)
+        val scaleInt = kotlin.math.round(sizeMultiplier).toInt().coerceAtLeast(TEXT_SCALE_IDENTITY)
         drawText(text, destX, destY, colorIndex, shadowColorIndex, charSpacing, scaleInt, startX, startY, clipWidth, clipHeight)
-    }
-
-    fun drawOctagram(centerX: Float, centerY: Float, radius: Float, rotAngle: Float, colorIndex: Int, sw: Float) {
-        val rotIdx = FastMath.degreesToIdx(rotAngle)
-        for (i in 0 until 4) {
-            val idx1 = (i * 256) - 256 + rotIdx
-            val idx2 = ((i + 1) * 256) - 256 + rotIdx
-            val x1 = centerX + radius * FastMath.fastCos(idx1)
-            val y1 = centerY + radius * FastMath.fastSin(idx1)
-            val x2 = centerX + radius * FastMath.fastCos(idx2)
-            val y2 = centerY + radius * FastMath.fastSin(idx2)
-            canvas.drawLine(x1, y1, x2, y2, colorIndex, sw)
-
-            val idx1b = idx1 + 128
-            val idx2b = idx2 + 128
-            val x1b = centerX + radius * FastMath.fastCos(idx1b)
-            val y1b = centerY + radius * FastMath.fastSin(idx1b)
-            val x2b = centerX + radius * FastMath.fastCos(idx2b)
-            val y2b = centerY + radius * FastMath.fastSin(idx2b)
-            canvas.drawLine(x1b, y1b, x2b, y2b, colorIndex, sw)
-        }
-    }
-
-    fun drawPentagram(centerX: Float, centerY: Float, radius: Float, rotAngle: Float, colorIndex: Int, sw: Float) {
-        val pPoints = 5
-        val rotIdx = FastMath.degreesToIdx(rotAngle)
-        for (i in 0 until pPoints) {
-            val deg1 = i * 72f - 90f
-            val idx1 = FastMath.degreesToIdx(deg1) + rotIdx
-            val x1 = centerX + radius * FastMath.fastCos(idx1)
-            val y1 = centerY + radius * FastMath.fastSin(idx1)
-
-            val deg2 = ((i + 2) % pPoints) * 72f - 90f
-            val idx2 = FastMath.degreesToIdx(deg2) + rotIdx
-            val x2 = centerX + radius * FastMath.fastCos(idx2)
-            val y2 = centerY + radius * FastMath.fastSin(idx2)
-
-            canvas.drawLine(x1, y1, x2, y2, colorIndex, sw)
-            // Talisman ends
-            drawBresenhamCircle(x1, y1, sw * 2f, colorIndex, sw, false)
-        }
     }
 
     fun drawProgressTracks(
@@ -273,69 +245,197 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         }
     }
 
-    /**
-     * High-performance ZUN-Vibe procedural spellcard/danmaku circle generator.
-     * Renders magic runes, rotating teeth, and concentric stars purely via vector canvas math.
-     */
-    fun drawZunMagicCircle(
+    fun drawNestedTimeboxInstrument(
+        centerX: Float,
+        centerY: Float,
+        outerRadius: Float,
+        innerRadius: Float,
+        quietRadius: Float,
+        outerProgress: Float,
+        innerProgress: Float,
+        rotationProgress: Float,
+        isDual: Boolean,
+        outerActiveColorIndex: Int,
+        innerActiveColorIndex: Int,
+        trackColorIndex: Int,
+        magicPrimaryColorIndex: Int,
+        magicSecondaryColorIndex: Int,
+        textFrameColorIndex: Int
+    ) {
+        val density = canvas.density
+        val thin = density
+        val medium = density * 2f
+        val outerSegments = 90
+        val innerSegments = 60
+        val outerActive = (outerProgress * outerSegments).toInt().coerceIn(0, outerSegments)
+        val innerActive = (innerProgress * innerSegments).toInt().coerceIn(0, innerSegments)
+        vector.drawAliasedCircle(centerX, centerY, outerRadius, magicPrimaryColorIndex, thin)
+        vector.drawAliasedCircle(centerX, centerY, outerRadius - U / 2f, magicPrimaryColorIndex, thin)
+        vector.drawAliasedCircle(centerX, centerY, innerRadius + U / 4f, magicSecondaryColorIndex, thin)
+        vector.drawAliasedCircle(centerX, centerY, innerRadius - U / 4f, magicSecondaryColorIndex, thin)
+        vector.drawAliasedCircle(centerX, centerY, quietRadius, textFrameColorIndex, thin)
+
+        drawTimerArcRing(centerX, centerY, outerRadius - U / 4f, outerSegments, outerActive, outerProgress, outerActiveColorIndex, trackColorIndex, medium)
+        if (isDual) {
+            drawTimerArcRing(centerX, centerY, innerRadius, innerSegments, innerActive, innerProgress, innerActiveColorIndex, trackColorIndex, medium)
+        }
+
+        val sigilRadius = innerRadius + U / 2f
+        val centerDiscRadius = quietRadius - U / 2f
+        vector.drawAliasedCircle(centerX, centerY, sigilRadius, magicPrimaryColorIndex, thin)
+        vector.drawAliasedCircle(centerX, centerY, quietRadius, textFrameColorIndex, thin)
+        drawPentacleFrame(centerX, centerY, sigilRadius, rotationProgress, magicPrimaryColorIndex, thin)
+        drawSigilFlourishCurves(centerX, centerY, quietRadius, sigilRadius, magicSecondaryColorIndex, thin)
+        drawYinYangDisc(centerX, centerY, centerDiscRadius, textFrameColorIndex, magicSecondaryColorIndex, magicPrimaryColorIndex, trackColorIndex, thin)
+
+        vector.drawRadialTickMarks(
+            centerX,
+            centerY,
+            outerRadius - U - thin,
+            outerRadius - U + thin,
+            60,
+            rotationProgress * 360f,
+            magicSecondaryColorIndex,
+            thin,
+            majorEvery = 5,
+            majorExtraLength = thin * 2f
+        )
+
+        val notchR = quietRadius + U / 2f
+        var i = 0
+        while (i < 12) {
+            val angleIdx = FastMath.degreesToIdx(i * 30f)
+            val nx = centerX + notchR * FastMath.fastCos(angleIdx)
+            val ny = centerY + notchR * FastMath.fastSin(angleIdx)
+            canvas.drawRect(nx - thin, ny - thin, thin * 2f, thin * 2f, textFrameColorIndex)
+            i++
+        }
+    }
+
+    private fun drawTimerArcRing(
         centerX: Float,
         centerY: Float,
         radius: Float,
+        segmentCount: Int,
+        activeCount: Int,
         progress: Float,
-        primaryColorIndex: Int,
-        accentColorIndex: Int,
-        strokeWidth: Float = 2f
+        activeColorIndex: Int,
+        trackColorIndex: Int,
+        strokeWidth: Float
     ) {
-        val sw = strokeWidth * canvas.density
+        vector.drawAliasedArc(centerX, centerY, radius, -90f, 360f, trackColorIndex, strokeWidth)
+        vector.drawAliasedProgressArc(centerX, centerY, radius, -90f, 360f, progress, activeColorIndex, strokeWidth)
+        vector.drawRadialTickMarks(centerX, centerY, radius - U / 4f, radius + U / 4f, segmentCount, -90f, trackColorIndex, 1f)
+        vector.drawRadialProgressTickMarks(centerX, centerY, radius - U / 4f, radius + U / 4f, segmentCount, activeCount, -90f, activeColorIndex, strokeWidth)
+    }
 
-        val innerRadius = radius - (32f * canvas.density)
-        val tRadius = radius + (14f * canvas.density)
-
-        // Outer runic rim placeholders (small squares rotating geometry)
-        val numRunes = 24
-        val rot0 = progress * 360f * -0.5f 
-        val rotIdx = FastMath.degreesToIdx(rot0)
-        for (i in 0 until numRunes) {
-             val deg = i * (360f / numRunes)
-             val aIdx = FastMath.degreesToIdx(deg) + rotIdx
-             val px = centerX + tRadius * FastMath.fastCos(aIdx)
-             val py = centerY + tRadius * FastMath.fastSin(aIdx)
-             canvas.drawRect(px - sw, py - sw, sw * 2f, sw * 2f, accentColorIndex)
-             if (i % 3 == 0) {
-                 canvas.drawLine(centerX, centerY, px, py, primaryColorIndex, sw * 0.2f)
-             }
+    private fun drawPentacleFrame(
+        centerX: Float,
+        centerY: Float,
+        radius: Float,
+        rotationProgress: Float,
+        colorIndex: Int,
+        strokeWidth: Float
+    ) {
+        val rotIdx = FastMath.degreesToIdx(rotationProgress * 360f - 90f)
+        var i = 0
+        while (i < 5) {
+            val idx1 = FastMath.degreesToIdx(i * 72f) + rotIdx
+            val idx2 = FastMath.degreesToIdx(((i + 2) % 5) * 72f) + rotIdx
+            vector.drawAliasedLine(
+                centerX + radius * FastMath.fastCos(idx1),
+                centerY + radius * FastMath.fastSin(idx1),
+                centerX + radius * FastMath.fastCos(idx2),
+                centerY + radius * FastMath.fastSin(idx2),
+                colorIndex,
+                strokeWidth
+            )
+            i++
         }
+    }
 
-        // 1. Concentric rings
-        drawBresenhamCircle(centerX, centerY, radius + (12f * canvas.density), primaryColorIndex, sw * 0.5f, dashed = false)
-        drawBresenhamCircle(centerX, centerY, radius + (8f * canvas.density), primaryColorIndex, sw, dashed = false)
-        
-        // 2. Rotating Octagrams (Hakke layer)
-        val rotAngle1 = progress * 360f * 0.8f
-        drawOctagram(centerX, centerY, innerRadius + (12f * canvas.density), rotAngle1, primaryColorIndex, sw)
-        drawOctagram(centerX, centerY, innerRadius + (6f * canvas.density), -rotAngle1, accentColorIndex, sw * 0.5f)
-
-        // 3. Counter-rotating Hexagram core (Sei)
-        val rotAngle2 = -progress * 360f * 1.2f
-        val rotIdx2 = FastMath.degreesToIdx(rotAngle2)
-        val hRad = innerRadius - (12f * canvas.density)
-        for (i in 0 until 6) {
-             val idx1 = FastMath.degreesToIdx(i * 60f - 90f) + rotIdx2
-             val idx2 = FastMath.degreesToIdx((i + 2) * 60f - 90f) + rotIdx2
-             val x1 = centerX + hRad * FastMath.fastCos(idx1)
-             val y1 = centerY + hRad * FastMath.fastSin(idx1)
-             val x2 = centerX + hRad * FastMath.fastCos(idx2)
-             val y2 = centerY + hRad * FastMath.fastSin(idx2)
-             canvas.drawLine(x1, y1, x2, y2, accentColorIndex, sw)
-             // Inner connective web
-             canvas.drawLine(x1, y1, centerX, centerY, accentColorIndex, sw * 0.3f)
+    private fun drawSigilFlourishCurves(
+        centerX: Float,
+        centerY: Float,
+        quietRadius: Float,
+        sigilRadius: Float,
+        colorIndex: Int,
+        strokeWidth: Float
+    ) {
+        var i = 0
+        while (i < 5) {
+            val startIdx = FastMath.degreesToIdx(i * 72f - 90f)
+            val controlIdx = FastMath.degreesToIdx(i * 72f + 36f - 90f)
+            val endIdx = FastMath.degreesToIdx(i * 72f + 72f - 90f)
+            val startRadius = quietRadius + U / 2f
+            val controlRadius = sigilRadius - U / 3f
+            val endRadius = quietRadius + U / 2f
+            vector.drawQuadraticBezierDeCasteljau(
+                centerX + startRadius * FastMath.fastCos(startIdx),
+                centerY + startRadius * FastMath.fastSin(startIdx),
+                centerX + controlRadius * FastMath.fastCos(controlIdx),
+                centerY + controlRadius * FastMath.fastSin(controlIdx),
+                centerX + endRadius * FastMath.fastCos(endIdx),
+                centerY + endRadius * FastMath.fastSin(endIdx),
+                colorIndex,
+                strokeWidth
+            )
+            vector.drawCubicBezierDeCasteljau(
+                centerX + (sigilRadius - U / 2f) * FastMath.fastCos(startIdx),
+                centerY + (sigilRadius - U / 2f) * FastMath.fastSin(startIdx),
+                centerX + sigilRadius * FastMath.fastCos(startIdx),
+                centerY + sigilRadius * FastMath.fastSin(startIdx),
+                centerX + sigilRadius * FastMath.fastCos(endIdx),
+                centerY + sigilRadius * FastMath.fastSin(endIdx),
+                centerX + (sigilRadius - U / 2f) * FastMath.fastCos(endIdx),
+                centerY + (sigilRadius - U / 2f) * FastMath.fastSin(endIdx),
+                colorIndex,
+                strokeWidth
+            )
+            i++
         }
-        drawBresenhamCircle(centerX, centerY, hRad, accentColorIndex, sw, dashed = false)
+    }
 
-        // 4. Central nucleus
-        val innerBound = hRad * 0.4f
-        drawBresenhamCircle(centerX, centerY, innerBound, primaryColorIndex, sw, dashed = false)
-        drawBresenhamCircle(centerX, centerY, innerBound * 0.5f, accentColorIndex, sw * 0.5f, dashed = true)
+    private fun drawYinYangDisc(
+        centerX: Float,
+        centerY: Float,
+        radius: Float,
+        lightColorIndex: Int,
+        darkColorIndex: Int,
+        outlineColorIndex: Int,
+        dotColorIndex: Int,
+        cellSize: Float
+    ) {
+        val rSq = radius * radius
+        val halfR = radius / 2f
+        var y = -radius.toInt()
+        while (y <= radius.toInt()) {
+            var x = -radius.toInt()
+            while (x <= radius.toInt()) {
+                val fx = x.toFloat()
+                val fy = y.toFloat()
+                if (fx * fx + fy * fy <= rSq) {
+                    val upperDx = fx
+                    val upperDy = fy + halfR
+                    val lowerDx = fx
+                    val lowerDy = fy - halfR
+                    val colorIndex = when {
+                        upperDx * upperDx + upperDy * upperDy <= halfR * halfR -> lightColorIndex
+                        lowerDx * lowerDx + lowerDy * lowerDy <= halfR * halfR -> darkColorIndex
+                        fx >= 0f -> lightColorIndex
+                        else -> darkColorIndex
+                    }
+                    canvas.drawRect(centerX + fx, centerY + fy, cellSize, cellSize, colorIndex)
+                }
+                x++
+            }
+            y++
+        }
+        vector.drawAliasedCircle(centerX, centerY, radius, outlineColorIndex, cellSize)
+        vector.drawAliasedCircle(centerX, centerY - halfR, radius / 8f, darkColorIndex, cellSize)
+        vector.drawAliasedCircle(centerX, centerY + halfR, radius / 8f, lightColorIndex, cellSize)
+        canvas.drawRect(centerX - cellSize, centerY - halfR - cellSize, cellSize * 2f, cellSize * 2f, dotColorIndex)
+        canvas.drawRect(centerX - cellSize, centerY + halfR - cellSize, cellSize * 2f, cellSize * 2f, dotColorIndex)
     }
 
     /**
@@ -395,14 +495,24 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         val border = U / BUTTON_BORDER_CELLS_DEN
         fillRectDither(x + border, y + border, x + w - border, y + h - border, bgColor, bgColor, SoftDitherPattern.SOLID)
 
-        // Scaled Text centered inside the button with clipping mask
-        val maxScaleY = (h * BUTTON_TEXT_HEIGHT_NUM / BUTTON_TEXT_HEIGHT_DEN) / U
-        val maxScaleX = (w * BUTTON_TEXT_WIDTH_NUM / BUTTON_TEXT_WIDTH_DEN) / (text.length * U)
-        val textScale = kotlin.math.floor(kotlin.math.min(maxScaleX, maxScaleY).toDouble()).toInt().coerceAtLeast(1)
-
-        val textWidth = text.length * U * textScale
+        val textScale = TEXT_SCALE_IDENTITY
+        val textWidth = measureTextWidth(text, textScale)
+        val textHeight = measureTextHeight(textScale)
         val textX = x + (w - textWidth) / 2f
-        val textY = y + (h - (U * textScale)) / 2f
+        val textY = y + (h - textHeight) / 2f
+        if (isClicked || isHovered) {
+            drawGlyph(
+                ACTIVE_INDICATOR_GLYPH,
+                x + U / 2f,
+                y + (h - U) / 2f,
+                textColor,
+                scale = TEXT_SCALE_IDENTITY,
+                startX = x,
+                startY = y,
+                clipWidth = w.toInt(),
+                clipHeight = h.toInt()
+            )
+        }
         drawText(
             text = text,
             destX = textX,

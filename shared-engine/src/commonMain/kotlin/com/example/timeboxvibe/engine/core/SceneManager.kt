@@ -5,6 +5,7 @@ import kotlin.concurrent.Volatile
 const val ENGINE_TOUCH_DOWN = 1
 const val ENGINE_TOUCH_UP = 2
 const val ENGINE_TOUCH_CANCEL = 3
+const val ENGINE_TOUCH_MOVE = 4
 
 object SceneManager {
     @Volatile
@@ -140,7 +141,7 @@ object SceneManager {
     }
 
     fun timerActionsFromTouchEnabled(): Boolean {
-        return !DEBUG_DISABLE_TIMER_ACTIONS_FROM_TOUCH || DEBUG_TOUCH_MODE == TOUCH_MODE_FULL
+        return true
     }
 
     fun triggerKeyboard() {
@@ -168,6 +169,7 @@ object SceneManager {
         val scene = activeScene ?: return
         val sceneAction = when (actionCode) {
             ENGINE_TOUCH_DOWN -> TouchAction.DOWN
+            ENGINE_TOUCH_MOVE -> TouchAction.MOVE
             ENGINE_TOUCH_UP -> TouchAction.UP
             ENGINE_TOUCH_CANCEL -> TouchAction.CANCEL
             else -> return
@@ -261,6 +263,7 @@ object SceneManager {
     private fun engineTouchAction(actionCode: Int): Int {
         return when (actionCode) {
             ENGINE_TOUCH_DOWN -> TouchAction.DOWN
+            ENGINE_TOUCH_MOVE -> TouchAction.MOVE
             ENGINE_TOUCH_UP -> TouchAction.UP
             ENGINE_TOUCH_CANCEL -> TouchAction.CANCEL
             else -> actionCode
@@ -301,7 +304,6 @@ object SceneManager {
     private const val DEBUG_TOUCH_MODE = TOUCH_MODE_FULL
     private const val DEBUG_DISABLE_PLATFORM_EFFECTS = true
     private const val DEBUG_DISABLE_SCENE_TOUCH_DISPATCH = false
-    private const val DEBUG_DISABLE_TIMER_ACTIONS_FROM_TOUCH = false
     private const val MAX_INPUT_DRAIN_PER_FRAME = 64
     private const val INPUT_DRAIN_OVERFLOW_LOG_INTERVAL_SECONDS = 1f
     private const val EMPTY_INPUT_SENTINEL = -1

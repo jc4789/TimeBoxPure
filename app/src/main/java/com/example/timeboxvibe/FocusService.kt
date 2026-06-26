@@ -128,7 +128,7 @@ class FocusService : Service() {
 
         when (action) {
             "STOP_SERVICE" -> {
-                clearSavedEngineState()
+                clearSavedEngineStateNow()
                 stopAlarmAndService()
                 return START_NOT_STICKY
             }
@@ -157,7 +157,7 @@ class FocusService : Service() {
                 engine?.let {
                     it.reset()
                     stopTicker()
-                    clearSavedEngineState()
+                    clearSavedEngineStateNow()
                     stopAlarmAudioAndVibe()
                     broadcastState()
                 }
@@ -180,6 +180,7 @@ class FocusService : Service() {
                         startTicker()
                         updateNotification("running")
                     } else {
+                        clearSavedEngineStateNow()
                         stopAlarmAndService()
                     }
                 }
@@ -305,6 +306,7 @@ class FocusService : Service() {
                 if (eng.isRinging) {
                     triggerPersistentAlarm()
                 } else {
+                    clearSavedEngineStateNow()
                     stopAlarmAndService()
                     onSequenceComplete()
                 }
@@ -363,8 +365,8 @@ class FocusService : Service() {
             if (eng.isActive && !eng.isRinging && !isServiceStopped) {
                 if (intervalCompleteHappened) {
                     scheduleAlarm()
-                    updateNotification("running")
                 }
+                updateNotification("running")
             }
         }
     }
@@ -526,11 +528,11 @@ class FocusService : Service() {
     private fun broadcastState() {
         val eng = engine ?: return
         TimerStateHolder.update(
-            timeRemaining = eng.timeRemaining,
+            timeRemaining = eng.timeRemaining.coerceAtLeast(0),
             totalDuration = eng.totalDuration,
-            midTimeRemaining = eng.midTimeRemaining,
+            midTimeRemaining = eng.midTimeRemaining.coerceAtLeast(0),
             midTotalDuration = eng.midTotalDuration,
-            bigTimeRemaining = eng.bigTimeRemaining,
+            bigTimeRemaining = eng.bigTimeRemaining.coerceAtLeast(0),
             bigTotalDuration = eng.bigTotalDuration,
             currentIndex = eng.currentIndex,
             isActive = eng.isActive,
@@ -750,7 +752,7 @@ class FocusService : Service() {
 
     private fun buildNotification(stateType: String): Notification {
         val eng = engine
-        val timeStr = if (eng != null) formatTime(eng.timeRemaining) else "00:00"
+        val timeStr = if (eng != null) formatTime(eng.timeRemaining.coerceAtLeast(0)) else "00:00"
 
         val title = when (stateType) {
             "ringing" -> "Time's Up!"
@@ -761,7 +763,7 @@ class FocusService : Service() {
         val content = when (stateType) {
             "ringing" -> "Task: $taskName"
             "paused" -> "Task: $taskName (Paused at $timeStr)"
-            else -> "Task: $taskName"
+            else -> "Task: $taskName ($timeStr)"
         }
 
         val notificationIntent = Intent(this, MainActivity::class.java).apply {
@@ -794,18 +796,8 @@ class FocusService : Service() {
             .setContentIntent(pendingIntent)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
 
-        if (stateType == "running" && eng != null) {
-            builder.setUsesChronometer(true)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                builder.setChronometerCountDown(true)
-            }
-            val elapsedRemaining = (lastTickTimestamp + eng.timeRemaining * 1000L + 998L) - SystemClock.elapsedRealtime()
-            builder.setWhen(System.currentTimeMillis() + elapsedRemaining)
-            builder.setShowWhen(true)
-        } else {
-            builder.setUsesChronometer(false)
-            builder.setShowWhen(false)
-        }
+        builder.setUsesChronometer(false)
+        builder.setShowWhen(false)
 
         when (stateType) {
             "ringing" -> {
@@ -1010,27 +1002,96 @@ class FocusService : Service() {
 
     private fun saveEngineState() {
         val eng = engine ?: return
+        val timeRemaining = eng.timeRemaining
+        val totalDuration = eng.totalDuration
+        val midTimeRemaining = eng.midTimeRemaining
+        val midTotalDuration = eng.midTotalDuration
+        val bigTimeRemaining = eng.bigTimeRemaining
+        val bigTotalDuration = eng.bigTotalDuration
+        val currentIndex = eng.currentIndex
+        val isActive = eng.isActive
+        val isRinging = eng.isRinging
         serviceScope.launch(Dispatchers.IO) {
-            dataStore.edit { prefs ->
-                prefs[booleanPreferencesKey("has_saved_state")] = true
-                prefs[intPreferencesKey("saved_time_remaining")] = eng.timeRemaining
-                prefs[intPreferencesKey("saved_total_duration")] = eng.totalDuration
-                prefs[intPreferencesKey("saved_mid_time_remaining")] = eng.midTimeRemaining
-                prefs[intPreferencesKey("saved_mid_total_duration")] = eng.midTotalDuration
-                prefs[intPreferencesKey("saved_big_time_remaining")] = eng.bigTimeRemaining
-                prefs[intPreferencesKey("saved_big_total_duration")] = eng.bigTotalDuration
-                prefs[intPreferencesKey("saved_current_index")] = eng.currentIndex
-                prefs[booleanPreferencesKey("saved_is_active")] = eng.isActive
-                prefs[booleanPreferencesKey("saved_is_ringing")] = eng.isRinging
-            }
+            persistEngineState(
+                timeRemaining,
+                totalDuration,
+                midTimeRemaining,
+                midTotalDuration,
+                bigTimeRemaining,
+                bigTotalDuration,
+                currentIndex,
+                isActive,
+                isRinging
+            )
+        }
+    }
+
+    private fun saveEngineStateNow() {
+        val eng = engine ?: return
+        val timeRemaining = eng.timeRemaining
+        val totalDuration = eng.totalDuration
+        val midTimeRemaining = eng.midTimeRemaining
+        val midTotalDuration = eng.midTotalDuration
+        val bigTimeRemaining = eng.bigTimeRemaining
+        val bigTotalDuration = eng.bigTotalDuration
+        val currentIndex = eng.currentIndex
+        val isActive = eng.isActive
+        val isRinging = eng.isRinging
+        runBlocking(Dispatchers.IO) {
+            persistEngineState(
+                timeRemaining,
+                totalDuration,
+                midTimeRemaining,
+                midTotalDuration,
+                bigTimeRemaining,
+                bigTotalDuration,
+                currentIndex,
+                isActive,
+                isRinging
+            )
+        }
+    }
+
+    private suspend fun persistEngineState(
+        timeRemaining: Int,
+        totalDuration: Int,
+        midTimeRemaining: Int,
+        midTotalDuration: Int,
+        bigTimeRemaining: Int,
+        bigTotalDuration: Int,
+        currentIndex: Int,
+        isActive: Boolean,
+        isRinging: Boolean
+    ) {
+        dataStore.edit { prefs ->
+            prefs[booleanPreferencesKey("has_saved_state")] = true
+            prefs[intPreferencesKey("saved_time_remaining")] = timeRemaining.coerceAtLeast(0)
+            prefs[intPreferencesKey("saved_total_duration")] = totalDuration
+            prefs[intPreferencesKey("saved_mid_time_remaining")] = midTimeRemaining.coerceAtLeast(0)
+            prefs[intPreferencesKey("saved_mid_total_duration")] = midTotalDuration
+            prefs[intPreferencesKey("saved_big_time_remaining")] = bigTimeRemaining.coerceAtLeast(0)
+            prefs[intPreferencesKey("saved_big_total_duration")] = bigTotalDuration
+            prefs[intPreferencesKey("saved_current_index")] = currentIndex
+            prefs[booleanPreferencesKey("saved_is_active")] = isActive
+            prefs[booleanPreferencesKey("saved_is_ringing")] = isRinging
         }
     }
 
     private fun clearSavedEngineState() {
         serviceScope.launch(Dispatchers.IO) {
-            dataStore.edit { prefs ->
-                prefs[booleanPreferencesKey("has_saved_state")] = false
-            }
+            persistClearedEngineState()
+        }
+    }
+
+    private fun clearSavedEngineStateNow() {
+        runBlocking(Dispatchers.IO) {
+            persistClearedEngineState()
+        }
+    }
+
+    private suspend fun persistClearedEngineState() {
+        dataStore.edit { prefs ->
+            prefs[booleanPreferencesKey("has_saved_state")] = false
         }
     }
 
@@ -1038,14 +1099,17 @@ class FocusService : Service() {
         val eng = engine
         if (eng != null && (eng.isActive || eng.isRinging || eng.timeRemaining != eng.totalDuration)) {
             // Save state so we can resume if killed/recreated
-            saveEngineState()
+            saveEngineStateNow()
         }
+        stopTicker()
+        stopAlarmAudioAndVibe()
+        tickTone?.release()
+        tickTone = null
         FocusService.engine = null
         cachedIconBitmap?.recycle()
         cachedIconBitmap = null
         super.onDestroy()
         serviceJob.cancel()
-        stopAlarmAndService()
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -1055,7 +1119,7 @@ class FocusService : Service() {
             saveEngineState()
         } else {
             // Idle or paused — clean up and stop service/dismiss notification
-            clearSavedEngineState()
+            clearSavedEngineStateNow()
             stopAlarmAndService()
         }
         super.onTaskRemoved(rootIntent)

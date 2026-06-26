@@ -62,18 +62,13 @@ object ProceduralTextRenderer {
     private const val CUSTOM_ID_SUFFIX_CHARS = 6
     private const val SYS_ID_PREFIX_CHARS = 8
 
-    fun fitScale(textLength: Int, width: Float, maxScale: Int): Int {
-        if (textLength <= 0) return 1
-        return (width / (textLength * U)).toInt().coerceIn(1, maxScale)
-    }
-
     fun drawRaw(
         renderer: ScaledProceduralRenderer,
         text: String,
         x: Float,
         y: Float,
         color: Int,
-        scale: Int = 1
+        scale: Int = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
     ) {
         val charW = U * scale
         var i = 0

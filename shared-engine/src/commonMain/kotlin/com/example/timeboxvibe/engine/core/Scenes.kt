@@ -51,15 +51,36 @@ object ActiveTimerScene : Scene {
     private const val CONTROL_GAP_LANDSCAPE = 16f
     private const val CONTROL_ICON_SIZE = 32f
     private const val CONTROL_ICON_SCALE = 1
+    private const val TIMER_RADIUS_WIDTH_NUM = 17f
+    private const val TIMER_RADIUS_WIDTH_DEN = 40f
+    private const val TIMER_RADIUS_HEIGHT_NUM = 3f
+    private const val TIMER_RADIUS_HEIGHT_DEN = 10f
+    private const val OUTER_TO_INNER_RING_CELLS = 2f
+    private const val INNER_TO_QUIET_ZONE_CELLS = 3f
+    private const val MIN_TIMER_RADIUS_CELLS = 8f
+    private const val TIMER_TOP_GAP_CELLS = 1f
+    private const val TIMER_CONTROL_GAP_CELLS = 1f
+    private const val TIMER_BOTTOM_PAD_CELLS = 1f
+    private const val CALENDAR_PANEL_HEIGHT_CELLS = 5f
+    private const val CALENDAR_PANEL_GAP_CELLS = 1f
     var isTaskFocused = false
     private val inputContainer = FixedInputContainer(64)
     private var cachedLogicalWidth = 640f
     private var cachedLogicalHeight = 400f
     private var blinkAccumulator = 0.0f
+    private var scrollY = 0f
+    private var lastTouchY = 0f
+    private var isDragging = false
+    private var initialTouchX = 0f
+    private var initialTouchY = 0f
+    private var hasDragged = false
     private const val BLINK_RATE = 0.5f
 
     override fun onEnter(payload: Any?) {
         isTaskFocused = false
+        scrollY = 0f
+        isDragging = false
+        hasDragged = false
         // Clear input container
         while (inputContainer.length > 0) {
             inputContainer.processPayload(EngineInputCodes.CMD_BACKSPACE)
@@ -73,6 +94,7 @@ object ActiveTimerScene : Scene {
 
     override fun onExit() {
         isTaskFocused = false
+        isDragging = false
     }
 
     override fun update(dt: Float) {}
@@ -93,19 +115,20 @@ object ActiveTimerScene : Scene {
         val isPortrait = playX <= 0
         
         val cx: Float
-        val cy: Float
+        val baseCy: Float
         val radius: Float
         val playAreaStartX: Float
         val playAreaW: Float
         val playAreaH: Float
+        val inputBaseY = timerInputY(logicalHeight)
         
         if (isPortrait) {
             playAreaStartX = playX.toFloat()
             playAreaW = playW.toFloat()
             playAreaH = playH.toFloat()
             cx = logicalWidth / 2f
-            cy = playAreaH * 0.4f
-            radius = 90f
+            radius = timerRadius(playAreaW, playAreaH)
+            baseCy = timerCenterY(playAreaH, inputBaseY, radius)
             
             // 1. Draw Play Area background (top 85%)
             renderer.fillRectDither(0f, 0f, logicalWidth, playAreaH, PaletteIndices.BG, PaletteIndices.BG, SoftDitherPattern.SOLID)
@@ -114,12 +137,16 @@ object ActiveTimerScene : Scene {
             playAreaW = playW.toFloat()
             playAreaH = playH.toFloat()
             cx = playAreaStartX + (playAreaW / 2f)
-            cy = 195f
-            radius = 100f
+            radius = timerRadius(playAreaW, playAreaH)
+            baseCy = timerCenterY(playAreaH, inputBaseY, radius)
             
             // 1. Draw Play Area background (right 70%)
             renderer.fillRectDither(playAreaStartX, 0f, logicalWidth, logicalHeight, PaletteIndices.BG, PaletteIndices.BG, SoftDitherPattern.SOLID)
         }
+        scrollY = scrollY.coerceIn(timerMinScroll(state, playAreaH, logicalHeight, radius, inputBaseY), 0f)
+        val cy = baseCy + scrollY
+        val inputY = inputBaseY + scrollY
+        val btnY = timerControlRowY(baseCy, radius) + scrollY
 
         val outerProgress = if (state.totalDuration > 0) state.timeRemaining.toFloat() / state.totalDuration.toFloat() else 0f
         val innerProgress = if (state.isDual) {
@@ -130,28 +157,39 @@ object ActiveTimerScene : Scene {
             }
         } else 0f
 
-        // 3. Render progress tracks
-        renderer.drawProgressTracks(
-            cx, cy, radius, outerProgress, innerProgress, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY, state.isDual
-        )
-
-        // 4. Draw Zun Magic Circle (Mahoujin)
+        // 3. Draw the nested timebox instrument. The center is reserved before ornament is drawn.
         val now = getEpochMillis()
         val progress = (now % 16000L).toFloat() / 16000f
-        renderer.drawZunMagicCircle(
-            cx, cy, radius, -progress, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY, 1.5f
+        val innerRadius = radius - U * OUTER_TO_INNER_RING_CELLS
+        val quietRadius = innerRadius - U * INNER_TO_QUIET_ZONE_CELLS
+        renderer.drawNestedTimeboxInstrument(
+            centerX = cx,
+            centerY = cy,
+            outerRadius = radius,
+            innerRadius = innerRadius,
+            quietRadius = quietRadius,
+            outerProgress = outerProgress,
+            innerProgress = innerProgress,
+            rotationProgress = -progress,
+            isDual = state.isDual,
+            outerActiveColorIndex = PaletteIndices.HIGHLIGHT,
+            innerActiveColorIndex = PaletteIndices.ACCENT_SECONDARY,
+            trackColorIndex = PaletteIndices.BORDER,
+            magicPrimaryColorIndex = PaletteIndices.MAGIC_CIRCLE_PRIMARY,
+            magicSecondaryColorIndex = PaletteIndices.MAGIC_CIRCLE_SECONDARY,
+            textFrameColorIndex = PaletteIndices.BORDER_BRIGHT
         )
 
-        // 5. Draw Orbiting Bullet Pattern
+        // 4. Draw orbiting state marker on the active outer timebox ring.
         if (outerProgress > 0f) {
             renderer.drawBulletPattern(
-                cx, cy, radius, outerProgress, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY, 1.2f
+                cx, cy, radius, outerProgress, PaletteIndices.HIGHLIGHT, PaletteIndices.ACCENT_SECONDARY, 1.2f
             )
         }
 
-        // 6. Draw Center Text Readouts (Zero-Allocation, Integer-Strict Scale)
-        val cPri = PaletteIndices.PRIMARY
-        val cSec = PaletteIndices.SECONDARY
+        // 5. Center readouts are part of the instrument, inside the reserved quiet zone.
+        val cPri = PaletteIndices.TEXT_PRIMARY
+        val cSec = PaletteIndices.TEXT_SECONDARY
         val timeRemaining = state.timeRemaining
         val midTimeRemaining = state.midTimeRemaining
         val bigTimeRemaining = state.bigTimeRemaining
@@ -164,37 +202,36 @@ object ActiveTimerScene : Scene {
         if (isD) {
             if (activeMode == "dual.5") {
                 if (sequenceLength > 1) {
-                    drawStepCentered(renderer, cx, currentIndex, sequenceLength, cy - 55f, 1, cSec)
-                    drawTimeCentered(renderer, cx, timeRemaining, cy - 25f, 2, cPri)
+                    drawStepCentered(renderer, cx, currentIndex, sequenceLength, cy - U * 7f / 2f, 1, cSec)
+                    drawTimeCentered(renderer, cx, timeRemaining, cy - U * 3f / 2f, 2, cPri)
                 } else {
-                    drawTimeCentered(renderer, cx, timeRemaining, cy - 30f, 2, cPri)
+                    drawTimeCentered(renderer, cx, timeRemaining, cy - U * 3f / 2f, 2, cPri)
                 }
-                drawAlarmTimeCentered(renderer, cx, midTimeRemaining, cy + 5f, 1, cPri)
-                drawTimeCentered(renderer, cx, bigTimeRemaining, cy + 24f, 1, cPri)
-                drawStaticTextCentered(renderer, cx, if (activeMode == "dual-sequence") strings.blockLimitLabel else strings.sessionLimitLabel, cy + 42f, 1, cSec)
+                drawAlarmTimeCentered(renderer, cx, midTimeRemaining, cy + U / 2f, 1, cPri)
+                drawTimeCentered(renderer, cx, bigTimeRemaining, cy + U * 7f / 4f, 1, cPri)
+                drawStaticTextCentered(renderer, cx, strings.sessionLimitLabel, cy + U * 3f, 1, cSec)
             } else {
                 if (sequenceLength > 1) {
-                    drawStepCentered(renderer, cx, currentIndex, sequenceLength, cy - 48f, 1, cSec)
-                    drawTimeCentered(renderer, cx, timeRemaining, cy - 16f, 2, cPri)
+                    drawStepCentered(renderer, cx, currentIndex, sequenceLength, cy - U * 5f / 2f, 1, cSec)
+                    drawTimeCentered(renderer, cx, timeRemaining, cy - U / 2f, 2, cPri)
                 } else {
-                    drawTimeCentered(renderer, cx, timeRemaining, cy - 20f, 2, cPri)
+                    drawTimeCentered(renderer, cx, timeRemaining, cy - U / 2f, 2, cPri)
                 }
-                drawTimeCentered(renderer, cx, bigTimeRemaining, cy + 18f, 1, cPri)
-                drawStaticTextCentered(renderer, cx, if (activeMode == "dual-sequence") strings.blockLimitLabel else strings.sessionLimitLabel, cy + 36f, 1, cSec)
+                drawTimeCentered(renderer, cx, bigTimeRemaining, cy + U * 3f / 2f, 1, cPri)
+                drawStaticTextCentered(renderer, cx, if (activeMode == "dual-sequence") strings.blockLimitLabel else strings.sessionLimitLabel, cy + U * 11f / 4f, 1, cSec)
             }
         } else {
             val isSeqMode = activeMode == "sequence" || activeMode == "dual-sequence" || activeMode == "calendar"
-            drawTimeCentered(renderer, cx, timeRemaining, cy - 12f, 2, cPri)
+            drawTimeCentered(renderer, cx, timeRemaining, cy - U / 2f, 2, cPri)
             if (isSeqMode && sequenceLength > 1) {
-                drawStepCentered(renderer, cx, currentIndex, sequenceLength, cy + 24f, 1, cSec)
+                drawStepCentered(renderer, cx, currentIndex, sequenceLength, cy + U * 3f / 2f, 1, cSec)
             } else if (activeMode != "sequence") {
-                drawStaticTextCentered(renderer, cx, if (isBreak) strings.unwindingLabel else strings.focusingLabel, cy + 24f, 1, cSec)
+                drawStaticTextCentered(renderer, cx, if (isBreak) strings.unwindingLabel else strings.focusingLabel, cy + U * 3f / 2f, 1, cSec)
             }
         }
 
         // 7. Draw Task Input Box
         val taskText = state.currentTask
-        val inputY = maxOf(logicalHeight * 0.08f, 30f)
         val inputH = TASK_INPUT_HEIGHT
         val inputX = playAreaStartX + TASK_INPUT_SIDE_PAD
         val showPresetBadge = playAreaW >= 220f
@@ -204,19 +241,19 @@ object ActiveTimerScene : Scene {
         } else {
             playAreaW - TASK_INPUT_SIDE_PAD * 2f
         }
-        renderer.drawRect(inputX, inputY, inputW, inputH, if (isTaskFocused) PaletteIndices.PRIMARY else PaletteIndices.SECONDARY)
+        renderer.drawRect(inputX, inputY, inputW, inputH, if (isTaskFocused) PaletteIndices.HIGHLIGHT else PaletteIndices.BORDER)
 
         if (showPresetBadge) {
-            renderer.drawRect(presetBadgeX, inputY, PRESET_BADGE_SIZE, PRESET_BADGE_SIZE, PaletteIndices.SECONDARY)
+            renderer.drawRect(presetBadgeX, inputY, PRESET_BADGE_SIZE, PRESET_BADGE_SIZE, PaletteIndices.BORDER)
             ProceduralIconRenderer.draw(
                 renderer,
                 activePresetIcon(state.activeMode),
                 presetBadgeX + (PRESET_BADGE_SIZE - CONTROL_ICON_SIZE) / 2f,
                 inputY + (PRESET_BADGE_SIZE - CONTROL_ICON_SIZE) / 2f,
                 scale = CONTROL_ICON_SCALE,
-                primaryColor = PaletteIndices.PRIMARY,
-                onBackgroundColor = PaletteIndices.SECONDARY,
-                surfaceColor = PaletteIndices.BG
+                primaryColor = PaletteIndices.TEXT_PRIMARY,
+                onBackgroundColor = PaletteIndices.BORDER,
+                surfaceColor = PaletteIndices.PANEL
             )
         }
 
@@ -225,8 +262,8 @@ object ActiveTimerScene : Scene {
         } else {
             taskText
         }
-        val textY = inputY + (inputH - 16f) / 2f
-        val textColor = if (taskText.isEmpty()) PaletteIndices.SECONDARY else PaletteIndices.PRIMARY
+        val textY = inputY + (inputH - U) / 2f
+        val textColor = if (taskText.isEmpty()) PaletteIndices.TEXT_DISABLED else PaletteIndices.TEXT_PRIMARY
         ProceduralTextRenderer.drawUpperClipped(
             renderer,
             displayText,
@@ -254,12 +291,11 @@ object ActiveTimerScene : Scene {
                 val cursorH = inputH * 0.6f
                 renderer.fillRectDither(
                     cursorX, inputY + (inputH - cursorH) / 2f, cursorX + 8f, inputY + (inputH - cursorH) / 2f + cursorH,
-                    PaletteIndices.PRIMARY, PaletteIndices.PRIMARY, SoftDitherPattern.SOLID)
+                    PaletteIndices.HIGHLIGHT, PaletteIndices.HIGHLIGHT, SoftDitherPattern.SOLID)
             }
         }
 
         // 8. Draw Timer Control Buttons
-        val btnY = timerControlRowY(isPortrait, playAreaH)
         val btnW = timerControlWidth(playAreaW, isPortrait)
         var controlIndex = 0
         while (controlIndex < CONTROL_SLOT_COUNT) {
@@ -267,6 +303,8 @@ object ActiveTimerScene : Scene {
             drawTimerControlButton(renderer, state, controlIndex, bx, btnY, btnW, CONTROL_BUTTON_HEIGHT)
             controlIndex++
         }
+
+        drawActiveCalendarPanel(renderer, state, strings, playAreaStartX, playAreaW, btnY + CONTROL_BUTTON_HEIGHT + U * CALENDAR_PANEL_GAP_CELLS)
 
         RetroHudComponent.render(renderer, playX, playY, playW, playH)
 
@@ -296,7 +334,52 @@ object ActiveTimerScene : Scene {
     }
 
     override fun onTouch(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
-        onInput(x, y, action, playX, playY, playW, playH)
+        val isPortrait = playX <= 0
+        val inPlayArea = if (isPortrait) y < playH else x >= playX
+
+        if (!isDragging && !inPlayArea) {
+            onInput(x, y, action, playX, playY, playW, playH)
+            return
+        }
+
+        when (action) {
+            TouchAction.DOWN -> {
+                if (!inPlayArea) return
+                isDragging = true
+                lastTouchY = y.toFloat()
+                initialTouchX = x.toFloat()
+                initialTouchY = y.toFloat()
+                hasDragged = false
+            }
+            TouchAction.MOVE -> {
+                if (isDragging) {
+                    val deltaY = y - lastTouchY
+                    if (abs(deltaY) > U / 8f) {
+                        hasDragged = true
+                    }
+                    scrollY += deltaY
+                    lastTouchY = y.toFloat()
+                    val state = SceneManager.timerActions?.getUiState() ?: return
+                    val logicalHeight = if (playX > 0) playH.toFloat() else playH * 20f / 17f
+                    val radius = timerRadius(playW.toFloat(), playH.toFloat())
+                    scrollY = scrollY.coerceIn(timerMinScroll(state, playH.toFloat(), logicalHeight, radius, timerInputY(logicalHeight)), 0f)
+                }
+            }
+            TouchAction.UP -> {
+                if (isDragging) {
+                    isDragging = false
+                    val deltaX = x - initialTouchX
+                    val deltaY = y - initialTouchY
+                    if (inPlayArea && abs(deltaX) < U / 2f && abs(deltaY) < U / 2f && !hasDragged) {
+                        onInput(x, y, TouchAction.UP, playX, playY, playW, playH)
+                    }
+                }
+            }
+            TouchAction.CANCEL -> {
+                isDragging = false
+                hasDragged = false
+            }
+        }
     }
 
     override fun onInput(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
@@ -319,21 +402,24 @@ object ActiveTimerScene : Scene {
         val playAreaStartX = playX.toFloat()
         val playAreaW = playW.toFloat()
         val playAreaH = playH.toFloat()
+        val radius = timerRadius(playAreaW, playAreaH)
+        val inputBaseY = timerInputY(logicalHeight)
+        scrollY = scrollY.coerceIn(timerMinScroll(state, playAreaH, logicalHeight, radius, inputBaseY), 0f)
 
         if (state.isRinging) {
             val cx: Float
             val cy: Float
-            val radius: Float
+            val alarmRadius: Float
             if (isPortrait) {
                 cx = logicalWidth / 2f
                 cy = playAreaH / 2f
-                radius = minOf(logicalWidth, playAreaH) * 0.4f
+                alarmRadius = minOf(logicalWidth, playAreaH) * 0.4f
             } else {
                 cx = playAreaStartX + (playAreaW / 2f)
                 cy = logicalHeight / 2f
-                radius = minOf(playAreaW, logicalHeight) * 0.4f
+                alarmRadius = minOf(playAreaW, logicalHeight) * 0.4f
             }
-            if (TouchColliderManager.checkCircle(x.toFloat(), y.toFloat(), cx, cy, radius)) {
+            if (TouchColliderManager.checkCircle(x.toFloat(), y.toFloat(), cx, cy, alarmRadius)) {
                 if (SceneManager.timerActionsFromTouchEnabled()) {
                     SceneManager.timerActions?.dismissAlarm()
                 }
@@ -343,7 +429,7 @@ object ActiveTimerScene : Scene {
         }
 
         // 1. Task Input Click
-        val inputY = maxOf(logicalHeight * 0.08f, 30f)
+        val inputY = inputBaseY + scrollY
         val inputH = TASK_INPUT_HEIGHT
         val inputX = playAreaStartX + TASK_INPUT_SIDE_PAD
         val inputW = if (playAreaW >= 220f) {
@@ -362,7 +448,7 @@ object ActiveTimerScene : Scene {
         isTaskFocused = false
 
         // 2. Button clicks
-        val btnY = timerControlRowY(isPortrait, playAreaH)
+        val btnY = timerControlRowY(timerCenterY(playAreaH, inputBaseY, radius), radius) + scrollY
         val btnW = timerControlWidth(playAreaW, isPortrait)
 
         if (fy >= btnY && fy <= btnY + CONTROL_BUTTON_HEIGHT) {
@@ -403,8 +489,8 @@ object ActiveTimerScene : Scene {
         }
     }
 
-    private fun timerControlRowY(isPortrait: Boolean, playAreaH: Float): Float {
-        return if (isPortrait) playAreaH * 0.75f else 320f
+    private fun timerControlRowY(timerCenterY: Float, radius: Float): Float {
+        return timerCenterY + radius + U * TIMER_CONTROL_GAP_CELLS
     }
 
     private fun timerControlGap(isPortrait: Boolean): Float {
@@ -420,6 +506,74 @@ object ActiveTimerScene : Scene {
         val gap = timerControlGap(isPortrait)
         val startX = playAreaStartX + TASK_INPUT_SIDE_PAD
         return startX + index * (buttonWidth + gap)
+    }
+
+    private fun timerRadius(playAreaW: Float, playAreaH: Float): Float {
+        val widthBound = playAreaW * TIMER_RADIUS_WIDTH_NUM / TIMER_RADIUS_WIDTH_DEN
+        val heightBound = playAreaH * TIMER_RADIUS_HEIGHT_NUM / TIMER_RADIUS_HEIGHT_DEN
+        return maxOf(U * MIN_TIMER_RADIUS_CELLS, minOf(widthBound, heightBound))
+    }
+
+    private fun timerInputY(logicalHeight: Float): Float {
+        return maxOf(logicalHeight / 12f, U * 2f)
+    }
+
+    private fun timerCenterY(playAreaH: Float, inputY: Float, radius: Float): Float {
+        val clearTop = inputY + TASK_INPUT_HEIGHT + U * TIMER_TOP_GAP_CELLS + radius
+        return maxOf(clearTop, playAreaH / 2f)
+    }
+
+    private fun timerMinScroll(state: EngineUiState, playAreaH: Float, logicalHeight: Float, radius: Float, inputY: Float): Float {
+        val centerY = timerCenterY(playAreaH, inputY, radius)
+        var contentBottom = timerControlRowY(centerY, radius) + CONTROL_BUTTON_HEIGHT + U * TIMER_BOTTOM_PAD_CELLS
+        if (state.activeMode == "calendar") {
+            contentBottom += U * (CALENDAR_PANEL_GAP_CELLS + CALENDAR_PANEL_HEIGHT_CELLS)
+        }
+        return (playAreaH - contentBottom).coerceAtMost(0f)
+    }
+
+    private fun drawActiveCalendarPanel(
+        renderer: ScaledProceduralRenderer,
+        state: EngineUiState,
+        strings: AppStrings,
+        playAreaStartX: Float,
+        playAreaW: Float,
+        y: Float
+    ) {
+        if (state.activeMode != "calendar") return
+        val preset = activePreset(state) ?: return
+        val panelX = playAreaStartX + TASK_INPUT_SIDE_PAD
+        val panelW = playAreaW - TASK_INPUT_SIDE_PAD * 2f
+        val panelH = U * CALENDAR_PANEL_HEIGHT_CELLS
+        if (panelW <= U || panelH <= U) return
+        renderer.drawRect(panelX, y, panelW, panelH, PaletteIndices.BORDER)
+        val titleY = y + U / 2f
+        val titleW = panelW - U
+        ProceduralTextRenderer.drawUpperClipped(
+            renderer,
+            preset.name,
+            panelX + U / 2f,
+            titleY,
+            PaletteIndices.TEXT_PRIMARY,
+            ScaledProceduralRenderer.TEXT_SCALE_IDENTITY,
+            panelX + U / 2f,
+            y,
+            titleW,
+            U * 2f
+        )
+        val countY = y + U * 2f
+        drawStepCentered(renderer, panelX + panelW / 2f, state.currentIndex, state.sequenceLength, countY, 1, PaletteIndices.TEXT_SECONDARY)
+        drawCalendarTimeline(renderer, preset, panelX + U / 2f, y + U * 3f, panelW - U, U, true)
+    }
+
+    private fun activePreset(state: EngineUiState): TimerPreset? {
+        var i = 0
+        while (i < state.presets.size) {
+            val preset = state.presets[i]
+            if (preset.id == state.activePresetId) return preset
+            i++
+        }
+        return null
     }
 
     private fun drawTimerControlButton(
@@ -454,14 +608,14 @@ object ActiveTimerScene : Scene {
         isClicked: Boolean,
         drawIcon: Boolean
     ) {
-        val frameColor = PaletteIndices.WHITE
-        val fillColor = if (isClicked) PaletteIndices.WHITE else PaletteIndices.BLACK
+        val frameColor = PaletteIndices.BORDER_BRIGHT
+        val fillColor = if (isClicked) PaletteIndices.BORDER_BRIGHT else PaletteIndices.PANEL_DARK
         renderer.fillRectDither(x, y, x + width, y + height, frameColor, frameColor, SoftDitherPattern.SOLID)
         renderer.fillRectDither(x + 2f, y + 2f, x + width - 2f, y + height - 2f, fillColor, fillColor, SoftDitherPattern.SOLID)
         if (!drawIcon) return
 
-        val contentColor = if (isClicked) PaletteIndices.BLACK else PaletteIndices.WHITE
-        val surfaceColor = if (isClicked) PaletteIndices.PRIMARY else PaletteIndices.BLACK
+        val contentColor = if (isClicked) PaletteIndices.PANEL_DARK else PaletteIndices.TEXT_PRIMARY
+        val surfaceColor = if (isClicked) PaletteIndices.ACCENT_PRIMARY else PaletteIndices.PANEL_DARK
         val iconX = x + (width - CONTROL_ICON_SIZE) / 2f
         val iconY = y + 2f
         ProceduralIconRenderer.draw(
@@ -471,7 +625,7 @@ object ActiveTimerScene : Scene {
             iconY,
             scale = CONTROL_ICON_SCALE,
             primaryColor = contentColor,
-            onBackgroundColor = PaletteIndices.SECONDARY,
+            onBackgroundColor = PaletteIndices.ACCENT_SECONDARY,
             surfaceColor = surfaceColor
         )
     }
@@ -493,12 +647,14 @@ object ActiveTimerScene : Scene {
     }
 
     private fun drawStaticTextCentered(renderer: ScaledProceduralRenderer, cx: Float, text: String, centerY: Float, scale: Int, colorIndex: Int) {
-        val textWidth = text.length * 16f * scale
+        val textWidth = ScaledProceduralRenderer.measureTextWidth(text, scale)
         val startX = cx - textWidth / 2f
-        val startY = centerY - (16f * scale) / 2f
-        val charW = 16f * scale
-        for (i in 0 until text.length) {
-            renderer.drawGlyph(text[i], startX + i * charW, startY, colorIndex, scale = scale)
+        val startY = centerY - ScaledProceduralRenderer.measureTextHeight(scale) / 2f
+        val charW = ScaledProceduralRenderer.measureTextHeight(scale)
+        var i = 0
+        while (i < ScaledProceduralRenderer.measureTextCells(text)) {
+            renderer.drawGlyph(text[i], startX + i * charW, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
+            i++
         }
     }
 
@@ -512,16 +668,16 @@ object ActiveTimerScene : Scene {
         val s1 = sec / 10
         val s2 = sec % 10
         
-        val textWidth = 5 * 16f * scale
+        val textWidth = 5 * ScaledProceduralRenderer.measureTextHeight(scale)
         val startX = cx - textWidth / 2f
-        val startY = centerY - (16f * scale) / 2f
-        val charW = 16f * scale
+        val startY = centerY - ScaledProceduralRenderer.measureTextHeight(scale) / 2f
+        val charW = ScaledProceduralRenderer.measureTextHeight(scale)
         
-        renderer.drawGlyph((m1 + 48).toChar(), startX, startY, colorIndex, scale = scale)
-        renderer.drawGlyph((m2 + 48).toChar(), startX + charW, startY, colorIndex, scale = scale)
-        renderer.drawGlyph(':', startX + charW * 2f, startY, colorIndex, scale = scale)
-        renderer.drawGlyph((s1 + 48).toChar(), startX + charW * 3f, startY, colorIndex, scale = scale)
-        renderer.drawGlyph((s2 + 48).toChar(), startX + charW * 4f, startY, colorIndex, scale = scale)
+        renderer.drawGlyph((m1 + 48).toChar(), startX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
+        renderer.drawGlyph((m2 + 48).toChar(), startX + charW, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
+        renderer.drawGlyph(':', startX + charW * 2f, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
+        renderer.drawGlyph((s1 + 48).toChar(), startX + charW * 3f, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
+        renderer.drawGlyph((s2 + 48).toChar(), startX + charW * 4f, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
     }
 
     private fun drawStepCentered(renderer: ScaledProceduralRenderer, cx: Float, current: Int, total: Int, centerY: Float, scale: Int, colorIndex: Int) {
@@ -534,28 +690,28 @@ object ActiveTimerScene : Scene {
         val y2 = yVal % 10
         
         val len = 5 + (if (x1 >= 0) 2 else 1) + 1 + (if (y1 >= 0) 2 else 1)
-        val textWidth = len * 16f * scale
+        val textWidth = len * ScaledProceduralRenderer.measureTextHeight(scale)
         var curX = cx - textWidth / 2f
-        val startY = centerY - (16f * scale) / 2f
-        val charW = 16f * scale
+        val startY = centerY - ScaledProceduralRenderer.measureTextHeight(scale) / 2f
+        val charW = ScaledProceduralRenderer.measureTextHeight(scale)
         
-        renderer.drawGlyph('S', curX, startY, colorIndex, scale = scale); curX += charW
-        renderer.drawGlyph('T', curX, startY, colorIndex, scale = scale); curX += charW
-        renderer.drawGlyph('E', curX, startY, colorIndex, scale = scale); curX += charW
-        renderer.drawGlyph('P', curX, startY, colorIndex, scale = scale); curX += charW
-        renderer.drawGlyph(' ', curX, startY, colorIndex, scale = scale); curX += charW
+        renderer.drawGlyph('S', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph('T', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph('E', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph('P', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph(' ', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
         
         if (x1 >= 0) {
-            renderer.drawGlyph((x1 + 48).toChar(), curX, startY, colorIndex, scale = scale); curX += charW
+            renderer.drawGlyph((x1 + 48).toChar(), curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
         }
-        renderer.drawGlyph((x2 + 48).toChar(), curX, startY, colorIndex, scale = scale); curX += charW
+        renderer.drawGlyph((x2 + 48).toChar(), curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
         
-        renderer.drawGlyph('/', curX, startY, colorIndex, scale = scale); curX += charW
+        renderer.drawGlyph('/', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
         
         if (y1 >= 0) {
-            renderer.drawGlyph((y1 + 48).toChar(), curX, startY, colorIndex, scale = scale); curX += charW
+            renderer.drawGlyph((y1 + 48).toChar(), curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
         }
-        renderer.drawGlyph((y2 + 48).toChar(), curX, startY, colorIndex, scale = scale); curX += charW
+        renderer.drawGlyph((y2 + 48).toChar(), curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
     }
 
     private fun drawAlarmTimeCentered(renderer: ScaledProceduralRenderer, cx: Float, secs: Int, centerY: Float, scale: Int, colorIndex: Int) {
@@ -568,31 +724,35 @@ object ActiveTimerScene : Scene {
         val s1 = sec / 10
         val s2 = sec % 10
         
-        val textWidth = 16 * 16f * scale
+        val textWidth = 16 * ScaledProceduralRenderer.measureTextHeight(scale)
         var curX = cx - textWidth / 2f
-        val startY = centerY - (16f * scale) / 2f
-        val charW = 16f * scale
+        val startY = centerY - ScaledProceduralRenderer.measureTextHeight(scale) / 2f
+        val charW = ScaledProceduralRenderer.measureTextHeight(scale)
         
         val prefix = "[ ALARM: "
-        for (i in 0 until prefix.length) {
-            renderer.drawGlyph(prefix[i], curX, startY, colorIndex, scale = scale)
+        var i = 0
+        while (i < prefix.length) {
+            renderer.drawGlyph(prefix[i], curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
             curX += charW
+            i++
         }
         
-        renderer.drawGlyph((m1 + 48).toChar(), curX, startY, colorIndex, scale = scale); curX += charW
-        renderer.drawGlyph((m2 + 48).toChar(), curX, startY, colorIndex, scale = scale); curX += charW
-        renderer.drawGlyph(':', curX, startY, colorIndex, scale = scale); curX += charW
-        renderer.drawGlyph((s1 + 48).toChar(), curX, startY, colorIndex, scale = scale); curX += charW
-        renderer.drawGlyph((s2 + 48).toChar(), curX, startY, colorIndex, scale = scale); curX += charW
+        renderer.drawGlyph((m1 + 48).toChar(), curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph((m2 + 48).toChar(), curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph(':', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph((s1 + 48).toChar(), curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph((s2 + 48).toChar(), curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
         
-        renderer.drawGlyph(' ', curX, startY, colorIndex, scale = scale); curX += charW
-        renderer.drawGlyph(']', curX, startY, colorIndex, scale = scale)
+        renderer.drawGlyph(' ', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph(']', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
     }
 
-    private fun drawTextRaw(renderer: ScaledProceduralRenderer, text: String, x: Float, y: Float, colorIndex: Int, scale: Int = 1) {
-        val charW = 16f * scale
-        for (i in 0 until text.length) {
+    private fun drawTextRaw(renderer: ScaledProceduralRenderer, text: String, x: Float, y: Float, colorIndex: Int, scale: Int = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY) {
+        val charW = ScaledProceduralRenderer.measureTextHeight(scale)
+        var i = 0
+        while (i < ScaledProceduralRenderer.measureTextCells(text)) {
             renderer.drawGlyph(text[i], x + i * charW, y, colorIndex, scale = scale)
+            i++
         }
     }
 }
@@ -644,6 +804,7 @@ object TemplateCustomizerScene : Scene {
 
         renderer.fillRectDither(playAreaStartX, 0f, playAreaStartX + playAreaW, playAreaH, PaletteIndices.BG, PaletteIndices.BG, SoftDitherPattern.SOLID)
 
+        scrollY = scrollY.coerceIn(templateMinScroll(state, playAreaH, logicalHeight), 0f)
         val cardH = maxOf(playAreaH * 3f / 20f, 60f)
         val cardSpacing = maxOf(playAreaH * 3f / 100f, 6f)
         
@@ -680,7 +841,7 @@ object TemplateCustomizerScene : Scene {
             val textRightLimit = if (hasDelete) delX - 10f else cardX + cardW - 10f
             val maxTextW = maxOf(16f, textRightLimit - textLeftX)
 
-            val nameScale = ProceduralTextRenderer.fitScale(preset.name.length, maxTextW, 2)
+            val nameScale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
             val textColor = if (isActive) PaletteIndices.BLACK else PaletteIndices.PRIMARY
 
             if (preset.mode == "calendar") {
@@ -688,7 +849,7 @@ object TemplateCustomizerScene : Scene {
                 ProceduralTextRenderer.drawUpperClipped(renderer, preset.name, textLeftX, currentY + cardH * 0.12f, textColor, nameScale, textLeftX, currentY, maxTextW, cardH)
                 
                 val idColor = if (isActive) PaletteIndices.BLACK else PaletteIndices.SECONDARY
-                ProceduralTextRenderer.drawPresetId(renderer, preset.id, textLeftX, currentY + cardH * 0.4f, idColor, ProceduralTextRenderer.fitScale(14, maxTextW, 2), textLeftX, currentY, maxTextW, cardH)
+                ProceduralTextRenderer.drawPresetId(renderer, preset.id, textLeftX, currentY + cardH * 0.4f, idColor, ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, textLeftX, currentY, maxTextW, cardH)
                 
                 // Bottom half: Calendar Timeline
                 val timelineY = currentY + cardH * 0.65f
@@ -699,12 +860,12 @@ object TemplateCustomizerScene : Scene {
                 ProceduralTextRenderer.drawUpperClipped(renderer, preset.name, textLeftX, currentY + (cardH * 0.2f), textColor, nameScale, textLeftX, currentY, maxTextW, cardH)
                 
                 val modeW = maxTextW * 2f / 5f
-                val modeScale = ProceduralTextRenderer.fitScale(preset.mode.length, modeW, 2)
+                val modeScale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
                 val modeColor = if (isActive) PaletteIndices.PRIMARY else PaletteIndices.SECONDARY
                 ProceduralTextRenderer.drawUpperClipped(renderer, preset.mode, textLeftX, currentY + (cardH * 0.6f), modeColor, modeScale, textLeftX, currentY, modeW, cardH)
                 
                 val idW = maxTextW / 2f
-                val idScale = ProceduralTextRenderer.fitScale(14, idW, 2)
+                val idScale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
                 val idColor = if (isActive) PaletteIndices.BLACK else PaletteIndices.SECONDARY
                 ProceduralTextRenderer.drawPresetId(renderer, preset.id, textLeftX + maxTextW * 0.45f, currentY + (cardH * 0.6f), idColor, idScale, textLeftX + maxTextW * 0.45f, currentY, idW, cardH)
             }
@@ -731,7 +892,7 @@ object TemplateCustomizerScene : Scene {
         val forgeBtnH = 26f
         val forgeBtnX = playAreaStartX + playAreaW - forgeBtnW - 20f
         val forgeBtnY = headerY - 2f
-        val headerScale = ((playAreaW - forgeBtnW - 52f) / (headerText.length * 16f)).toInt().coerceIn(1, 2)
+        val headerScale = ScaledProceduralRenderer.TEXT_SCALE_HEADER
         renderer.drawText(headerText, playAreaStartX + 20f, headerY, PaletteIndices.PRIMARY, scale = headerScale, startX = playAreaStartX + 20f, startY = headerY, clipWidth = maxOf(U.toInt(), (forgeBtnX - playAreaStartX - 28f).toInt()), clipHeight = forgeBtnH.toInt())
         renderer.drawButton("FORGE", forgeBtnX, forgeBtnY, forgeBtnW, forgeBtnH, isClicked = false)
         renderer.drawLine(playAreaStartX + 10f, headerCoverH - 2f, playAreaStartX + playAreaW - 10f, headerCoverH - 2f, PaletteIndices.SECONDARY, 1f)
@@ -746,26 +907,16 @@ object TemplateCustomizerScene : Scene {
         val playAreaStartX = playX.toFloat()
         val playAreaH = playH.toFloat()
         val logicalHeight = if (playX > 0) playH.toFloat() else playH * 20f / 17f
+        val inPlayArea = if (isPortrait) y < playAreaH else x >= playAreaStartX
 
-        if (isPortrait) {
-            if (y >= playAreaH) {
-                isDragging = false
-                onInput(x, y, action, playX, playY, playW, playH)
-                return
-            }
-        } else {
-            if (x < playAreaStartX) {
-                isDragging = false
-                onInput(x, y, action, playX, playY, playW, playH)
-                return
-            }
+        if (!isDragging && !inPlayArea) {
+            onInput(x, y, action, playX, playY, playW, playH)
+            return
         }
-
-        val safeTop = maxOf(logicalHeight * 0.08f, 30f)
-        val headerCoverH = safeTop + 24f
 
         when (action) {
             TouchAction.DOWN -> {
+                if (!inPlayArea) return
                 isDragging = true
                 lastTouchY = y.toFloat()
                 initialTouchX = x.toFloat()
@@ -782,16 +933,7 @@ object TemplateCustomizerScene : Scene {
                     lastTouchY = y.toFloat()
 
                     val state = SceneManager.timerActions?.getUiState() ?: return
-                    val visibleCount = countVisiblePresets(state)
-                    val cardH = maxOf(playAreaH * 3f / 20f, 60f)
-                    val cardSpacing = maxOf(playAreaH * 3f / 100f, 6f)
-                    val safeTop = maxOf(logicalHeight * 0.08f, 30f)
-                    val headerCoverH = safeTop + 24f
-                    val startY = headerCoverH
-                    val totalHeight = visibleCount * (cardH + cardSpacing) - cardSpacing
-                    val minScroll = (playAreaH - startY - totalHeight - 20f).coerceAtMost(0f)
-
-                    scrollY = scrollY.coerceIn(minScroll, 0f)
+                    scrollY = scrollY.coerceIn(templateMinScroll(state, playAreaH, logicalHeight), 0f)
                 }
             }
             TouchAction.UP -> {
@@ -799,10 +941,14 @@ object TemplateCustomizerScene : Scene {
                     isDragging = false
                     val deltaX = x - initialTouchX
                     val deltaY = y - initialTouchY
-                    if (abs(deltaX) < 8f && abs(deltaY) < 8f && !hasDragged) {
+                    if (inPlayArea && abs(deltaX) < 8f && abs(deltaY) < 8f && !hasDragged) {
                         onInput(x, y, TouchAction.UP, playX, playY, playW, playH)
                     }
                 }
+            }
+            TouchAction.CANCEL -> {
+                isDragging = false
+                hasDragged = false
             }
         }
     }
@@ -878,10 +1024,23 @@ object TemplateCustomizerScene : Scene {
         return count
     }
 
-    private fun drawTextRaw(renderer: ScaledProceduralRenderer, text: String, x: Float, y: Float, color: Int, scale: Int = 1) {
-        val charW = 16f * scale
-        for (i in 0 until text.length) {
+    private fun templateMinScroll(state: EngineUiState, playAreaH: Float, logicalHeight: Float): Float {
+        val visibleCount = countVisiblePresets(state)
+        if (visibleCount <= 0) return 0f
+        val cardH = maxOf(playAreaH * 3f / 20f, 60f)
+        val cardSpacing = maxOf(playAreaH * 3f / 100f, 6f)
+        val safeTop = maxOf(logicalHeight * 0.08f, 30f)
+        val headerCoverH = safeTop + 24f
+        val contentBottom = headerCoverH + visibleCount * cardH + (visibleCount - 1) * cardSpacing + U
+        return (playAreaH - contentBottom).coerceAtMost(0f)
+    }
+
+    private fun drawTextRaw(renderer: ScaledProceduralRenderer, text: String, x: Float, y: Float, color: Int, scale: Int = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY) {
+        val charW = ScaledProceduralRenderer.measureTextHeight(scale)
+        var i = 0
+        while (i < ScaledProceduralRenderer.measureTextCells(text)) {
             renderer.drawGlyph(text[i], x + i * charW, y, color, scale = scale)
+            i++
         }
     }
 
@@ -1003,7 +1162,7 @@ object TemplateForgeScene : Scene {
         val titleY = safeTop + (rowH - U) / 2f
 
         renderer.fillRectDither(playAreaStartX, 0f, playAreaStartX + playAreaW, playAreaH, PaletteIndices.BG, PaletteIndices.BG, SoftDitherPattern.SOLID)
-        renderer.drawText(strings.forgeTitle, contentX, titleY, PaletteIndices.PRIMARY, scale = 1, startX = contentX, startY = safeTop, clipWidth = titleClipW.toInt(), clipHeight = rowH.toInt())
+        renderer.drawText(strings.forgeTitle, contentX, titleY, PaletteIndices.PRIMARY, scale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, startX = contentX, startY = safeTop, clipWidth = titleClipW.toInt(), clipHeight = rowH.toInt())
         renderer.drawButton(strings.cancel, buttonX, safeTop, buttonW, rowH, isClicked = false)
         renderer.drawLine(playAreaStartX + U / 2f, safeTop + rowH + gap, playAreaStartX + playAreaW - U / 2f, safeTop + rowH + gap, PaletteIndices.SECONDARY, 1f)
 
@@ -1011,7 +1170,7 @@ object TemplateForgeScene : Scene {
         renderer.drawButton("<", contentX, navY, rowH, rowH, isClicked = false)
         renderer.drawButton(">", contentX + contentW - rowH, navY, rowH, rowH, isClicked = false)
         val pageLabel = if (page == PAGE_BASICS) strings.pageBasicsLabel else strings.pageParamsLabel
-        renderer.drawText(pageLabel, contentX + rowH + gap, navY + (rowH - U) / 2f, PaletteIndices.PRIMARY, scale = 1, startX = contentX + rowH, startY = navY, clipWidth = (contentW - rowH * 2f).toInt(), clipHeight = rowH.toInt())
+        renderer.drawText(pageLabel, contentX + rowH + gap, navY + (rowH - U) / 2f, PaletteIndices.PRIMARY, scale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, startX = contentX + rowH, startY = navY, clipWidth = (contentW - rowH * 2f).toInt(), clipHeight = rowH.toInt())
 
         var y = navY + rowH + gap
         if (page == PAGE_BASICS) {
@@ -1019,7 +1178,7 @@ object TemplateForgeScene : Scene {
             y = drawStepperRow(renderer, strings.engineStyleLabel, modeLabels[modeIndex], contentX, contentW, y, rowH)
             val behaviorLabel = if (modeKeys[modeIndex] == "calendar") behaviorLabels[0] else behaviorLabels[behaviorIndex]
             y = drawStepperRow(renderer, strings.completionBehaviorLabel, behaviorLabel, contentX, contentW, y, rowH)
-            renderer.drawText(currentModeDescription(strings), contentX, y, PaletteIndices.SECONDARY, scale = 1, startX = contentX, startY = y, clipWidth = contentW.toInt(), clipHeight = (rowH * 2f).toInt())
+            renderer.drawText(currentModeDescription(strings), contentX, y, PaletteIndices.SECONDARY, scale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, startX = contentX, startY = y, clipWidth = contentW.toInt(), clipHeight = (rowH * 2f).toInt())
         } else {
             when (modeKeys[modeIndex]) {
                 "classic" -> {
@@ -1061,7 +1220,7 @@ object TemplateForgeScene : Scene {
             renderer.drawButton(strings.saveTemplate, contentX, saveY, contentW, rowH, isClicked = false)
         } else {
             renderer.drawRect(contentX, saveY, contentW, rowH, PaletteIndices.SECONDARY)
-            renderer.drawText(strings.saveTemplate, contentX + U / 2f, saveY + (rowH - U) / 2f, PaletteIndices.SECONDARY, scale = 1, startX = contentX, startY = saveY, clipWidth = contentW.toInt(), clipHeight = rowH.toInt())
+            renderer.drawText(strings.saveTemplate, contentX + U / 2f, saveY + (rowH - U) / 2f, PaletteIndices.SECONDARY, scale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, startX = contentX, startY = saveY, clipWidth = contentW.toInt(), clipHeight = rowH.toInt())
         }
 
         RetroHudComponent.render(renderer, playX, playY, playW, playH)
@@ -1411,7 +1570,7 @@ object TemplateForgeScene : Scene {
         drawTextRaw(renderer, label, x, labelY, PaletteIndices.PRIMARY, 1)
         renderer.drawRect(controlX, fieldY, controlW, rowH, if (isFocused) PaletteIndices.PRIMARY else PaletteIndices.SECONDARY)
         val display = if (value.isEmpty()) "> $placeholder _" else value
-        renderer.drawText(display, controlX + U / 2f, fieldY + (rowH - U) / 2f, if (value.isEmpty()) PaletteIndices.SECONDARY else PaletteIndices.PRIMARY, scale = 1, startX = controlX, startY = fieldY, clipWidth = controlW.toInt(), clipHeight = rowH.toInt())
+        renderer.drawText(display, controlX + U / 2f, fieldY + (rowH - U) / 2f, if (value.isEmpty()) PaletteIndices.SECONDARY else PaletteIndices.PRIMARY, scale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, startX = controlX, startY = fieldY, clipWidth = controlW.toInt(), clipHeight = rowH.toInt())
         return nextRowY(label, y, width, rowH)
     }
 
@@ -1431,7 +1590,7 @@ object TemplateForgeScene : Scene {
         drawTextRaw(renderer, label, x, labelY, PaletteIndices.PRIMARY, 1)
         renderer.drawButton("<", controlX, fieldY, rowH, rowH, isClicked = false)
         renderer.drawButton(">", controlX + controlW - rowH, fieldY, rowH, rowH, isClicked = false)
-        renderer.drawText(value, controlX + rowH + U / 2f, fieldY + (rowH - U) / 2f, PaletteIndices.PRIMARY, scale = 1, startX = controlX + rowH, startY = fieldY, clipWidth = (controlW - rowH * 2f).toInt(), clipHeight = rowH.toInt())
+        renderer.drawText(value, controlX + rowH + U / 2f, fieldY + (rowH - U) / 2f, PaletteIndices.PRIMARY, scale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, startX = controlX + rowH, startY = fieldY, clipWidth = (controlW - rowH * 2f).toInt(), clipHeight = rowH.toInt())
         return nextRowY(label, y, width, rowH)
     }
 
@@ -1492,7 +1651,7 @@ object TemplateForgeScene : Scene {
     }
 
     private fun labelNeedsStack(label: String, width: Float): Boolean {
-        return label.length * U > labelColumnWidth(width)
+        return ScaledProceduralRenderer.measureTextWidth(label) > labelColumnWidth(width)
     }
 
     private fun labelColumnWidth(width: Float): Float {
@@ -1527,10 +1686,10 @@ object TemplateForgeScene : Scene {
         return builder.toString()
     }
 
-    private fun drawTextRaw(renderer: ScaledProceduralRenderer, text: String, x: Float, y: Float, color: Int, scale: Int = 1) {
-        val charW = 16f * scale
+    private fun drawTextRaw(renderer: ScaledProceduralRenderer, text: String, x: Float, y: Float, color: Int, scale: Int = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY) {
+        val charW = ScaledProceduralRenderer.measureTextHeight(scale)
         var i = 0
-        while (i < text.length) {
+        while (i < ScaledProceduralRenderer.measureTextCells(text)) {
             renderer.drawGlyph(text[i], x + i * charW, y, color, scale = scale)
             i++
         }
@@ -1540,7 +1699,6 @@ object TemplateForgeScene : Scene {
 //  SETTINGS SCENE
 // ════════════════════════════════════════════════════════════════════
 object SettingsScene : Scene {
-    private var activeSubTab = 0 // 0: Locale, 1: Audio, 2: System
     private var cachedLogicalWidth = 640f
     private var cachedLogicalHeight = 400f
 
@@ -1548,7 +1706,6 @@ object SettingsScene : Scene {
     private const val LABEL_RATIO_NUM = 2f
     private const val LABEL_RATIO_DEN = 5f
     private const val AUDIO_STEPS = 10
-    private const val TABS = 3
 
     private val languages = arrayOf("en", "zh", "ja")
 
@@ -1566,20 +1723,26 @@ object SettingsScene : Scene {
     private var spacing = 0f
     private var usableWidth = 0f
     private var labelX = 0f
-    private var tabStartX = 0f
-    private var tabW = 0f
-    private var tabH = 0f
-    private var tabSpacing = 0f
     private var arrowW = 0f
     private var ctrlX = 0f
     private var ctrlY = 0f
     private var ctrlW = 0f
+    private var scrollY = 0f
+    private var lastTouchY = 0f
+    private var isDragging = false
+    private var initialTouchX = 0f
+    private var initialTouchY = 0f
+    private var hasDragged = false
 
     override fun onEnter(payload: Any?) {
-        activeSubTab = if (payload is Int) payload.coerceIn(0, 2) else 0
+        scrollY = 0f
+        isDragging = false
+        hasDragged = false
     }
 
-    override fun onExit() {}
+    override fun onExit() {
+        isDragging = false
+    }
     override fun update(dt: Float) {}
 
     override fun render(renderer: ScaledProceduralRenderer, playX: Int, playY: Int, playW: Int, playH: Int) {
@@ -1594,60 +1757,11 @@ object SettingsScene : Scene {
 
         renderer.drawRect(0f, 0f, logicalWidth, logicalHeight, PaletteIndices.BG)
         beginSettingsLayout(logicalWidth, logicalHeight)
+        clampSettingsScroll(state, strings)
         renderer.fillRectDither(playAreaStartX, 0f, playAreaStartX + playAreaW, playAreaH, PaletteIndices.BG, PaletteIndices.BG, SoftDitherPattern.SOLID)
 
-        drawTabs(renderer, strings)
-        when (activeSubTab) {
-            0 -> {
-                layoutRow(renderer, strings.languageLabel)
-                val langIdx = indexOf(languages, state.language)
-                drawStepper(renderer, languageName(strings, langIdx), ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY)
-            }
-            1 -> {
-                layoutRow(renderer, strings.volumeLabel)
-                val volPercent = (state.volume * AUDIO_STEPS).toInt().coerceIn(0, AUDIO_STEPS)
-                drawBarStepper(renderer, volPercent, AUDIO_STEPS, ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY)
-
-                layoutRow(renderer, strings.focusToneLabel)
-                drawStepper(renderer, soundNames[indexOf(soundKeys, state.selectedFocusSound)], ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY)
-
-                layoutRow(renderer, strings.relaxToneLabel)
-                drawStepper(renderer, soundNames[indexOf(soundKeys, state.selectedRelaxSound)], ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY)
-
-                layoutRow(renderer, strings.testFocusLabel)
-                renderer.drawButton(strings.testFocusLabel, ctrlX, ctrlY, ctrlW, rowH, isClicked = false)
-
-                layoutRow(renderer, strings.testRelaxLabel)
-                renderer.drawButton(strings.testRelaxLabel, ctrlX, ctrlY, ctrlW, rowH, isClicked = false)
-            }
-            2 -> {
-                layoutRow(renderer, strings.strictLabel)
-                val strictText = if (state.strictMode) strings.on else strings.off
-                renderer.drawButton(strictText, ctrlX, ctrlY, ctrlW, rowH, isClicked = state.strictMode)
-
-                layoutRow(renderer, strings.ticks)
-                val tickText = if (state.tickEnabled) strings.on else strings.off
-                renderer.drawButton(tickText, ctrlX, ctrlY, ctrlW, rowH, isClicked = state.tickEnabled)
-
-                layoutRow(renderer, strings.vibe)
-                val vibePercent = (state.vibeIntensity * AUDIO_STEPS).toInt().coerceIn(0, AUDIO_STEPS)
-                drawBarStepper(renderer, vibePercent, AUDIO_STEPS, ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY)
-
-                layoutRow(renderer, strings.themeLabel)
-                val themeIdx = indexOf(themes, state.appTheme)
-                drawStepper(renderer, themeName(strings, themeIdx), themeShortName(strings, themeIdx), ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY)
-
-                layoutRow(renderer, strings.precisionLabel)
-                if (state.isExactAlarmPermitted) {
-                    val txt = strings.secureLabel
-                    val txtScale = fitScale(txt, ctrlW - U / 2f, 2)
-                    val txtY = ctrlY + (rowH - U * txtScale) / 2f
-                    renderer.drawText(txt, ctrlX + (ctrlW - txt.length * U * txtScale) / 2f, txtY, PaletteIndices.PRIMARY, scale = txtScale)
-                } else {
-                    renderer.drawButton(strings.authorizeLabel, ctrlX, ctrlY, ctrlW, rowH, isClicked = false)
-                }
-            }
-        }
+        currentY = safeTop + scrollY
+        drawSettingsRows(renderer, state, strings)
 
         RetroHudComponent.render(renderer, playX, playY, playW, playH)
 
@@ -1656,7 +1770,54 @@ object SettingsScene : Scene {
     override fun onInput(inputCode: Int) {}
 
     override fun onTouch(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
-        onInput(x, y, action, playX, playY, playW, playH)
+        val isPortrait = playX <= 0
+        val inPlayArea = if (isPortrait) y < playH else x >= playX
+
+        if (!isDragging && !inPlayArea) {
+            onInput(x, y, action, playX, playY, playW, playH)
+            return
+        }
+
+        when (action) {
+            TouchAction.DOWN -> {
+                if (!inPlayArea) return
+                isDragging = true
+                lastTouchY = y.toFloat()
+                initialTouchX = x.toFloat()
+                initialTouchY = y.toFloat()
+                hasDragged = false
+            }
+            TouchAction.MOVE -> {
+                if (isDragging) {
+                    val deltaY = y - lastTouchY
+                    if (abs(deltaY) > 2f) {
+                        hasDragged = true
+                    }
+                    scrollY += deltaY
+                    lastTouchY = y.toFloat()
+                    val state = SceneManager.timerActions?.getUiState() ?: return
+                    val strings = getStrings(state.language)
+                    val logicalWidth = (playX + playW).toFloat()
+                    val logicalHeight = if (playX > 0) playH.toFloat() else playH * 20f / 17f
+                    beginSettingsLayout(logicalWidth, logicalHeight)
+                    clampSettingsScroll(state, strings)
+                }
+            }
+            TouchAction.UP -> {
+                if (isDragging) {
+                    isDragging = false
+                    val deltaX = x - initialTouchX
+                    val deltaY = y - initialTouchY
+                    if (inPlayArea && abs(deltaX) < 8f && abs(deltaY) < 8f && !hasDragged) {
+                        onInput(x, y, TouchAction.UP, playX, playY, playW, playH)
+                    }
+                }
+            }
+            TouchAction.CANCEL -> {
+                isDragging = false
+                hasDragged = false
+            }
+        }
     }
 
     override fun onInput(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
@@ -1669,150 +1830,138 @@ object SettingsScene : Scene {
         val logicalWidth = (playX + playW).toFloat()
         val logicalHeight = if (playX > 0) playH.toFloat() else playH * 20f / 17f
         beginSettingsLayout(logicalWidth, logicalHeight)
+        clampSettingsScroll(state, strings)
+        currentY = safeTop + scrollY
         val fx = x.toFloat()
         val fy = y.toFloat()
 
-        if (fy >= safeTop && fy <= safeTop + tabH) {
-            if (fx >= tabStartX && fx <= tabStartX + tabW) {
-                SceneManager.performHapticFeedback(EngineHaptics.TICK)
-                activeSubTab = 0
+        layoutRow(null, strings.languageLabel)
+        if (fy >= ctrlY && fy <= ctrlY + rowH) {
+            val idx = indexOf(languages, state.language)
+            if (fx >= ctrlX && fx <= ctrlX + arrowW) {
+                SceneManager.performHapticFeedback(EngineHaptics.CLICK)
+                val prev = (idx - 1 + languages.size) % languages.size
+                SceneManager.timerActions?.updateLanguage(languages[prev])
+                SceneManager.markLanguageChanged()
                 return
-            } else if (fx >= tabStartX + tabW + tabSpacing && fx <= tabStartX + tabW * 2f + tabSpacing) {
-                SceneManager.performHapticFeedback(EngineHaptics.TICK)
-                activeSubTab = 1
-                return
-            } else if (fx >= tabStartX + (tabW + tabSpacing) * 2f && fx <= tabStartX + (tabW + tabSpacing) * 2f + tabW) {
-                SceneManager.performHapticFeedback(EngineHaptics.TICK)
-                activeSubTab = 2
+            } else if (fx >= ctrlX + ctrlW - arrowW && fx <= ctrlX + ctrlW) {
+                SceneManager.performHapticFeedback(EngineHaptics.CLICK)
+                val next = (idx + 1) % languages.size
+                SceneManager.timerActions?.updateLanguage(languages[next])
+                SceneManager.markLanguageChanged()
                 return
             }
         }
 
-        when (activeSubTab) {
-            0 -> {
-                layoutRow(null, strings.languageLabel)
-                if (fy >= ctrlY && fy <= ctrlY + rowH) {
-                    val idx = indexOf(languages, state.language)
-                    if (fx >= ctrlX && fx <= ctrlX + arrowW) {
-                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                        val prev = (idx - 1 + languages.size) % languages.size
-                        println("LANG_BEFORE current=${state.language} requested=${languages[prev]}")
-                        SceneManager.timerActions?.updateLanguage(languages[prev])
-                        SceneManager.markLanguageChanged()
-                        val nextState = SceneManager.timerActions?.getUiState()
-                        println("LANG_AFTER current=${nextState?.language ?: languages[prev]}")
-                    } else if (fx >= ctrlX + ctrlW - arrowW && fx <= ctrlX + ctrlW) {
-                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                        val next = (idx + 1) % languages.size
-                        println("LANG_BEFORE current=${state.language} requested=${languages[next]}")
-                        SceneManager.timerActions?.updateLanguage(languages[next])
-                        SceneManager.markLanguageChanged()
-                        val nextState = SceneManager.timerActions?.getUiState()
-                        println("LANG_AFTER current=${nextState?.language ?: languages[next]}")
-                    }
-                }
+        layoutRow(null, strings.volumeLabel)
+        if (fy >= ctrlY && fy <= ctrlY + rowH) {
+            val currentVol = state.volume
+            if (fx >= ctrlX && fx <= ctrlX + arrowW) {
+                SceneManager.performHapticFeedback(EngineHaptics.TICK)
+                SceneManager.timerActions?.updateVolume((currentVol - (1f / AUDIO_STEPS)).coerceAtLeast(0f))
+                return
+            } else if (fx >= ctrlX + ctrlW - arrowW && fx <= ctrlX + ctrlW) {
+                SceneManager.performHapticFeedback(EngineHaptics.TICK)
+                SceneManager.timerActions?.updateVolume((currentVol + (1f / AUDIO_STEPS)).coerceAtMost(1f))
+                return
             }
-            1 -> {
-                layoutRow(null, strings.volumeLabel)
-                if (fy >= ctrlY && fy <= ctrlY + rowH) {
-                    val currentVol = state.volume
-                    if (fx >= ctrlX && fx <= ctrlX + arrowW) {
-                        SceneManager.performHapticFeedback(EngineHaptics.TICK)
-                        val nextVol = (currentVol - (1f / AUDIO_STEPS)).coerceAtLeast(0f)
-                        SceneManager.timerActions?.updateVolume(nextVol)
-                    } else if (fx >= ctrlX + ctrlW - arrowW && fx <= ctrlX + ctrlW) {
-                        SceneManager.performHapticFeedback(EngineHaptics.TICK)
-                        val nextVol = (currentVol + (1f / AUDIO_STEPS)).coerceAtMost(1f)
-                        SceneManager.timerActions?.updateVolume(nextVol)
-                    }
-                }
+        }
 
-                layoutRow(null, strings.focusToneLabel)
-                if (fy >= ctrlY && fy <= ctrlY + rowH) {
-                    val idx = indexOf(soundKeys, state.selectedFocusSound)
-                    if (fx >= ctrlX && fx <= ctrlX + arrowW) {
-                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                        val prev = (idx - 1 + soundKeys.size) % soundKeys.size
-                        SceneManager.timerActions?.updateFocusSound(soundKeys[prev])
-                    } else if (fx >= ctrlX + ctrlW - arrowW && fx <= ctrlX + ctrlW) {
-                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                        val next = (idx + 1) % soundKeys.size
-                        SceneManager.timerActions?.updateFocusSound(soundKeys[next])
-                    }
-                }
-
-                layoutRow(null, strings.relaxToneLabel)
-                if (fy >= ctrlY && fy <= ctrlY + rowH) {
-                    val idx = indexOf(soundKeys, state.selectedRelaxSound)
-                    if (fx >= ctrlX && fx <= ctrlX + arrowW) {
-                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                        val prev = (idx - 1 + soundKeys.size) % soundKeys.size
-                        SceneManager.timerActions?.updateRelaxSound(soundKeys[prev])
-                    } else if (fx >= ctrlX + ctrlW - arrowW && fx <= ctrlX + ctrlW) {
-                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                        val next = (idx + 1) % soundKeys.size
-                        SceneManager.timerActions?.updateRelaxSound(soundKeys[next])
-                    }
-                }
-
-                layoutRow(null, strings.testFocusLabel)
-                if (fx >= ctrlX && fx <= ctrlX + ctrlW && fy >= ctrlY && fy <= ctrlY + rowH) {
-                    SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                    SceneManager.timerActions?.previewSound(state.selectedFocusSound)
-                }
-
-                layoutRow(null, strings.testRelaxLabel)
-                if (fx >= ctrlX && fx <= ctrlX + ctrlW && fy >= ctrlY && fy <= ctrlY + rowH) {
-                    SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                    SceneManager.timerActions?.previewSound(state.selectedRelaxSound)
-                }
+        layoutRow(null, strings.focusToneLabel)
+        if (fy >= ctrlY && fy <= ctrlY + rowH) {
+            val idx = indexOf(soundKeys, state.selectedFocusSound)
+            if (fx >= ctrlX && fx <= ctrlX + arrowW) {
+                SceneManager.performHapticFeedback(EngineHaptics.CLICK)
+                val prev = (idx - 1 + soundKeys.size) % soundKeys.size
+                SceneManager.timerActions?.updateFocusSound(soundKeys[prev])
+                return
+            } else if (fx >= ctrlX + ctrlW - arrowW && fx <= ctrlX + ctrlW) {
+                SceneManager.performHapticFeedback(EngineHaptics.CLICK)
+                val next = (idx + 1) % soundKeys.size
+                SceneManager.timerActions?.updateFocusSound(soundKeys[next])
+                return
             }
-            2 -> {
-                layoutRow(null, strings.strictLabel)
-                if (fx >= ctrlX && fx <= ctrlX + ctrlW && fy >= ctrlY && fy <= ctrlY + rowH) {
-                    SceneManager.performHapticFeedback(EngineHaptics.TICK)
-                    SceneManager.timerActions?.updateSettings(!state.strictMode, state.tickEnabled, state.selectedFocusSound, state.vibeIntensity)
-                }
+        }
 
-                layoutRow(null, strings.ticks)
-                if (fx >= ctrlX && fx <= ctrlX + ctrlW && fy >= ctrlY && fy <= ctrlY + rowH) {
-                    SceneManager.performHapticFeedback(EngineHaptics.TICK)
-                    SceneManager.timerActions?.updateSettings(state.strictMode, !state.tickEnabled, state.selectedFocusSound, state.vibeIntensity)
-                }
-
-                layoutRow(null, strings.vibe)
-                if (fy >= ctrlY && fy <= ctrlY + rowH) {
-                    if (fx >= ctrlX && fx <= ctrlX + arrowW) {
-                        SceneManager.performHapticFeedback(EngineHaptics.TICK)
-                        val nextVibe = (state.vibeIntensity - (1f / AUDIO_STEPS)).coerceAtLeast(0f)
-                        SceneManager.timerActions?.updateSettings(state.strictMode, state.tickEnabled, state.selectedFocusSound, nextVibe)
-                    } else if (fx >= ctrlX + ctrlW - arrowW && fx <= ctrlX + ctrlW) {
-                        SceneManager.performHapticFeedback(EngineHaptics.TICK)
-                        val nextVibe = (state.vibeIntensity + (1f / AUDIO_STEPS)).coerceAtMost(1f)
-                        SceneManager.timerActions?.updateSettings(state.strictMode, state.tickEnabled, state.selectedFocusSound, nextVibe)
-                    }
-                }
-
-                layoutRow(null, strings.themeLabel)
-                if (fy >= ctrlY && fy <= ctrlY + rowH) {
-                    val idx = indexOf(themes, state.appTheme)
-                    if (fx >= ctrlX && fx <= ctrlX + arrowW) {
-                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                        val prev = (idx - 1 + themes.size) % themes.size
-                        SceneManager.timerActions?.updateTheme(themes[prev])
-                    } else if (fx >= ctrlX + ctrlW - arrowW && fx <= ctrlX + ctrlW) {
-                        SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                        val next = (idx + 1) % themes.size
-                        SceneManager.timerActions?.updateTheme(themes[next])
-                    }
-                }
-
-                layoutRow(null, strings.precisionLabel)
-                if (!state.isExactAlarmPermitted && fx >= ctrlX && fx <= ctrlX + ctrlW && fy >= ctrlY && fy <= ctrlY + rowH) {
-                    SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                    SceneManager.timerActions?.requestExactAlarmPermission()
-                }
+        layoutRow(null, strings.relaxToneLabel)
+        if (fy >= ctrlY && fy <= ctrlY + rowH) {
+            val idx = indexOf(soundKeys, state.selectedRelaxSound)
+            if (fx >= ctrlX && fx <= ctrlX + arrowW) {
+                SceneManager.performHapticFeedback(EngineHaptics.CLICK)
+                val prev = (idx - 1 + soundKeys.size) % soundKeys.size
+                SceneManager.timerActions?.updateRelaxSound(soundKeys[prev])
+                return
+            } else if (fx >= ctrlX + ctrlW - arrowW && fx <= ctrlX + ctrlW) {
+                SceneManager.performHapticFeedback(EngineHaptics.CLICK)
+                val next = (idx + 1) % soundKeys.size
+                SceneManager.timerActions?.updateRelaxSound(soundKeys[next])
+                return
             }
+        }
+
+        layoutRow(null, strings.testFocusLabel)
+        if (fx >= ctrlX && fx <= ctrlX + ctrlW && fy >= ctrlY && fy <= ctrlY + rowH) {
+            SceneManager.performHapticFeedback(EngineHaptics.CLICK)
+            SceneManager.timerActions?.previewSound(state.selectedFocusSound)
+            return
+        }
+
+        layoutRow(null, strings.testRelaxLabel)
+        if (fx >= ctrlX && fx <= ctrlX + ctrlW && fy >= ctrlY && fy <= ctrlY + rowH) {
+            SceneManager.performHapticFeedback(EngineHaptics.CLICK)
+            SceneManager.timerActions?.previewSound(state.selectedRelaxSound)
+            return
+        }
+
+        layoutRow(null, strings.strictLabel)
+        if (fx >= ctrlX && fx <= ctrlX + ctrlW && fy >= ctrlY && fy <= ctrlY + rowH) {
+            SceneManager.performHapticFeedback(EngineHaptics.TICK)
+            SceneManager.timerActions?.updateSettings(!state.strictMode, state.tickEnabled, state.selectedFocusSound, state.vibeIntensity)
+            return
+        }
+
+        layoutRow(null, strings.ticks)
+        if (fx >= ctrlX && fx <= ctrlX + ctrlW && fy >= ctrlY && fy <= ctrlY + rowH) {
+            SceneManager.performHapticFeedback(EngineHaptics.TICK)
+            SceneManager.timerActions?.updateSettings(state.strictMode, !state.tickEnabled, state.selectedFocusSound, state.vibeIntensity)
+            return
+        }
+
+        layoutRow(null, strings.vibe)
+        if (fy >= ctrlY && fy <= ctrlY + rowH) {
+            if (fx >= ctrlX && fx <= ctrlX + arrowW) {
+                SceneManager.performHapticFeedback(EngineHaptics.TICK)
+                val nextVibe = (state.vibeIntensity - (1f / AUDIO_STEPS)).coerceAtLeast(0f)
+                SceneManager.timerActions?.updateSettings(state.strictMode, state.tickEnabled, state.selectedFocusSound, nextVibe)
+                return
+            } else if (fx >= ctrlX + ctrlW - arrowW && fx <= ctrlX + ctrlW) {
+                SceneManager.performHapticFeedback(EngineHaptics.TICK)
+                val nextVibe = (state.vibeIntensity + (1f / AUDIO_STEPS)).coerceAtMost(1f)
+                SceneManager.timerActions?.updateSettings(state.strictMode, state.tickEnabled, state.selectedFocusSound, nextVibe)
+                return
+            }
+        }
+
+        layoutRow(null, strings.themeLabel)
+        if (fy >= ctrlY && fy <= ctrlY + rowH) {
+            val idx = indexOf(themes, state.appTheme)
+            if (fx >= ctrlX && fx <= ctrlX + arrowW) {
+                SceneManager.performHapticFeedback(EngineHaptics.CLICK)
+                val prev = (idx - 1 + themes.size) % themes.size
+                SceneManager.timerActions?.updateTheme(themes[prev])
+                return
+            } else if (fx >= ctrlX + ctrlW - arrowW && fx <= ctrlX + ctrlW) {
+                SceneManager.performHapticFeedback(EngineHaptics.CLICK)
+                val next = (idx + 1) % themes.size
+                SceneManager.timerActions?.updateTheme(themes[next])
+                return
+            }
+        }
+
+        layoutRow(null, strings.precisionLabel)
+        if (!state.isExactAlarmPermitted && fx >= ctrlX && fx <= ctrlX + ctrlW && fy >= ctrlY && fy <= ctrlY + rowH) {
+            SceneManager.performHapticFeedback(EngineHaptics.CLICK)
+            SceneManager.timerActions?.requestExactAlarmPermission()
         }
     }
 
@@ -1828,39 +1977,10 @@ object SettingsScene : Scene {
         usableWidth = playAreaW - padding * 2f
         labelX = playAreaStartX + padding
         safeTop = maxOf(logicalHeight / 12f, U * 2f)
-        tabH = maxOf(playAreaH / 12f, U * 2f)
-        tabSpacing = U / 2f
-        tabStartX = labelX
-        tabW = (usableWidth - tabSpacing * (TABS - 1)) / TABS
         rowH = maxOf(playAreaH * 3f / 25f, U * 2f)
         spacing = U / 2f
-        currentY = safeTop + tabH + U
+        currentY = safeTop
         arrowW = minOf(rowH, U * 2f)
-    }
-
-    private fun drawTabs(renderer: ScaledProceduralRenderer, strings: AppStrings) {
-        var i = 0
-        while (i < TABS) {
-            drawSubTabButton(renderer, tabText(strings, i), tabShortText(strings, i), tabStartX + i * (tabW + tabSpacing), safeTop, activeSubTab == i, tabW, tabH, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY)
-            i++
-        }
-        renderer.drawLine(playAreaStartX + U / 2f, safeTop + tabH + U / 2f, playAreaStartX + playAreaW - U / 2f, safeTop + tabH + U / 2f, PaletteIndices.SECONDARY, 1f)
-    }
-
-    private fun tabText(strings: AppStrings, index: Int): String {
-        return when (index) {
-            0 -> strings.localeTab
-            1 -> strings.audioTab
-            else -> strings.systemTab
-        }
-    }
-
-    private fun tabShortText(strings: AppStrings, index: Int): String {
-        return when (index) {
-            0 -> strings.localeTab
-            1 -> strings.audioTab
-            else -> strings.systemTab
-        }
     }
 
     private fun languageName(strings: AppStrings, index: Int): String {
@@ -1880,12 +2000,8 @@ object SettingsScene : Scene {
         }
     }
 
-    private fun themeShortName(strings: AppStrings, index: Int): String {
-        return themeName(strings, index)
-    }
-
     private fun layoutRow(renderer: ScaledProceduralRenderer?, labelText: String) {
-        val requiredLabelWidth = labelText.length * U
+        val requiredLabelWidth = ScaledProceduralRenderer.measureTextWidth(labelText)
         val labelColumnW = usableWidth * LABEL_RATIO_NUM / LABEL_RATIO_DEN
         val sideBySide = requiredLabelWidth <= labelColumnW
 
@@ -1894,33 +2010,86 @@ object SettingsScene : Scene {
             ctrlW = usableWidth - labelColumnW
             ctrlY = currentY
             renderer?.let {
-                val labelScale = fitScale(labelText, labelColumnW - U / 2f, 2)
-                val labelY = currentY + (rowH - U * labelScale) / 2f
-                drawTextRaw(it, labelText, labelX, labelY, PaletteIndices.PRIMARY, labelScale)
+                val labelY = currentY + (rowH - U) / 2f
+                drawTextRaw(it, labelText, labelX, labelY, PaletteIndices.PRIMARY)
             }
             currentY += rowH + spacing
         } else {
             ctrlX = labelX
             ctrlW = usableWidth
             renderer?.let {
-                val labelScale = fitScale(labelText, usableWidth - U / 2f, 2)
-                val labelH = U * labelScale + U / 4f
-                val labelY = currentY + (labelH - U * labelScale) / 2f
-                drawTextRaw(it, labelText, labelX, labelY, PaletteIndices.PRIMARY, labelScale)
+                val labelH = U + U / 4f
+                drawTextRaw(it, labelText, labelX, currentY, PaletteIndices.PRIMARY)
                 currentY += labelH
             } ?: run {
-                val labelScale = fitScale(labelText, usableWidth - U / 2f, 2)
-                currentY += U * labelScale + U / 4f
+                currentY += U + U / 4f
             }
             ctrlY = currentY
             currentY += rowH + spacing
         }
     }
 
-    private fun fitScale(text: String, width: Float, maxScale: Int): Int {
-        if (text.isEmpty()) return 1
-        val byWidth = (width / (text.length * U)).toInt()
-        return byWidth.coerceIn(1, maxScale)
+    private fun drawSettingsRows(renderer: ScaledProceduralRenderer, state: EngineUiState, strings: AppStrings) {
+        layoutRow(renderer, strings.languageLabel)
+        drawStepper(renderer, languageName(strings, indexOf(languages, state.language)), ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY)
+
+        layoutRow(renderer, strings.volumeLabel)
+        drawBarStepper(renderer, (state.volume * AUDIO_STEPS).toInt().coerceIn(0, AUDIO_STEPS), AUDIO_STEPS, ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY)
+
+        layoutRow(renderer, strings.focusToneLabel)
+        drawStepper(renderer, soundNames[indexOf(soundKeys, state.selectedFocusSound)], ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY)
+
+        layoutRow(renderer, strings.relaxToneLabel)
+        drawStepper(renderer, soundNames[indexOf(soundKeys, state.selectedRelaxSound)], ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY)
+
+        layoutRow(renderer, strings.testFocusLabel)
+        renderer.drawButton(strings.testFocusLabel, ctrlX, ctrlY, ctrlW, rowH, isClicked = false)
+
+        layoutRow(renderer, strings.testRelaxLabel)
+        renderer.drawButton(strings.testRelaxLabel, ctrlX, ctrlY, ctrlW, rowH, isClicked = false)
+
+        layoutRow(renderer, strings.strictLabel)
+        renderer.drawButton(if (state.strictMode) strings.on else strings.off, ctrlX, ctrlY, ctrlW, rowH, isClicked = state.strictMode)
+
+        layoutRow(renderer, strings.ticks)
+        renderer.drawButton(if (state.tickEnabled) strings.on else strings.off, ctrlX, ctrlY, ctrlW, rowH, isClicked = state.tickEnabled)
+
+        layoutRow(renderer, strings.vibe)
+        drawBarStepper(renderer, (state.vibeIntensity * AUDIO_STEPS).toInt().coerceIn(0, AUDIO_STEPS), AUDIO_STEPS, ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY)
+
+        layoutRow(renderer, strings.themeLabel)
+        drawStepper(renderer, themeName(strings, indexOf(themes, state.appTheme)), ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY)
+
+        layoutRow(renderer, strings.precisionLabel)
+        if (state.isExactAlarmPermitted) {
+            val txt = strings.secureLabel
+            val txtY = ctrlY + (rowH - U) / 2f
+            renderer.drawText(txt, ctrlX + U / 2f, txtY, PaletteIndices.PRIMARY, scale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, startX = ctrlX, startY = ctrlY, clipWidth = ctrlW.toInt(), clipHeight = rowH.toInt())
+        } else {
+            renderer.drawButton(strings.authorizeLabel, ctrlX, ctrlY, ctrlW, rowH, isClicked = false)
+        }
+    }
+
+    private fun clampSettingsScroll(state: EngineUiState, strings: AppStrings) {
+        currentY = safeTop
+        measureSettingsRows(state, strings)
+        val contentBottom = currentY + U
+        val minScroll = (playAreaH - contentBottom).coerceAtMost(0f)
+        scrollY = scrollY.coerceIn(minScroll, 0f)
+    }
+
+    private fun measureSettingsRows(state: EngineUiState, strings: AppStrings) {
+        layoutRow(null, strings.languageLabel)
+        layoutRow(null, strings.volumeLabel)
+        layoutRow(null, strings.focusToneLabel)
+        layoutRow(null, strings.relaxToneLabel)
+        layoutRow(null, strings.testFocusLabel)
+        layoutRow(null, strings.testRelaxLabel)
+        layoutRow(null, strings.strictLabel)
+        layoutRow(null, strings.ticks)
+        layoutRow(null, strings.vibe)
+        layoutRow(null, strings.themeLabel)
+        layoutRow(null, strings.precisionLabel)
     }
 
     private fun indexOf(values: Array<String>, value: String): Int {
@@ -1932,26 +2101,7 @@ object SettingsScene : Scene {
         return 0
     }
 
-    private fun drawSubTabButton(renderer: ScaledProceduralRenderer, text: String, shortText: String, x: Float, y: Float, isActive: Boolean, w: Float, h: Float, primaryColorIndex: Int, accentColorIndex: Int) {
-        val displayText = if (text.length * U <= w - U / 2f) text else shortText
-        val scale = fitScale(displayText, w - U / 2f, 1)
-        val textW = displayText.length * U * scale
-        val textX = x + (w - textW) / 2f
-        val textY = y + (h - U * scale) / 2f
-        if (isActive) {
-            renderer.fillRectDither(x, y, x + w, y + h, primaryColorIndex, primaryColorIndex, SoftDitherPattern.SOLID)
-            renderer.drawText(displayText, textX, textY, PaletteIndices.BLACK, scale = scale, startX = x, startY = y, clipWidth = w.toInt(), clipHeight = h.toInt())
-        } else {
-            renderer.drawRect(x, y, w, h, accentColorIndex)
-            renderer.drawText(displayText, textX, textY, primaryColorIndex, scale = scale, startX = x, startY = y, clipWidth = w.toInt(), clipHeight = h.toInt())
-        }
-    }
-
     private fun drawStepper(renderer: ScaledProceduralRenderer, valueText: String, x: Float, y: Float, h: Float, width: Float, primaryColorIndex: Int, accentColorIndex: Int) {
-        drawStepper(renderer, valueText, valueText, x, y, h, width, primaryColorIndex, accentColorIndex)
-    }
-
-    private fun drawStepper(renderer: ScaledProceduralRenderer, valueText: String, shortText: String, x: Float, y: Float, h: Float, width: Float, primaryColorIndex: Int, accentColorIndex: Int) {
         val localArrowW = minOf(h, U * 2f)
         renderer.drawButton("<", x, y, localArrowW, h, isClicked = false)
         renderer.drawButton(">", x + width - localArrowW, y, localArrowW, h, isClicked = false)
@@ -1959,12 +2109,10 @@ object SettingsScene : Scene {
         val spaceW = maxOf(U, width - localArrowW * 2f)
         val textPad = U / 4f
         val availableTextW = maxOf(U, spaceW - textPad * 2f)
-        val displayText = if (valueText.length * U <= availableTextW) valueText else shortText
-        val dynamicScale = fitScale(displayText, availableTextW, 2)
-        val textLen = displayText.length * U * dynamicScale
+        val textLen = ScaledProceduralRenderer.measureTextWidth(valueText)
         val startX = x + localArrowW + textPad + maxOf(0f, (availableTextW - textLen) / 2f)
-        val startY = y + (h - U * dynamicScale) / 2f
-        renderer.drawText(displayText, startX, startY, primaryColorIndex, scale = dynamicScale, startX = x + localArrowW, startY = y, clipWidth = spaceW.toInt(), clipHeight = h.toInt())
+        val startY = y + (h - U) / 2f
+        renderer.drawText(valueText, startX, startY, primaryColorIndex, scale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, startX = x + localArrowW, startY = y, clipWidth = spaceW.toInt(), clipHeight = h.toInt())
     }
 
     private fun drawBarStepper(renderer: ScaledProceduralRenderer, percent: Int, maxBlocks: Int, x: Float, y: Float, h: Float, width: Float, primaryColorIndex: Int, accentColorIndex: Int) {
@@ -1991,10 +2139,12 @@ object SettingsScene : Scene {
         }
     }
 
-    private fun drawTextRaw(renderer: ScaledProceduralRenderer, text: String, x: Float, y: Float, colorIndex: Int, scale: Int = 1) {
-        val charW = 16f * scale
-        for (i in 0 until text.length) {
+    private fun drawTextRaw(renderer: ScaledProceduralRenderer, text: String, x: Float, y: Float, colorIndex: Int, scale: Int = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY) {
+        val charW = ScaledProceduralRenderer.measureTextHeight(scale)
+        var i = 0
+        while (i < ScaledProceduralRenderer.measureTextCells(text)) {
             renderer.drawGlyph(text[i], x + i * charW, y, colorIndex, scale = scale)
+            i++
         }
     }
 }
@@ -2103,12 +2253,12 @@ object EntropyScene : Scene {
         val safeTop = maxOf(logicalHeight / 12f, U * 2f)
         val headerY = safeTop
         
-        val headerScale = fitScale(strings.entropyBomb, playAreaW - padding * 2f, 2)
+        val headerScale = ScaledProceduralRenderer.TEXT_SCALE_HEADER
         renderer.drawText(strings.entropyBomb, playAreaStartX + padding, headerY, PaletteIndices.PRIMARY, scale = headerScale)
         renderer.drawLine(playAreaStartX + padding / 2f, headerY + U * headerScale + U / 2f, playAreaStartX + playAreaW - padding / 2f, headerY + U * headerScale + U / 2f, PaletteIndices.SECONDARY, 1f)
 
         val descY = headerY + U * headerScale + U
-        renderer.drawText(strings.entropyDesc, playAreaStartX + padding, descY, PaletteIndices.SECONDARY, scale = 1, startX = playAreaStartX + padding, startY = descY, clipWidth = (playAreaW - padding * 2f).toInt(), clipHeight = (U * 2f).toInt())
+        renderer.drawText(strings.entropyDesc, playAreaStartX + padding, descY, PaletteIndices.SECONDARY, scale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, startX = playAreaStartX + padding, startY = descY, clipWidth = (playAreaW - padding * 2f).toInt(), clipHeight = (U * 2f).toInt())
 
         val inputH = maxOf(U * 2f, playAreaH / INPUT_HEIGHT_DEN)
         val inputY = descY + U * 2f
@@ -2120,9 +2270,9 @@ object EntropyScene : Scene {
 
         val inputTextY = inputY + (inputH - U) / 2f
         if (inputContainer.length == 0) {
-            renderer.drawText(strings.addTaskPlaceholder, inputX + U / 2f, inputTextY, PaletteIndices.SECONDARY, scale = 1, startX = inputX, startY = inputY, clipWidth = inputW.toInt(), clipHeight = inputH.toInt())
+            renderer.drawText(strings.addTaskPlaceholder, inputX + U / 2f, inputTextY, PaletteIndices.SECONDARY, scale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, startX = inputX, startY = inputY, clipWidth = inputW.toInt(), clipHeight = inputH.toInt())
         } else {
-            drawInputBuffer(renderer, inputX + U / 2f, inputTextY, PaletteIndices.PRIMARY, 1, inputW - U)
+            drawInputBuffer(renderer, inputX + U / 2f, inputTextY, PaletteIndices.PRIMARY, ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, inputW - U)
         }
         
         val loadX = inputX + inputW + gap
@@ -2150,8 +2300,7 @@ object EntropyScene : Scene {
             
             val frameColorIndex = if (isHighlighted) PaletteIndices.PRIMARY else PaletteIndices.SECONDARY
             val rowRight = playAreaStartX + playAreaW - padding
-            val maxSlotScale = if (slotH >= U * 3f) 2 else 1
-            val slotTxtScale = fitTaskRowScale(taskLengths[idx], rowRight - inputX - U, maxSlotScale)
+            val slotTxtScale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
             val deleteW = U * DELETE_LABEL_CELLS * slotTxtScale
             val deleteX = rowRight - deleteW
             val taskMaxW = deleteX - inputX - U
@@ -2179,7 +2328,7 @@ object EntropyScene : Scene {
             // draw < button
             renderer.drawButton("<", inputX, switcherY, switcherBtnSize, switcherBtnSize, isClicked = false)
             
-            val pageTextScale = if (switcherBtnSize >= U * 3f) 2 else 1
+            val pageTextScale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
             val pageTextY = switcherY + (switcherBtnSize - U * pageTextScale) / 2f
             drawPageIndicator(renderer, activePage + 1, totalPages, inputX + switcherBtnSize + U / 2f, pageTextY, PaletteIndices.PRIMARY, pageTextScale)
 
@@ -2225,11 +2374,11 @@ object EntropyScene : Scene {
         val closePad = U / 2f
         renderer.drawButton("X", popupX + popupW - closeSize - closePad, popupY + closePad, closeSize, closeSize, isClicked = false)
 
-        val titleScale = if (popupH >= 240f) 2 else 1
+        val titleScale = ScaledProceduralRenderer.TEXT_SCALE_HEADER
         val titleY = popupY + (popupH * 0.12f)
         renderer.drawText(strings.missionLabel, popupX + U, titleY, PaletteIndices.ERROR, scale = titleScale, startX = popupX, startY = popupY, clipWidth = popupW.toInt(), clipHeight = popupH.toInt())
         
-        val taskScale = if (popupH >= 240f) 2 else 1
+        val taskScale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
         val taskY = popupY + (popupH * 0.4f)
         drawTaskBuffer(renderer, selectedIndex, popupX + U, taskY, PaletteIndices.PRIMARY, taskScale, popupW - U * 2f)
         
@@ -2305,7 +2454,7 @@ object EntropyScene : Scene {
         val safeTop = maxOf(cachedLogicalHeight / 12f, U * 2f)
         val headerY = safeTop
         val strings = getStrings(state.language)
-        val headerScale = fitScale(strings.entropyBomb, playAreaW - padding * 2f, 2)
+        val headerScale = ScaledProceduralRenderer.TEXT_SCALE_HEADER
         val descY = headerY + U * headerScale + U
         val inputH = maxOf(U * 2f, playAreaH / INPUT_HEIGHT_DEN)
         val inputY = descY + U * 2f
@@ -2485,21 +2634,6 @@ object EntropyScene : Scene {
         return if (bound <= 0) 0 else (x and 0x7FFFFFFF) % bound
     }
 
-    private fun fitScale(text: String, width: Float, maxScale: Int): Int {
-        if (text.isEmpty()) return 1
-        return (width / (text.length * U)).toInt().coerceIn(1, maxScale)
-    }
-
-    private fun fitScaleByLength(length: Int, width: Float, maxScale: Int): Int {
-        if (length <= 0) return 1
-        return (width / (length * U)).toInt().coerceIn(1, maxScale)
-    }
-
-    private fun fitTaskRowScale(taskLength: Int, width: Float, maxScale: Int): Int {
-        val rowCells = taskLength + 5 + DELETE_LABEL_CELLS.toInt()
-        return fitScaleByLength(rowCells, width, maxScale)
-    }
-
     private fun drawInputBuffer(renderer: ScaledProceduralRenderer, x: Float, y: Float, color: Int, scale: Int, maxWidth: Float) {
         drawCodePointBuffer(renderer, inputContainer.codePoints, 0, inputContainer.length, x, y, color, scale, maxWidth)
     }
@@ -2546,8 +2680,8 @@ object EntropyScene : Scene {
     }
 
     private fun drawCenteredText(renderer: ScaledProceduralRenderer, text: String, x: Float, y: Float, w: Float, h: Float, color: Int) {
-        val scale = fitScale(text, w - U, if (h >= U * 3f) 2 else 1)
-        val textW = text.length * U * scale
+        val scale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
+        val textW = ScaledProceduralRenderer.measureTextWidth(text, scale)
         val textX = x + (w - textW) / 2f
         val textY = y + (h - U * scale) / 2f
         renderer.drawText(text, textX, textY, color, scale = scale, startX = x, startY = y, clipWidth = w.toInt(), clipHeight = h.toInt())
@@ -2628,12 +2762,14 @@ object BlockOverlayScene : Scene {
     }
 
     private fun drawTextCentered(renderer: ScaledProceduralRenderer, cx: Float, text: String, centerY: Float, scale: Int, colorIndex: Int) {
-        val textWidth = text.length * 16f * scale
+        val textWidth = ScaledProceduralRenderer.measureTextWidth(text, scale)
         val startX = cx - textWidth / 2f
-        val startY = centerY - (16f * scale) / 2f
-        val charW = 16f * scale
-        for (i in 0 until text.length) {
+        val startY = centerY - ScaledProceduralRenderer.measureTextHeight(scale) / 2f
+        val charW = ScaledProceduralRenderer.measureTextHeight(scale)
+        var i = 0
+        while (i < ScaledProceduralRenderer.measureTextCells(text)) {
             renderer.drawGlyph(text[i], startX + i * charW, startY, colorIndex, scale = scale)
+            i++
         }
     }
 }

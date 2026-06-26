@@ -12,6 +12,7 @@ import android.view.SurfaceView
 import com.example.timeboxvibe.engine.core.EngineInputCodes
 import com.example.timeboxvibe.engine.core.ENGINE_TOUCH_CANCEL
 import com.example.timeboxvibe.engine.core.ENGINE_TOUCH_DOWN
+import com.example.timeboxvibe.engine.core.ENGINE_TOUCH_MOVE
 import com.example.timeboxvibe.engine.core.ENGINE_TOUCH_UP
 import com.example.timeboxvibe.engine.core.ScaledProceduralRenderer
 import com.example.timeboxvibe.engine.core.SceneManager
@@ -99,10 +100,9 @@ class Pc98SurfaceView @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_MOVE) return true
-
         val actionCode = when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> ENGINE_TOUCH_DOWN
+            MotionEvent.ACTION_MOVE -> ENGINE_TOUCH_MOVE
             MotionEvent.ACTION_UP -> ENGINE_TOUCH_UP
             MotionEvent.ACTION_CANCEL -> ENGINE_TOUCH_CANCEL
             else -> return true

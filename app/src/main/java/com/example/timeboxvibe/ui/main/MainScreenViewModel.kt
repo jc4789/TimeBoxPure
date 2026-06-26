@@ -85,11 +85,11 @@ class MainScreenViewModel(
             TimerStateHolder.state.collect { serviceState ->
                 if (serviceState != null) {
                     _uiState.value = _uiState.value.copy(
-                        timeRemaining = serviceState.timeRemaining,
+                        timeRemaining = serviceState.timeRemaining.coerceAtLeast(0),
                         totalDuration = serviceState.totalDuration,
-                        midTimeRemaining = serviceState.midTimeRemaining,
+                        midTimeRemaining = serviceState.midTimeRemaining.coerceAtLeast(0),
                         midTotalDuration = serviceState.midTotalDuration,
-                        bigTimeRemaining = serviceState.bigTimeRemaining,
+                        bigTimeRemaining = serviceState.bigTimeRemaining.coerceAtLeast(0),
                         bigTotalDuration = serviceState.bigTotalDuration,
                         currentIndex = serviceState.currentIndex,
                         isRunning = serviceState.isActive,
@@ -435,20 +435,20 @@ class MainScreenViewModel(
 
     private fun syncStateToActiveEngine(activeEngine: TimerEngine) {
         _uiState.value = _uiState.value.copy(
-            timeRemaining = activeEngine.timeRemaining, totalDuration = activeEngine.totalDuration,
-            midTimeRemaining = activeEngine.midTimeRemaining, midTotalDuration = activeEngine.midTotalDuration,
-            bigTimeRemaining = activeEngine.bigTimeRemaining, bigTotalDuration = activeEngine.bigTotalDuration,
+            timeRemaining = activeEngine.timeRemaining.coerceAtLeast(0), totalDuration = activeEngine.totalDuration,
+            midTimeRemaining = activeEngine.midTimeRemaining.coerceAtLeast(0), midTotalDuration = activeEngine.midTotalDuration,
+            bigTimeRemaining = activeEngine.bigTimeRemaining.coerceAtLeast(0), bigTotalDuration = activeEngine.bigTotalDuration,
             currentIndex = activeEngine.currentIndex, isRunning = activeEngine.isActive,
             isRinging = activeEngine.isRinging, activeMode = activeEngine.mode, isDual = activeEngine.isDual
         )
     }
 
     private fun syncStateToSavedState(prefs: Preferences, preset: TimerPreset) {
-        val savedTime = prefs[intPreferencesKey("saved_time_remaining")] ?: preset.dualSmallDuration
+        val savedTime = (prefs[intPreferencesKey("saved_time_remaining")] ?: preset.dualSmallDuration).coerceAtLeast(0)
         val savedTotal = prefs[intPreferencesKey("saved_total_duration")] ?: preset.dualSmallDuration
-        val savedMid = prefs[intPreferencesKey("saved_mid_time_remaining")] ?: 0
+        val savedMid = (prefs[intPreferencesKey("saved_mid_time_remaining")] ?: 0).coerceAtLeast(0)
         val savedMidTotal = prefs[intPreferencesKey("saved_mid_total_duration")] ?: 0
-        val savedBig = prefs[intPreferencesKey("saved_big_time_remaining")] ?: 0
+        val savedBig = (prefs[intPreferencesKey("saved_big_time_remaining")] ?: 0).coerceAtLeast(0)
         val savedBigTotal = prefs[intPreferencesKey("saved_big_total_duration")] ?: 0
         val savedIndex = prefs[intPreferencesKey("saved_current_index")] ?: 0
 
