@@ -348,7 +348,56 @@ class TimerEngine(
             return
         }
 
-        advanceExpiredBlock()
+        advanceAfterAlarmAcknowledged()
+    }
+
+    private fun advanceAfterAlarmAcknowledged(): TickEvent {
+        isDirty = true
+
+        return when (mode) {
+            "sequence" -> {
+                if (currentIndex < preset.sequence.size - 1) {
+                    val nextIdx = currentIndex + 1
+                    currentIndex = nextIdx
+                    timeRemaining = preset.sequence[nextIdx]
+                    totalDuration = preset.sequence[nextIdx]
+                    isActive = true
+                    scheduleNextAlarm()
+                    TickEvent.IntervalComplete
+                } else {
+                    isActive = false
+                    timeRemaining = 0
+                    alarmScheduler?.cancelAlarm()
+                    TickEvent.SequenceComplete
+                }
+            }
+            "calendar" -> {
+                if (currentIndex < preset.sequence.size - 1) {
+                    val nextIdx = currentIndex + 1
+                    currentIndex = nextIdx
+                    timeRemaining = preset.sequence[nextIdx]
+                    totalDuration = preset.sequence[nextIdx]
+                    bigTimeRemaining = sumSequenceFrom(nextIdx)
+                    bigTotalDuration = bigTimeRemaining
+                    isActive = true
+                    scheduleNextAlarm()
+                    TickEvent.IntervalComplete
+                } else {
+                    isActive = false
+                    timeRemaining = 0
+                    bigTimeRemaining = 0
+                    alarmScheduler?.cancelAlarm()
+                    TickEvent.SequenceComplete
+                }
+            }
+            "classic" -> {
+                isActive = false
+                timeRemaining = 0
+                alarmScheduler?.cancelAlarm()
+                TickEvent.SequenceComplete
+            }
+            else -> advanceExpiredBlock()
+        }
     }
 
     private fun advanceExpiredBlock(): TickEvent {

@@ -439,7 +439,8 @@ class MainScreenViewModel(
             midTimeRemaining = activeEngine.midTimeRemaining.coerceAtLeast(0), midTotalDuration = activeEngine.midTotalDuration,
             bigTimeRemaining = activeEngine.bigTimeRemaining.coerceAtLeast(0), bigTotalDuration = activeEngine.bigTotalDuration,
             currentIndex = activeEngine.currentIndex, isRunning = activeEngine.isActive,
-            isRinging = activeEngine.isRinging, activeMode = activeEngine.mode, isDual = activeEngine.isDual
+            isRinging = activeEngine.isRinging, activeMode = activeEngine.mode, isDual = activeEngine.isDual,
+            isBreak = if (activeEngine.mode == "calendar") activeEngine.isBreak else _uiState.value.isBreak
         )
     }
 

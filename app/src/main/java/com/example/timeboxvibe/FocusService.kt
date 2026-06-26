@@ -74,6 +74,19 @@ class FocusService : Service() {
         }
     }
 
+    private fun logDismissSnapshot(label: String, eng: TimerEngine) {
+        val idx = eng.currentIndex
+        val duration = if (idx >= 0 && idx < eng.preset.sequence.size) eng.preset.sequence[idx] else -1
+        val type = if (idx >= 0 && idx < eng.preset.sequenceTypes.size) eng.preset.sequenceTypes[idx] else ""
+        val blockLabel = if (idx >= 0 && idx < eng.preset.sequenceLabels.size) eng.preset.sequenceLabels[idx] else ""
+        Log.d(
+            TAG,
+            "$label preset=${eng.preset.id} mode=${eng.mode} seqSize=${eng.preset.sequence.size} " +
+                "index=$idx duration=$duration type=$type label=$blockLabel " +
+                "time=${eng.timeRemaining} ringing=${eng.isRinging} active=${eng.isActive}"
+        )
+    }
+
     private val BLOCKED_PACKAGES = listOf(
         "com.instagram.android",
         "com.zhiliaoapp.musically", // TikTok
@@ -184,12 +197,13 @@ class FocusService : Service() {
             }
             "DISMISS_ALARM" -> {
                 engine?.let {
-                    Log.d(TAG, "DISMISS_ALARM enter mode=${it.mode} active=${it.isActive} ringing=${it.isRinging} bigRem=${it.bigTimeRemaining}")
+                    logDismissSnapshot("DISMISS_ALARM before", it)
                     guardedStep("DISMISS_ALARM engine.dismissAlarm") { it.dismissAlarm() }
-                    Log.d(TAG, "DISMISS_ALARM after engine mode=${it.mode} active=${it.isActive} ringing=${it.isRinging}")
+                    logDismissSnapshot("DISMISS_ALARM afterEngine", it)
                     lastTickTimestamp = SystemClock.elapsedRealtime()
                     guardedStep("DISMISS_ALARM stopAlarmAudioAndVibe") { stopAlarmAudioAndVibe() }
                     guardedStep("DISMISS_ALARM broadcastState") { broadcastState() }
+                    logDismissSnapshot("DISMISS_ALARM afterBroadcast", it)
                     if (it.isActive) {
                         guardedStep("DISMISS_ALARM startTicker") { startTicker() }
                         guardedStep("DISMISS_ALARM updateNotification running") { updateNotification("running") }
@@ -559,6 +573,9 @@ class FocusService : Service() {
 
     private fun broadcastState() {
         val eng = engine ?: return
+        if (eng.mode == "calendar") {
+            isBreak = eng.isBreak
+        }
         TimerStateHolder.update(
             timeRemaining = eng.timeRemaining.coerceAtLeast(0),
             totalDuration = eng.totalDuration,
