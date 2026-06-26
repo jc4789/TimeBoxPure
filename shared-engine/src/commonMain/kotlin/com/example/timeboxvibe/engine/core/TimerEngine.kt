@@ -86,6 +86,9 @@ data class TimerPreset(
                     }
                 }
             }
+        } else if (normalizedMode == "dual" || normalizedMode == "dual.5") {
+            copiedTypes = emptyArray()
+            copiedLabels = emptyArray()
         } else {
             if (copiedLabels.isNotEmpty() && copiedLabels.size != copiedSequence.size) copiedLabels = emptyArray()
             if (copiedTypes.isNotEmpty() && copiedTypes.size != copiedSequence.size) copiedTypes = emptyArray()
@@ -355,6 +358,7 @@ class TimerEngine(
     }
 
     fun changePreset(newPreset: TimerPreset) {
+        alarmScheduler?.cancelAlarm()
         preset = newPreset.normalized(logFailures = true)
         initialize()
     }

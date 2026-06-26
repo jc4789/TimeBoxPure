@@ -79,6 +79,7 @@ class MainScreenViewModel(
 
     private val _uiState = MutableStateFlow(TimerUiState())
     val uiState: StateFlow<TimerUiState> = _uiState.asStateFlow()
+    private var switchingPresetId: String? = null
 
     init {
         checkExactAlarmPermission()
@@ -86,6 +87,17 @@ class MainScreenViewModel(
         viewModelScope.launch {
             TimerStateHolder.state.collect { serviceState ->
                 if (serviceState != null) {
+                    val switching = switchingPresetId
+                    if (switching != null && serviceState.presetId != switching) {
+                        Log.d(
+                            "MainScreenViewModel",
+                            "UI_IGNORE_STALE preset=${serviceState.presetId} switchingTo=$switching"
+                        )
+                        return@collect
+                    }
+                    if (switching == serviceState.presetId) {
+                        switchingPresetId = null
+                    }
                     Log.d(
                         "MainScreenViewModel",
                         "UI_RECEIVE preset=${serviceState.presetId} mode=${serviceState.mode} " +
@@ -162,7 +174,8 @@ class MainScreenViewModel(
                 // Hard-sync with the engine or fallback to saved state
                 val activeEngine = FocusService.engine
                 val hasSavedState = prefs[booleanPreferencesKey("has_saved_state")] ?: false
-                if (activeEngine != null) {
+                val switching = switchingPresetId
+                if (activeEngine != null && (switching == null || activeEngine.preset.id == switching)) {
                     syncStateToActiveEngine(activeEngine)
                 } else if (hasSavedState) {
                     syncStateToSavedState(prefs, preset)
@@ -214,7 +227,11 @@ class MainScreenViewModel(
             putStringArrayListExtra("presetSequenceLabels", ArrayList(preset.sequenceLabels.toList()))
         }
 
-        ContextCompat.startForegroundService(context, intent)
+        if (activeEngine != null) {
+            context.startService(intent)
+        } else {
+            ContextCompat.startForegroundService(context, intent)
+        }
     }
 
     override fun stopTimer() {
@@ -247,6 +264,7 @@ class MainScreenViewModel(
     override fun selectPreset(id: String) {
         SoundPreviewPlayer.stop()
         val preset = _uiState.value.presets.firstOrNull { it.id == id } ?: return
+        switchingPresetId = id
 
         // Hard stop the current engine before slotting the new preset in
         stopBackgroundService()
@@ -416,8 +434,10 @@ class MainScreenViewModel(
     }
 
     private fun stopBackgroundService() {
-        val intent = Intent(context, FocusService::class.java)
-        context.stopService(intent)
+        val intent = Intent(context, FocusService::class.java).apply {
+            action = "STOP_SERVICE"
+        }
+        context.startService(intent)
     }
 
     // --- STATE SYNC HELPERS ---
@@ -446,7 +466,7 @@ class MainScreenViewModel(
             isRunning = false, isRinging = false,
             activeMode = preset.mode,
             isDual = preset.mode in listOf("dual", "dual.5", "dual-sequence", "calendar"),
-            isBreak = if (preset.mode == "calendar") (preset.sequenceTypes.firstOrNull() == "relax") else _uiState.value.isBreak
+            isBreak = if (preset.mode == "calendar") (preset.sequenceTypes.firstOrNull() == "relax") else false
         )
     }
 
@@ -461,7 +481,7 @@ class MainScreenViewModel(
             currentStageType = activeEngine.currentStageType,
             activePresetId = activeEngine.preset.id,
             isRinging = activeEngine.isRinging, activeMode = activeEngine.mode, isDual = activeEngine.isDual,
-            isBreak = if (activeEngine.mode == "calendar") activeEngine.isBreak else _uiState.value.isBreak
+            isBreak = if (activeEngine.mode == "calendar") activeEngine.isBreak else false
         )
     }
 
@@ -489,7 +509,7 @@ class MainScreenViewModel(
             isRinging = false,
             activeMode = preset.mode,
             isDual = preset.mode in listOf("dual", "dual.5", "dual-sequence", "calendar"),
-            isBreak = if (preset.mode == "calendar") (savedIndex < preset.sequenceTypes.size && preset.sequenceTypes[savedIndex] == "relax") else _uiState.value.isBreak
+            isBreak = if (preset.mode == "calendar") (savedIndex < preset.sequenceTypes.size && preset.sequenceTypes[savedIndex] == "relax") else false
         )
     }
 

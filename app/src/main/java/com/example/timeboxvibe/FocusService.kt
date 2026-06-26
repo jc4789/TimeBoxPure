@@ -75,15 +75,15 @@ class FocusService : Service() {
     }
 
     private fun logEngineSnapshot(label: String, eng: TimerEngine) {
-        val idx = eng.currentIndex
-        val duration = if (idx >= 0 && idx < eng.preset.sequence.size) eng.preset.sequence[idx] else -1
-        val type = if (idx >= 0 && idx < eng.preset.sequenceTypes.size) eng.preset.sequenceTypes[idx] else ""
-        val blockLabel = eng.currentStageLabel
         Log.d(
             TAG,
-            "$label preset=${eng.preset.id} mode=${eng.mode} seqSize=${eng.preset.sequence.size} " +
-                "index=$idx duration=$duration type=$type label=$blockLabel " +
-                "time=${eng.timeRemaining} ringing=${eng.isRinging} active=${eng.isActive}"
+            "$label presetId=${eng.preset.id} mode=${eng.mode} " +
+                "sequence=${eng.preset.sequence.joinToString(prefix = "[", postfix = "]")} " +
+                "sequenceTypes=${eng.preset.sequenceTypes.joinToString(prefix = "[", postfix = "]")} " +
+                "sequenceLabels=${eng.preset.sequenceLabels.joinToString(prefix = "[", postfix = "]")} " +
+                "currentIndex=${eng.currentIndex} bigDuration=${eng.bigTimeRemaining}/${eng.bigTotalDuration} " +
+                "smallDuration=${eng.timeRemaining}/${eng.totalDuration} timeRemaining=${eng.timeRemaining} " +
+                "isRinging=${eng.isRinging} isActive=${eng.isActive}"
         )
     }
 
@@ -153,7 +153,7 @@ class FocusService : Service() {
 
         when (action) {
             "STOP_SERVICE" -> {
-                clearSavedEngineStateNow()
+                clearSavedEngineState()
                 stopAlarmAndService()
                 return START_NOT_STICKY
             }
@@ -231,6 +231,13 @@ class FocusService : Service() {
         // Starting the timer
         val presetId = intent.getStringExtra("presetId")
         if (presetId != null) {
+            stopTicker()
+            cancelAlarm()
+            engine?.pause()
+            engine = null
+            FocusService.engine = null
+            TimerStateHolder.clear()
+
             val name = intent.getStringExtra("presetName") ?: ""
             val mode = intent.getStringExtra("presetMode") ?: "classic"
             val sequence = intent.getIntegerArrayListExtra("presetSequence") ?: ArrayList()
@@ -239,8 +246,16 @@ class FocusService : Service() {
             val dualSmallDuration = intent.getIntExtra("dualSmallDuration", 90)
             val alarmBehavior = intent.getStringExtra("alarmBehavior") ?: "alarm"
             val description = intent.getStringExtra("presetDescription") ?: ""
-            val sequenceTypes = intent.getStringArrayListExtra("presetSequenceTypes") ?: ArrayList()
-            val sequenceLabels = intent.getStringArrayListExtra("presetSequenceLabels") ?: ArrayList()
+            val sequenceTypes = if (mode == "calendar") {
+                intent.getStringArrayListExtra("presetSequenceTypes") ?: ArrayList()
+            } else {
+                ArrayList()
+            }
+            val sequenceLabels = if (mode == "calendar") {
+                intent.getStringArrayListExtra("presetSequenceLabels") ?: ArrayList()
+            } else {
+                ArrayList()
+            }
 
             val preset = TimerPreset(
                 id = presetId,

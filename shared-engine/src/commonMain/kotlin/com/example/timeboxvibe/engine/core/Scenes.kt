@@ -1587,31 +1587,62 @@ object TemplateForgeScene : Scene {
     }
 
     private fun contentMinScroll(playAreaH: Float, logicalHeight: Float): Float {
+        val contentBottom = contentBottomY(logicalHeight)
+        return (playAreaH - contentBottom).coerceAtMost(0f)
+    }
+
+    private fun contentBottomY(logicalHeight: Float): Float {
         val safeTop = maxOf(logicalHeight / SAFE_TOP_RATIO_DEN, U * TITLE_ROW_HEIGHT_CELLS)
         val rowH = U * CONTROL_HEIGHT_CELLS
         val gap = U / 2f
         val headerH = safeTop + rowH + gap
-        val contentY = headerH + gap
-        var contentBottom = contentY
-        contentBottom += rowH + gap
-        contentBottom += rowH + gap
-        contentBottom += rowH + gap
-        contentBottom += rowH * 2f + gap
-        contentBottom += modeParamRows() * (rowH + gap)
-        contentBottom += U * SAVE_GAP_CELLS + rowH
-        return (playAreaH - contentBottom).coerceAtMost(0f)
+        val contentW = cachedPlayAreaWidth() - maxOf(U, cachedPlayAreaWidth() / CONTENT_PAD_RATIO_DEN) * 2f
+        var y = headerH + gap
+        val strings = getStrings(SceneManager.timerActions?.getUiState()?.language ?: "en")
+
+        y = nextRowY(strings.presetNameLabel, y, contentW, rowH)
+        y = nextRowY(strings.engineStyleLabel, y, contentW, rowH)
+        y = nextRowY(strings.completionBehaviorLabel, y, contentW, rowH)
+        y += rowH * 2f + gap
+
+        when (modeKeys[modeIndex]) {
+            "classic" -> {
+                y = nextRowY(strings.durationLabel, y, contentW, rowH)
+            }
+            "dual" -> {
+                y = nextRowY(strings.bigBoxLabel, y, contentW, rowH)
+                y = nextRowY(strings.smallLoopLabel, y, contentW, rowH)
+            }
+            "dual.5" -> {
+                y = nextRowY(strings.macroBlockLabel, y, contentW, rowH)
+                y = nextRowY(strings.mediumLoopLabel, y, contentW, rowH)
+                y = nextRowY(strings.microLoopLabel, y, contentW, rowH)
+            }
+            "sequence" -> {
+                y = nextRowY(strings.sequenceLabel, y, contentW, rowH)
+                y = nextRowY(strings.unitLabel, y, contentW, rowH)
+            }
+            "dual-sequence" -> {
+                y = nextRowY(strings.sequenceLabel, y, contentW, rowH)
+                y = nextRowY(strings.unitLabel, y, contentW, rowH)
+                y = nextRowY(strings.smallLoopLabel, y, contentW, rowH)
+            }
+            "calendar" -> {
+                var blockIndex = 0
+                while (blockIndex < calendarBlockCount) {
+                    y = calendarBlockRowsEndY(strings, blockIndex, y, contentW, rowH)
+                    blockIndex++
+                }
+                y += rowH + gap
+            }
+        }
+        return y + U * SAVE_GAP_CELLS + rowH
     }
 
-    private fun modeParamRows(): Int {
-        return when (modeKeys[modeIndex]) {
-            "classic" -> 1
-            "dual" -> 2
-            "dual.5" -> 3
-            "sequence" -> 2
-            "dual-sequence" -> 3
-            "calendar" -> calendarBlockCount * 3 + 1
-            else -> 0
-        }
+    private fun cachedPlayAreaWidth(): Float {
+        val hudStart = RetroHudComponent.playAreaStartX(cachedLogicalWidth)
+        val playW = RetroHudComponent.playAreaWidth(cachedLogicalWidth)
+        return if (playW > 0f) playW else cachedLogicalWidth - hudStart
     }
 
     private fun currentModeDescription(strings: AppStrings): String {
