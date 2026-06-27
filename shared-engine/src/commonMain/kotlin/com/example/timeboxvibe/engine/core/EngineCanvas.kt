@@ -13,6 +13,8 @@ interface EngineCanvas {
     val height: Float
     val density: Float // Screen density, 1.0 means 1 dp = 1 px
 
+    /** Sets the opacity applied when the platform resolves palette indices to native colors. */
+    fun setDrawAlpha(alphaByte: Int) {}
     fun clear(colorIndex: Int)
     fun setPixel(x: Float, y: Float, colorIndex: Int)
     fun drawLine(x0: Float, y0: Float, x1: Float, y1: Float, colorIndex: Int, strokeWidth: Float = 1f)

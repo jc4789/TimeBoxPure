@@ -51,10 +51,10 @@ object ActiveTimerScene : Scene {
     private const val CONTROL_GAP_LANDSCAPE = 16f
     private const val CONTROL_ICON_SIZE = 32f
     private const val CONTROL_ICON_SCALE = 1
-    private const val TIMER_RADIUS_WIDTH_NUM = 17f
-    private const val TIMER_RADIUS_WIDTH_DEN = 40f
-    private const val TIMER_RADIUS_HEIGHT_NUM = 3f
-    private const val TIMER_RADIUS_HEIGHT_DEN = 10f
+    private const val TIMER_RADIUS_WIDTH_NUM = 9f
+    private const val TIMER_RADIUS_WIDTH_DEN = 20f
+    private const val TIMER_RADIUS_HEIGHT_NUM = 9f
+    private const val TIMER_RADIUS_HEIGHT_DEN = 20f
     private const val OUTER_TO_INNER_RING_CELLS = 2f
     private const val INNER_TO_QUIET_ZONE_CELLS = 3f
     private const val MIN_TIMER_RADIUS_CELLS = 8f
@@ -76,6 +76,9 @@ object ActiveTimerScene : Scene {
     private var hasDragged = false
     private const val BLINK_RATE = 0.5f
     private var alarmMarqueeX = 0f
+    // Demoscene manager: 6 Wave oscillators + 1 IkChain2D + Perlin rune drift.
+    // Allocated on first render so we don't run the constructor at class init.
+    private var demoscene: MagicCircleDemoscene? = null
 
     override fun onEnter(payload: Any?) {
         isTaskFocused = false
@@ -91,6 +94,9 @@ object ActiveTimerScene : Scene {
         for (i in 0 until currentTask.length) {
             inputContainer.processPayload(currentTask[i].code)
         }
+        // Allocate the demoscene manager on entry. Reset to deterministic state.
+        val dm = demoscene ?: MagicCircleDemoscene().also { demoscene = it }
+        dm.reset()
     }
 
     override fun onExit() {
@@ -106,6 +112,9 @@ object ActiveTimerScene : Scene {
         } else {
             alarmMarqueeX = 0f
         }
+        // Tick the 6 demoscene Wave oscillators. No-op when
+        // `VisualsStateHolder.demosceneEffectsEnabled` is false.
+        demoscene?.update(dt)
     }
 
     override fun render(renderer: ScaledProceduralRenderer, playX: Int, playY: Int, playW: Int, playH: Int) {
@@ -131,6 +140,11 @@ object ActiveTimerScene : Scene {
         val playAreaH: Float
         val inputBaseY = timerInputY(logicalHeight)
         
+        // Continuous time source for the magic circle. The renderer uses
+        // `elapsedSeconds * rateDegPerSec` for each layer's rotation, so the
+        // motion is non-cyclic and visibly continues across any time window.
+        val elapsedSeconds = FrameClock.seconds(60f)
+
         if (isPortrait) {
             playAreaStartX = playX.toFloat()
             playAreaW = playW.toFloat()
@@ -138,9 +152,15 @@ object ActiveTimerScene : Scene {
             cx = logicalWidth / 2f
             radius = timerRadius(playAreaW, playAreaH)
             baseCy = timerCenterY(playAreaH, inputBaseY, radius)
-            
-            // 1. Draw Play Area background (top 85%)
-            renderer.fillRectDither(0f, 0f, logicalWidth, playAreaH, PaletteIndices.BG, PaletteIndices.BG, SoftDitherPattern.SOLID)
+
+            // 1. Draw Play Area background (top 85%). When the user enables
+            //    the "Background Nebula" setting, the clear color slowly
+            //    cycles through BG / BG_ALT / PANEL via a 2-octave Perlin
+            //    fbm sampled at the play-area center and the center-offset.
+            val nebulaColor = nebulaColorIndex(
+                cx, baseCy, playAreaW, playAreaH, elapsedSeconds
+            )
+            renderer.fillRectDither(0f, 0f, logicalWidth, playAreaH, nebulaColor, nebulaColor, SoftDitherPattern.SOLID)
         } else {
             playAreaStartX = playX.toFloat()
             playAreaW = playW.toFloat()
@@ -148,9 +168,12 @@ object ActiveTimerScene : Scene {
             cx = playAreaStartX + (playAreaW / 2f)
             radius = timerRadius(playAreaW, playAreaH)
             baseCy = timerCenterY(playAreaH, inputBaseY, radius)
-            
-            // 1. Draw Play Area background (right 70%)
-            renderer.fillRectDither(playAreaStartX, 0f, logicalWidth, logicalHeight, PaletteIndices.BG, PaletteIndices.BG, SoftDitherPattern.SOLID)
+
+            // 1. Draw Play Area background (right 70%) with optional nebula.
+            val nebulaColor = nebulaColorIndex(
+                cx, baseCy, playAreaW, playAreaH, elapsedSeconds
+            )
+            renderer.fillRectDither(playAreaStartX, 0f, logicalWidth, logicalHeight, nebulaColor, nebulaColor, SoftDitherPattern.SOLID)
         }
         scrollY = scrollY.coerceIn(timerMinScroll(state, playAreaH, logicalHeight, radius, inputBaseY), 0f)
         val cy = baseCy + scrollY
@@ -166,81 +189,39 @@ object ActiveTimerScene : Scene {
             }
         } else 0f
 
-        // 3. Draw the nested timebox instrument. The center is reserved before ornament is drawn.
-        val now = getEpochMillis()
-        val progress = (now % 16000L).toFloat() / 16000f
+        // 3. Draw the nested timebox instrument. `elapsedSeconds` (from
+        //    FrameClock) drives each layer's continuous rotation. Demoscene
+        //    manager provides Perlin rune drift + FABRIK comet trail; null
+        //    when demoscene is disabled in settings.
         val innerRadius = radius - U * OUTER_TO_INNER_RING_CELLS
         val quietRadius = innerRadius - U * INNER_TO_QUIET_ZONE_CELLS
-        renderer.drawNestedTimeboxInstrument(
+        renderer.nestedTimeboxRenderer.render(
             centerX = cx,
             centerY = cy,
-            outerRadius = radius,
-            innerRadius = innerRadius,
+            baseRadius = radius,
             quietRadius = quietRadius,
             outerProgress = outerProgress,
             innerProgress = innerProgress,
-            rotationProgress = -progress,
+            elapsedSeconds = elapsedSeconds,
             isDual = state.isDual,
             outerActiveColorIndex = PaletteIndices.HIGHLIGHT,
-            innerActiveColorIndex = PaletteIndices.ACCENT_SECONDARY,
-            trackColorIndex = PaletteIndices.BORDER,
-            magicPrimaryColorIndex = PaletteIndices.MAGIC_CIRCLE_PRIMARY,
-            magicSecondaryColorIndex = PaletteIndices.MAGIC_CIRCLE_SECONDARY,
-            textFrameColorIndex = PaletteIndices.BORDER_BRIGHT
+            innerActiveColorIndex = PaletteIndices.TEXT_SECONDARY,
+            magicPrimaryColorIndex = PaletteIndices.ACCENT_PRIMARY,
+            magicSecondaryColorIndex = PaletteIndices.ACCENT_DANGER,
+            textFrameColorIndex = PaletteIndices.HIGHLIGHT,
+            timeRemaining = state.timeRemaining,
+            stageLabel = state.currentStageLabel,
+            midTimeRemaining = state.midTimeRemaining,
+            bigTimeRemaining = state.bigTimeRemaining,
+            activeMode = state.activeMode,
+            isBreak = state.isBreak,
+            sequenceLength = state.sequenceLength,
+            strings = strings,
+            playAreaW = playAreaW,
+            demoscene = demoscene
         )
 
-        // 4. Draw orbiting state marker on the active outer timebox ring.
-        if (outerProgress > 0f) {
-            renderer.drawBulletPattern(
-                cx, cy, radius, outerProgress, PaletteIndices.HIGHLIGHT, PaletteIndices.ACCENT_SECONDARY, 1.2f
-            )
-        }
-
-        // 5. Center readouts are part of the instrument, inside the reserved quiet zone.
-        val cPri = PaletteIndices.TEXT_PRIMARY
-        val cSec = PaletteIndices.TEXT_SECONDARY
-        val timeRemaining = state.timeRemaining
-        val midTimeRemaining = state.midTimeRemaining
-        val bigTimeRemaining = state.bigTimeRemaining
-        val currentIndex = state.currentIndex
-        val sequenceLength = state.sequenceLength
-        val activeMode = state.activeMode
-        val isBreak = state.isBreak
-        val isD = state.isDual
-        val stageLabel = state.currentStageLabel
-
-        if (isD) {
-            if (activeMode == "dual.5") {
-                if (sequenceLength > 1) {
-                    drawStageLabelCentered(renderer, cx, stageLabel, cy - U * 7f / 2f, 1, cSec, playAreaW - TASK_INPUT_SIDE_PAD * 2f)
-                    drawTimeCentered(renderer, cx, timeRemaining, cy - U * 3f / 2f, 2, cPri)
-                } else {
-                    drawTimeCentered(renderer, cx, timeRemaining, cy - U * 3f / 2f, 2, cPri)
-                }
-                drawAlarmTimeCentered(renderer, cx, midTimeRemaining, cy + U / 2f, 1, cPri)
-                drawTimeCentered(renderer, cx, bigTimeRemaining, cy + U * 7f / 4f, 1, cPri)
-                drawStaticTextCentered(renderer, cx, strings.sessionLimitLabel, cy + U * 3f, 1, cSec)
-            } else {
-                if (sequenceLength > 1) {
-                    drawStageLabelCentered(renderer, cx, stageLabel, cy - U * 5f / 2f, 1, cSec, playAreaW - TASK_INPUT_SIDE_PAD * 2f)
-                    drawTimeCentered(renderer, cx, timeRemaining, cy - U / 2f, 2, cPri)
-                } else {
-                    drawTimeCentered(renderer, cx, timeRemaining, cy - U / 2f, 2, cPri)
-                }
-                drawTimeCentered(renderer, cx, bigTimeRemaining, cy + U * 3f / 2f, 1, cPri)
-                drawStaticTextCentered(renderer, cx, if (activeMode == "dual-sequence") strings.blockLimitLabel else strings.sessionLimitLabel, cy + U * 11f / 4f, 1, cSec)
-            }
-        } else {
-            val isSeqMode = activeMode == "sequence" || activeMode == "dual-sequence" || activeMode == "calendar"
-            drawTimeCentered(renderer, cx, timeRemaining, cy - U / 2f, 2, cPri)
-            if (isSeqMode && sequenceLength > 1) {
-                drawStageLabelCentered(renderer, cx, stageLabel, cy + U * 3f / 2f, 1, cSec, playAreaW - TASK_INPUT_SIDE_PAD * 2f)
-            } else if (activeMode != "sequence") {
-                drawStaticTextCentered(renderer, cx, if (isBreak) strings.unwindingLabel else strings.focusingLabel, cy + U * 3f / 2f, 1, cSec)
-            }
-        }
-
-        // 7. Draw Task Input Box
+        // 4. Draw Task Input Box
         val taskText = state.currentTask
         val inputH = TASK_INPUT_HEIGHT
         val inputX = playAreaStartX + TASK_INPUT_SIDE_PAD
@@ -870,6 +851,47 @@ object ActiveTimerScene : Scene {
             i++
         }
     }
+
+    /**
+     * Sample the Perlin nebula at two points in the play area and pick a
+     * palette index for the play-area background.
+     *
+     * When `backgroundNebulaEnabled` is false, returns the standard `BG`
+     * (no modulation). When true, samples Perlin fbm at the play-area
+     * center and at the play-area midpoint-offset, averages the two, and
+     * picks one of three dark colors: `BG` (near-black void), `BG_ALT`
+     * (dark blue-gray mid), or `PANEL` (dark warm brown peak). The time
+     * scale gives a noticeable change every ~12 seconds.
+     */
+    private fun nebulaColorIndex(
+        centerX: Float,
+        centerY: Float,
+        playAreaW: Float,
+        playAreaH: Float,
+        elapsedSeconds: Float
+    ): Int {
+        if (!VisualsStateHolder.backgroundNebulaEnabled) return PaletteIndices.BG
+        val t = elapsedSeconds * NEBULA_TIME_SCALE
+        val n1 = PerlinNoise.fbm(
+            centerX * NEBULA_SPATIAL_SCALE + t,
+            centerY * NEBULA_SPATIAL_SCALE,
+            octaves = 2
+        )
+        val n2 = PerlinNoise.fbm(
+            (centerX + playAreaW * 0.5f) * NEBULA_SPATIAL_SCALE + t,
+            (centerY + playAreaH * 0.5f) * NEBULA_SPATIAL_SCALE,
+            octaves = 2
+        )
+        val avg = (n1 + n2) * 0.5f
+        return when {
+            avg >  0.2f -> PaletteIndices.PANEL
+            avg > -0.1f -> PaletteIndices.BG_ALT
+            else        -> PaletteIndices.BG
+        }
+    }
+
+    private const val NEBULA_SPATIAL_SCALE = 0.005f
+    private const val NEBULA_TIME_SCALE = 0.08f
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -2323,6 +2345,24 @@ object SettingsScene : Scene {
             SceneManager.performHapticFeedback(EngineHaptics.CLICK)
             SceneManager.timerActions?.requestExactAlarmPermission()
         }
+
+        // Visuals section toggles. Header row is display-only.
+        layoutRow(null, strings.visualsHeader)
+        // No-op for the header row.
+
+        layoutRow(null, strings.demosceneLabel)
+        if (fx >= ctrlX && fx <= ctrlX + ctrlW && fy >= ctrlY && fy <= ctrlY + rowH) {
+            SceneManager.performHapticFeedback(EngineHaptics.TICK)
+            VisualsStateHolder.demosceneEffectsEnabled = !VisualsStateHolder.demosceneEffectsEnabled
+            return
+        }
+
+        layoutRow(null, strings.nebulaLabel)
+        if (fx >= ctrlX && fx <= ctrlX + ctrlW && fy >= ctrlY && fy <= ctrlY + rowH) {
+            SceneManager.performHapticFeedback(EngineHaptics.TICK)
+            VisualsStateHolder.backgroundNebulaEnabled = !VisualsStateHolder.backgroundNebulaEnabled
+            return
+        }
     }
 
     private fun beginSettingsLayout(logicalWidth: Float, logicalHeight: Float) {
@@ -2428,6 +2468,26 @@ object SettingsScene : Scene {
         } else {
             renderer.drawButton(strings.authorizeLabel, ctrlX, ctrlY, ctrlW, rowH, isClicked = false)
         }
+
+        // Visuals section (demoscene + nebula toggles). Toggles write to
+        // VisualsStateHolder, which the magic circle renderer reads each frame.
+        // No platform persistence for now — toggles are session-scoped.
+        layoutRow(renderer, strings.visualsHeader)
+        drawTextRaw(renderer, strings.visualsHeader, labelX, ctrlY + (rowH - U) / 2f, PaletteIndices.SECONDARY)
+
+        layoutRow(renderer, strings.demosceneLabel)
+        renderer.drawButton(
+            if (VisualsStateHolder.demosceneEffectsEnabled) strings.on else strings.off,
+            ctrlX, ctrlY, ctrlW, rowH,
+            isClicked = VisualsStateHolder.demosceneEffectsEnabled
+        )
+
+        layoutRow(renderer, strings.nebulaLabel)
+        renderer.drawButton(
+            if (VisualsStateHolder.backgroundNebulaEnabled) strings.on else strings.off,
+            ctrlX, ctrlY, ctrlW, rowH,
+            isClicked = VisualsStateHolder.backgroundNebulaEnabled
+        )
     }
 
     private fun clampSettingsScroll(state: EngineUiState, strings: AppStrings) {
@@ -2450,6 +2510,11 @@ object SettingsScene : Scene {
         layoutRow(null, strings.vibe)
         layoutRow(null, strings.themeLabel)
         layoutRow(null, strings.precisionLabel)
+        // Visuals section: 1 header + 2 toggle rows. Same height as a
+        // side-by-side row, so `layoutRow(null, label)` advances `currentY` once.
+        layoutRow(null, strings.visualsHeader)
+        layoutRow(null, strings.demosceneLabel)
+        layoutRow(null, strings.nebulaLabel)
     }
 
     private fun indexOf(values: Array<String>, value: String): Int {

@@ -539,12 +539,19 @@ class TimerEngine(
                     timeRemaining = 0; midTimeRemaining = 0; bigTimeRemaining = 0
                     alarmScheduler?.cancelAlarm()
                     return TickEvent.SequenceComplete
-                } else if (midTimeRemaining <= 0) {
+                }
+                // Advance the mid timer if it has expired.
+                if (midTimeRemaining <= 0) {
                     val nextMid = minOf(preset.dualMidDuration, bigTimeRemaining)
                     midTimeRemaining = nextMid; midTotalDuration = nextMid
-                    val nextSub = minOf(preset.dualSmallDuration, nextMid)
-                    timeRemaining = nextSub; totalDuration = nextSub
                 }
+                // Always reset the small timer to a valid value (capped by
+                // the remaining mid time). Without this, the small timer would
+                // stay at 0 after auto-loop and the gentle-reminder sound would
+                // re-fire every second.
+                val nextSub = minOf(preset.dualSmallDuration, midTimeRemaining)
+                timeRemaining = nextSub
+                totalDuration = nextSub
                 isActive = true
                 scheduleNextAlarm()
                 return TickEvent.IntervalComplete

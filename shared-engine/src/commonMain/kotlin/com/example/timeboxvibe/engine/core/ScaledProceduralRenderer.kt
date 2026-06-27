@@ -11,7 +11,8 @@ import kotlin.math.roundToInt
  */
 class ScaledProceduralRenderer(val canvas: EngineCanvas) {
     companion object {
-        private const val U = 16f
+        private const val U = 16
+        private const val GLYPH_CELL_COUNT = 16
         const val TEXT_SCALE_IDENTITY = 1
         const val TEXT_SCALE_HEADER = 2
         const val ACTIVE_INDICATOR_GLYPH = '>'
@@ -22,12 +23,13 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         }
 
         fun measureTextWidth(text: String, scale: Int = TEXT_SCALE_IDENTITY): Float {
-            return measureTextCells(text) * U * scale
+            return (measureTextCells(text) * U * scale).toFloat()
         }
 
         fun measureTextHeight(scale: Int = TEXT_SCALE_IDENTITY): Float {
-            return U * scale
+            return (U * scale).toFloat()
         }
+
     }
 
     init {
@@ -35,6 +37,9 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
     }
 
     private val vector = AliasedVectorLayer(canvas)
+    val nestedTimeboxRenderer = NestedTimeboxInstrumentRenderer(this)
+
+    private val rotatedGlyphBuffer = IntArray(GLYPH_CELL_COUNT * GLYPH_CELL_COUNT)
 
     fun clear(colorIndex: Int) {
         canvas.clear(colorIndex)
@@ -194,6 +199,164 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         drawText(text, destX, destY, colorIndex, shadowColorIndex, charSpacing, scaleInt, startX, startY, clipWidth, clipHeight)
     }
 
+    /**
+     * Places a Shinonome glyph at a polar coordinate relative to (centerX, centerY).
+     * When [tangent] is true, the glyph bitmap is rotated by (angleDegrees + 90) so its
+     * "up" points radially outward — used for rune bands and scripture rings.
+     * When [tangent] is false, the glyph is rendered upright (tops point up) and centered
+     * on the polar coordinate.
+     * Reuses [rotatedGlyphBuffer] to avoid per-call allocation. Final raster output is
+     * integer-snapped and bounded against the canvas.
+     */
+    /**
+     * Places a small filled disc at a polar coordinate. Used for the magic
+     * circle's outer decoration dot ring (12 fixed dots) and any other
+     * polar-positioned marker that should be circular.
+     */
+    fun drawPolarDot(
+        centerX: Float,
+        centerY: Float,
+        radius: Float,
+        angleDegrees: Float,
+        size: Float,
+        colorIndex: Int
+    ) {
+        val aIdx = FastMath.degreesToIdx(angleDegrees)
+        val x = centerX + radius * FastMath.fastCos(aIdx)
+        val y = centerY + radius * FastMath.fastSin(aIdx)
+        drawAliasedFilledCircle(x, y, size, colorIndex)
+    }
+
+    fun drawPolarGlyph(
+        char: Char,
+        centerX: Float,
+        centerY: Float,
+        radius: Float,
+        angleDegrees: Float,
+        colorIndex: Int,
+        shadowColorIndex: Int = EngineCanvas.COLOR_TRANSPARENT,
+        scale: Int = TEXT_SCALE_IDENTITY,
+        tangent: Boolean = false
+    ) {
+        val glyph = ShinonomeFont.glyphFor(char)
+        val aIdx = FastMath.degreesToIdx(angleDegrees)
+        val polarX = centerX + radius * FastMath.fastCos(aIdx)
+        val polarY = centerY + radius * FastMath.fastSin(aIdx)
+
+        if (!tangent) {
+            val fScale = scale.toFloat()
+            drawGlyph(
+                char,
+                polarX - U * 0.5f * fScale,
+                polarY - U * 0.5f * fScale,
+                colorIndex,
+                shadowColorIndex,
+                scale
+            )
+            return
+        }
+
+        // Tangent rotation: glyph "up" maps to the radial outward direction.
+        // At polar angle theta, outward = (cos theta, sin theta). Glyph natural up = (0, -1).
+        // So we rotate the bitmap by theta + 90 degrees.
+        val rotIdx = FastMath.degreesToIdx(angleDegrees + 90f)
+        val cosR = FastMath.fastCos(rotIdx)
+        val sinR = FastMath.fastSin(rotIdx)
+        val cxLocal = 7.5f
+        val cyLocal = 7.5f
+
+        var i = 0
+        while (i < GLYPH_CELL_COUNT * GLYPH_CELL_COUNT) {
+            rotatedGlyphBuffer[i] = 0
+            i++
+        }
+
+        var y = 0
+        while (y < GLYPH_CELL_COUNT) {
+            val rowBits = glyph[y]
+            var x = 0
+            while (x < GLYPH_CELL_COUNT) {
+                val bitMask = 0x8000 ushr x
+                if ((rowBits and bitMask) != 0) {
+                    val localX = (x - cxLocal).toFloat()
+                    val localY = (y - cyLocal).toFloat()
+                    val rx = (localX * cosR - localY * sinR).roundToInt() + 8
+                    val ry = (localX * sinR + localY * cosR).roundToInt() + 8
+                    if (rx in 0..15 && ry in 0..15) {
+                        rotatedGlyphBuffer[ry * GLYPH_CELL_COUNT + rx] = 1
+                    }
+                }
+                x++
+            }
+            y++
+        }
+        emitRotatedGlyph(polarX, polarY, colorIndex, shadowColorIndex, scale)
+    }
+
+    private fun emitRotatedGlyph(
+        centerX: Float,
+        centerY: Float,
+        colorIndex: Int,
+        shadowColorIndex: Int,
+        scale: Int
+    ) {
+        val fScale = scale.toFloat()
+        val baseX = centerX - U * 0.5f * fScale
+        val baseY = centerY - U * 0.5f * fScale
+        val w = canvas.width.toInt()
+        val h = canvas.height.toInt()
+
+        if (shadowColorIndex != EngineCanvas.COLOR_TRANSPARENT) {
+            var y = 0
+            while (y < GLYPH_CELL_COUNT) {
+                var x = 0
+                while (x < GLYPH_CELL_COUNT) {
+                    if (rotatedGlyphBuffer[y * GLYPH_CELL_COUNT + x] != 0) {
+                        var sy = 0
+                        while (sy < scale) {
+                            var sx = 0
+                            while (sx < scale) {
+                                val px = baseX + (x * scale + sx) + fScale
+                                val py = baseY + (y * scale + sy) + fScale
+                                if (px >= 0 && px < w && py >= 0 && py < h) {
+                                    canvas.setPixel(px, py, shadowColorIndex)
+                                }
+                                sx++
+                            }
+                            sy++
+                        }
+                    }
+                    x++
+                }
+                y++
+            }
+        }
+
+        var y = 0
+        while (y < GLYPH_CELL_COUNT) {
+            var x = 0
+            while (x < GLYPH_CELL_COUNT) {
+                if (rotatedGlyphBuffer[y * GLYPH_CELL_COUNT + x] != 0) {
+                    var sy = 0
+                    while (sy < scale) {
+                        var sx = 0
+                        while (sx < scale) {
+                            val px = baseX + (x * scale + sx)
+                            val py = baseY + (y * scale + sy)
+                            if (px >= 0 && px < w && py >= 0 && py < h) {
+                                canvas.setPixel(px, py, colorIndex)
+                            }
+                            sx++
+                        }
+                        sy++
+                    }
+                }
+                x++
+            }
+            y++
+        }
+    }
+
     fun drawProgressTracks(
         centerX: Float, centerY: Float, radius: Float,
         outerProgress: Float, innerProgress: Float,
@@ -245,202 +408,173 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         }
     }
 
-    fun drawNestedTimeboxInstrument(
-        centerX: Float,
-        centerY: Float,
-        outerRadius: Float,
-        innerRadius: Float,
-        quietRadius: Float,
-        outerProgress: Float,
-        innerProgress: Float,
-        rotationProgress: Float,
-        isDual: Boolean,
-        outerActiveColorIndex: Int,
-        innerActiveColorIndex: Int,
-        trackColorIndex: Int,
-        magicPrimaryColorIndex: Int,
-        magicSecondaryColorIndex: Int,
-        textFrameColorIndex: Int
-    ) {
-        val density = canvas.density
-        val thin = density
-        val medium = density * 2f
-        val outerSegments = 90
-        val innerSegments = 60
-        val outerActive = (outerProgress * outerSegments).toInt().coerceIn(0, outerSegments)
-        val innerActive = (innerProgress * innerSegments).toInt().coerceIn(0, innerSegments)
-        vector.drawAliasedCircle(centerX, centerY, outerRadius, magicPrimaryColorIndex, thin)
-        vector.drawAliasedCircle(centerX, centerY, outerRadius - U / 2f, magicPrimaryColorIndex, thin)
-        vector.drawAliasedCircle(centerX, centerY, innerRadius + U / 4f, magicSecondaryColorIndex, thin)
-        vector.drawAliasedCircle(centerX, centerY, innerRadius - U / 4f, magicSecondaryColorIndex, thin)
-        vector.drawAliasedCircle(centerX, centerY, quietRadius, textFrameColorIndex, thin)
-
-        drawTimerArcRing(centerX, centerY, outerRadius - U / 4f, outerSegments, outerActive, outerProgress, outerActiveColorIndex, trackColorIndex, medium)
-        if (isDual) {
-            drawTimerArcRing(centerX, centerY, innerRadius, innerSegments, innerActive, innerProgress, innerActiveColorIndex, trackColorIndex, medium)
-        }
-
-        val sigilRadius = innerRadius + U / 2f
-        val centerDiscRadius = quietRadius - U / 2f
-        vector.drawAliasedCircle(centerX, centerY, sigilRadius, magicPrimaryColorIndex, thin)
-        vector.drawAliasedCircle(centerX, centerY, quietRadius, textFrameColorIndex, thin)
-        drawPentacleFrame(centerX, centerY, sigilRadius, rotationProgress, magicPrimaryColorIndex, thin)
-        drawSigilFlourishCurves(centerX, centerY, quietRadius, sigilRadius, magicSecondaryColorIndex, thin)
-        drawYinYangDisc(centerX, centerY, centerDiscRadius, textFrameColorIndex, magicSecondaryColorIndex, magicPrimaryColorIndex, trackColorIndex, thin)
-
-        vector.drawRadialTickMarks(
-            centerX,
-            centerY,
-            outerRadius - U - thin,
-            outerRadius - U + thin,
-            60,
-            rotationProgress * 360f,
-            magicSecondaryColorIndex,
-            thin,
-            majorEvery = 5,
-            majorExtraLength = thin * 2f
-        )
-
-        val notchR = quietRadius + U / 2f
-        var i = 0
-        while (i < 12) {
-            val angleIdx = FastMath.degreesToIdx(i * 30f)
-            val nx = centerX + notchR * FastMath.fastCos(angleIdx)
-            val ny = centerY + notchR * FastMath.fastSin(angleIdx)
-            canvas.drawRect(nx - thin, ny - thin, thin * 2f, thin * 2f, textFrameColorIndex)
-            i++
-        }
+    fun getPolarX(centerX: Float, radius: Float, angleDegrees: Float): Float {
+        val aIdx = FastMath.degreesToIdx(angleDegrees)
+        return centerX + radius * FastMath.fastCos(aIdx)
     }
 
-    private fun drawTimerArcRing(
+    fun getPolarY(centerY: Float, radius: Float, angleDegrees: Float): Float {
+        val aIdx = FastMath.degreesToIdx(angleDegrees)
+        return centerY + radius * FastMath.fastSin(aIdx)
+    }
+
+    fun drawCircleStroke(centerX: Float, centerY: Float, radius: Float, colorIndex: Int, strokeWidth: Float = 1f) {
+        canvas.drawCircle(centerX, centerY, radius, colorIndex, strokeWidth, false)
+    }
+
+    fun setDrawAlpha(alphaByte: Int) {
+        canvas.setDrawAlpha(alphaByte)
+    }
+
+    fun drawSegmentedArc(
         centerX: Float,
         centerY: Float,
         radius: Float,
+        startDegrees: Float,
+        sweepDegrees: Float,
         segmentCount: Int,
+        colorIndex: Int,
+        strokeWidth: Float = 1f
+    ) {
+        if (segmentCount <= 0) return
+        val sweepStep = sweepDegrees / segmentCount
+        var prevX = getPolarX(centerX, radius, startDegrees)
+        var prevY = getPolarY(centerY, radius, startDegrees)
+        var i = 1
+        while (i <= segmentCount) {
+            val angle = startDegrees + sweepStep * i
+            val x = getPolarX(centerX, radius, angle)
+            val y = getPolarY(centerY, radius, angle)
+            canvas.drawLine(prevX, prevY, x, y, colorIndex, strokeWidth)
+            prevX = x
+            prevY = y
+            i++
+        }
+    }
+
+    fun drawPolarBead(
+        centerX: Float,
+        centerY: Float,
+        radius: Float,
+        angleDegrees: Float,
+        size: Float,
+        colorIndex: Int
+    ) {
+        val bx = getPolarX(centerX, radius, angleDegrees)
+        val by = getPolarY(centerY, radius, angleDegrees)
+        val half = size / 2f
+        vector.drawAliasedFilledCircle(bx, by, half, colorIndex)
+    }
+
+    fun drawPolarStarLinks(
+        centerX: Float,
+        centerY: Float,
+        radius: Float,
+        vertexCount: Int,
+        step: Int,
+        phaseDegrees: Float,
+        colorIndex: Int,
+        strokeWidth: Float = 1f
+    ) {
+        if (vertexCount <= 2) return
+        var i = 0
+        while (i < vertexCount) {
+            val angle1 = phaseDegrees + i * (360f / vertexCount)
+            val angle2 = phaseDegrees + ((i + step) % vertexCount) * (360f / vertexCount)
+            val x1 = getPolarX(centerX, radius, angle1)
+            val y1 = getPolarY(centerY, radius, angle1)
+            val x2 = getPolarX(centerX, radius, angle2)
+            val y2 = getPolarY(centerY, radius, angle2)
+            canvas.drawLine(x1, y1, x2, y2, colorIndex, strokeWidth)
+            i++
+        }
+    }
+
+    fun drawRotatingPolygon(
+        centerX: Float,
+        centerY: Float,
+        radius: Float,
+        vertexCount: Int,
+        phaseDegrees: Float,
+        colorIndex: Int,
+        strokeWidth: Float = 1f
+    ) {
+        drawPolarStarLinks(centerX, centerY, radius, vertexCount, 1, phaseDegrees, colorIndex, strokeWidth)
+    }
+
+    fun drawActivePolarBeadLoop(
+        centerX: Float,
+        centerY: Float,
+        radius: Float,
+        totalCount: Int,
         activeCount: Int,
-        progress: Float,
-        activeColorIndex: Int,
-        trackColorIndex: Int,
-        strokeWidth: Float
+        startAngleDegrees: Float,
+        beadSize: Float,
+        colorIndex: Int
     ) {
-        vector.drawAliasedArc(centerX, centerY, radius, -90f, 360f, trackColorIndex, strokeWidth)
-        vector.drawAliasedProgressArc(centerX, centerY, radius, -90f, 360f, progress, activeColorIndex, strokeWidth)
-        vector.drawRadialTickMarks(centerX, centerY, radius - U / 4f, radius + U / 4f, segmentCount, -90f, trackColorIndex, 1f)
-        vector.drawRadialProgressTickMarks(centerX, centerY, radius - U / 4f, radius + U / 4f, segmentCount, activeCount, -90f, activeColorIndex, strokeWidth)
-    }
-
-    private fun drawPentacleFrame(
-        centerX: Float,
-        centerY: Float,
-        radius: Float,
-        rotationProgress: Float,
-        colorIndex: Int,
-        strokeWidth: Float
-    ) {
-        val rotIdx = FastMath.degreesToIdx(rotationProgress * 360f - 90f)
+        if (totalCount <= 0 || activeCount <= 0) return
+        val count = activeCount.coerceAtMost(totalCount)
+        val step = 360f / totalCount
+        val half = beadSize / 2f
         var i = 0
-        while (i < 5) {
-            val idx1 = FastMath.degreesToIdx(i * 72f) + rotIdx
-            val idx2 = FastMath.degreesToIdx(((i + 2) % 5) * 72f) + rotIdx
-            vector.drawAliasedLine(
-                centerX + radius * FastMath.fastCos(idx1),
-                centerY + radius * FastMath.fastSin(idx1),
-                centerX + radius * FastMath.fastCos(idx2),
-                centerY + radius * FastMath.fastSin(idx2),
-                colorIndex,
-                strokeWidth
-            )
+        while (i < count) {
+            val angle = startAngleDegrees + i * step
+            val aIdx = FastMath.degreesToIdx(angle)
+            val x = centerX + radius * FastMath.fastCos(aIdx) - half
+            val y = centerY + radius * FastMath.fastSin(aIdx) - half
+            canvas.drawRect(x, y, beadSize, beadSize, colorIndex)
             i++
         }
     }
 
-    private fun drawSigilFlourishCurves(
+    fun drawActivePolarTickLoop(
         centerX: Float,
         centerY: Float,
-        quietRadius: Float,
-        sigilRadius: Float,
+        innerRadius: Float,
+        outerRadius: Float,
+        totalCount: Int,
+        activeCount: Int,
+        startAngleDegrees: Float,
         colorIndex: Int,
-        strokeWidth: Float
+        strokeWidth: Float = 1f
     ) {
+        if (totalCount <= 0 || activeCount <= 0) return
+        val count = activeCount.coerceAtMost(totalCount)
+        val step = 360f / totalCount
         var i = 0
-        while (i < 5) {
-            val startIdx = FastMath.degreesToIdx(i * 72f - 90f)
-            val controlIdx = FastMath.degreesToIdx(i * 72f + 36f - 90f)
-            val endIdx = FastMath.degreesToIdx(i * 72f + 72f - 90f)
-            val startRadius = quietRadius + U / 2f
-            val controlRadius = sigilRadius - U / 3f
-            val endRadius = quietRadius + U / 2f
-            vector.drawQuadraticBezierDeCasteljau(
-                centerX + startRadius * FastMath.fastCos(startIdx),
-                centerY + startRadius * FastMath.fastSin(startIdx),
-                centerX + controlRadius * FastMath.fastCos(controlIdx),
-                centerY + controlRadius * FastMath.fastSin(controlIdx),
-                centerX + endRadius * FastMath.fastCos(endIdx),
-                centerY + endRadius * FastMath.fastSin(endIdx),
-                colorIndex,
-                strokeWidth
-            )
-            vector.drawCubicBezierDeCasteljau(
-                centerX + (sigilRadius - U / 2f) * FastMath.fastCos(startIdx),
-                centerY + (sigilRadius - U / 2f) * FastMath.fastSin(startIdx),
-                centerX + sigilRadius * FastMath.fastCos(startIdx),
-                centerY + sigilRadius * FastMath.fastSin(startIdx),
-                centerX + sigilRadius * FastMath.fastCos(endIdx),
-                centerY + sigilRadius * FastMath.fastSin(endIdx),
-                centerX + (sigilRadius - U / 2f) * FastMath.fastCos(endIdx),
-                centerY + (sigilRadius - U / 2f) * FastMath.fastSin(endIdx),
-                colorIndex,
-                strokeWidth
-            )
+        while (i < count) {
+            val angle = startAngleDegrees + i * step
+            val x1 = getPolarX(centerX, innerRadius, angle)
+            val y1 = getPolarY(centerY, innerRadius, angle)
+            val x2 = getPolarX(centerX, outerRadius, angle)
+            val y2 = getPolarY(centerY, outerRadius, angle)
+            canvas.drawLine(x1, y1, x2, y2, colorIndex, strokeWidth)
             i++
         }
     }
 
-    private fun drawYinYangDisc(
-        centerX: Float,
-        centerY: Float,
-        radius: Float,
-        lightColorIndex: Int,
-        darkColorIndex: Int,
-        outlineColorIndex: Int,
-        dotColorIndex: Int,
-        cellSize: Float
-    ) {
-        val rSq = radius * radius
-        val halfR = radius / 2f
-        var y = -radius.toInt()
-        while (y <= radius.toInt()) {
-            var x = -radius.toInt()
-            while (x <= radius.toInt()) {
-                val fx = x.toFloat()
-                val fy = y.toFloat()
-                if (fx * fx + fy * fy <= rSq) {
-                    val upperDx = fx
-                    val upperDy = fy + halfR
-                    val lowerDx = fx
-                    val lowerDy = fy - halfR
-                    val colorIndex = when {
-                        upperDx * upperDx + upperDy * upperDy <= halfR * halfR -> lightColorIndex
-                        lowerDx * lowerDx + lowerDy * lowerDy <= halfR * halfR -> darkColorIndex
-                        fx >= 0f -> lightColorIndex
-                        else -> darkColorIndex
-                    }
-                    canvas.drawRect(centerX + fx, centerY + fy, cellSize, cellSize, colorIndex)
-                }
-                x++
-            }
-            y++
-        }
-        vector.drawAliasedCircle(centerX, centerY, radius, outlineColorIndex, cellSize)
-        vector.drawAliasedCircle(centerX, centerY - halfR, radius / 8f, darkColorIndex, cellSize)
-        vector.drawAliasedCircle(centerX, centerY + halfR, radius / 8f, lightColorIndex, cellSize)
-        canvas.drawRect(centerX - cellSize, centerY - halfR - cellSize, cellSize * 2f, cellSize * 2f, dotColorIndex)
-        canvas.drawRect(centerX - cellSize, centerY + halfR - cellSize, cellSize * 2f, cellSize * 2f, dotColorIndex)
+    fun drawProceduralPolarDemo(centerX: Float, centerY: Float, baseRadius: Float, timeMs: Long) {
+        val density = canvas.density
+        // 1. Draw independent rotating circle stroke
+        drawCircleStroke(centerX, centerY, baseRadius, PaletteIndices.HIGHLIGHT, 1f * density)
+
+        // 2. Draw rotating star links (5-pointed star rotating counter-clockwise at 8s period)
+        val phaseStar = (timeMs % 8000L).toFloat() / 8000f * -360f
+        drawPolarStarLinks(centerX, centerY, baseRadius - U, 5, 2, phaseStar, PaletteIndices.ACCENT_SECONDARY, 1f * density)
+
+        // 3. Draw rotating octagon (rotating clockwise at 12s period)
+        val phaseOct = (timeMs % 12000L).toFloat() / 12000f * 360f
+        drawRotatingPolygon(centerX, centerY, baseRadius - U * 2f, 8, phaseOct, PaletteIndices.MAGIC_CIRCLE_PRIMARY, 1f * density)
+
+        // 4. Draw active-only bead loop (30 beads, 15 active, rotating slowly)
+        val phaseBeads = (timeMs % 20000L).toFloat() / 20000f * 360f
+        drawActivePolarBeadLoop(centerX, centerY, baseRadius + U, 30, 15, phaseBeads, 4f * density, PaletteIndices.BORDER)
+
+        // 5. Draw active-only ticks (24 ticks, 12 active, rotating CCW)
+        val phaseTicks = (timeMs % 15000L).toFloat() / 15000f * -360f
+        drawActivePolarTickLoop(centerX, centerY, baseRadius - U * 3f, baseRadius - U * 2.5f, 24, 12, phaseTicks, PaletteIndices.HIGHLIGHT, 1f * density)
     }
 
-    /**
-     * Draws procedural glowing bullets flying around using scalable rectangles!
-     */
     fun drawBulletPattern(
         centerX: Float,
         centerY: Float,
@@ -454,12 +588,20 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         val aIdx = FastMath.degreesToIdx(angleDegrees)
         val bx = centerX + radius * FastMath.fastCos(aIdx)
         val by = centerY + radius * FastMath.fastSin(aIdx)
-
         val scale = canvas.density * bulletSizeMultiplier
 
-        // Real-time custom vector-rendered glowing Danmaku bullet
-        for (dy in -4..4) {
-            for (dx in -4..4) {
+        // 1. Draw trailing spark offset by -8 degrees (small single-pixel trail)
+        val sparkAngleDegrees = angleDegrees - 8f
+        val saIdx = FastMath.degreesToIdx(sparkAngleDegrees)
+        val sx = centerX + radius * FastMath.fastCos(saIdx)
+        val sy = centerY + radius * FastMath.fastSin(saIdx)
+        canvas.drawRect(sx, sy, scale, scale, sparkColorIndex)
+
+        // 2. Real-time custom vector-rendered glowing Danmaku bullet
+        var dy = -4
+        while (dy <= 4) {
+            var dx = -4
+            while (dx <= 4) {
                 val distSq = dx * dx + dy * dy
                 val px = bx + (dx * scale)
                 val py = by + (dy * scale)
@@ -468,17 +610,40 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
                     distSq <= 8 -> canvas.drawRect(px, py, scale, scale, bulletColorIndex) // High intensity primary
                     distSq <= 16 -> canvas.drawRect(px, py, scale, scale, sparkColorIndex) // Color aura
                 }
+                dx++
             }
+            dy++
         }
     }
-
-    // ── Aliased vector delegation layer ────────────────────────────
-
     fun drawAliasedCircle(
         centerX: Float, centerY: Float, radius: Float,
         colorIndex: Int, strokeWidth: Float = 1f, dashed: Boolean = false
     ) {
         vector.drawAliasedCircle(centerX, centerY, radius, colorIndex, strokeWidth, dashed)
+    }
+
+    fun drawAliasedFilledCircle(centerX: Float, centerY: Float, radius: Float, colorIndex: Int) {
+        vector.drawAliasedFilledCircle(centerX, centerY, radius, colorIndex)
+    }
+
+    fun drawRotatedBresenhamHalfCircle(
+        centerX: Float,
+        centerY: Float,
+        radius: Float,
+        rotationAngleIndex: Int,
+        drawPositiveX: Boolean,
+        colorIndex: Int,
+        strokeWidth: Float = 1f
+    ) {
+        vector.drawRotatedBresenhamHalfCircle(
+            centerX,
+            centerY,
+            radius,
+            rotationAngleIndex,
+            drawPositiveX,
+            colorIndex,
+            strokeWidth
+        )
     }
 
     fun drawAliasedArc(

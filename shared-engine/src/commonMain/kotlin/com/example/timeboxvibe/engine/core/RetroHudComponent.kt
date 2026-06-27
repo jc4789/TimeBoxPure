@@ -15,7 +15,7 @@ enum class HudAction {
 }
 
 object RetroHudComponent {
-    private const val U = 16f
+    private const val U = 16
     private const val BUTTON_BORDER = U / 8f
     private const val ICON_SIZE = U * 2f
     private const val ICON_SCALE = 1

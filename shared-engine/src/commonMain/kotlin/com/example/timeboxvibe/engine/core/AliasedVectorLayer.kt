@@ -9,7 +9,7 @@ import kotlin.math.roundToInt
  */
 class AliasedVectorLayer(private val canvas: EngineCanvas) {
     companion object {
-        private const val U = 16f
+        private const val U = 16
         private const val FULL_TURN_DEGREES = 360f
         private const val ARC_SAMPLE_UNIT_CELLS_DEN = 4f
         private const val BEZIER_SAMPLE_UNIT_CELLS_DEN = 4f
@@ -75,6 +75,131 @@ class AliasedVectorLayer(private val canvas: EngineCanvas) {
             }
             plotCircleOctants(xc, yc, x, y, colorIndex, sw, dashed)
         }
+    }
+
+    private fun drawHorizontalLine(x0: Int, x1: Int, yVal: Int, colorIndex: Int) {
+        val h = canvas.height.toInt()
+        val w = canvas.width.toInt()
+        if (yVal in 0 until h) {
+            val startX = x0.coerceAtLeast(0)
+            val endX = x1.coerceAtMost(w - 1)
+            var px = startX
+            while (px <= endX) {
+                canvas.setPixel(px.toFloat(), yVal.toFloat(), colorIndex)
+                px++
+            }
+        }
+    }
+
+    fun drawAliasedFilledCircle(
+        centerX: Float,
+        centerY: Float,
+        radius: Float,
+        colorIndex: Int
+    ) {
+        val xc = centerX.roundToInt()
+        val yc = centerY.roundToInt()
+        val r = radius.roundToInt()
+        if (r <= 0) return
+
+        var x = 0
+        var y = r
+        var d = 3 - 2 * r
+
+        drawHorizontalLine(xc - x, xc + x, yc + y, colorIndex)
+        drawHorizontalLine(xc - x, xc + x, yc - y, colorIndex)
+        drawHorizontalLine(xc - y, xc + y, yc + x, colorIndex)
+        drawHorizontalLine(xc - y, xc + y, yc - x, colorIndex)
+
+        while (x <= y) {
+            x++
+            if (d > 0) {
+                y--
+                d += 4 * (x - y) + 10
+            } else {
+                d += 4 * x + 6
+            }
+            drawHorizontalLine(xc - x, xc + x, yc + y, colorIndex)
+            drawHorizontalLine(xc - x, xc + x, yc - y, colorIndex)
+            drawHorizontalLine(xc - y, xc + y, yc + x, colorIndex)
+            drawHorizontalLine(xc - y, xc + y, yc - x, colorIndex)
+        }
+    }
+
+    /**
+     * Draws one local left/right half of a midpoint circle, then rotates each integer point.
+     * This keeps the yin-yang S-divider aliased without allocating a path or point buffer.
+     */
+    fun drawRotatedBresenhamHalfCircle(
+        centerX: Float,
+        centerY: Float,
+        radius: Float,
+        rotationAngleIndex: Int,
+        drawPositiveX: Boolean,
+        colorIndex: Int,
+        strokeWidth: Float = 1f
+    ) {
+        val xc = centerX.roundToInt()
+        val yc = centerY.roundToInt()
+        val r = radius.roundToInt()
+        if (r <= 0) return
+
+        val cosRotation = FastMath.fastCos(rotationAngleIndex)
+        val sinRotation = FastMath.fastSin(rotationAngleIndex)
+        val sw = strokeWidth.roundToInt().coerceAtLeast(1)
+        var x = 0
+        var y = r
+        var decision = 3 - 2 * r
+
+        plotRotatedHalfCircleOctants(xc, yc, x, y, cosRotation, sinRotation, drawPositiveX, colorIndex, sw)
+        while (x <= y) {
+            x++
+            if (decision > 0) {
+                y--
+                decision += 4 * (x - y) + 10
+            } else {
+                decision += 4 * x + 6
+            }
+            plotRotatedHalfCircleOctants(xc, yc, x, y, cosRotation, sinRotation, drawPositiveX, colorIndex, sw)
+        }
+    }
+
+    private fun plotRotatedHalfCircleOctants(
+        centerX: Int,
+        centerY: Int,
+        x: Int,
+        y: Int,
+        cosRotation: Float,
+        sinRotation: Float,
+        drawPositiveX: Boolean,
+        colorIndex: Int,
+        strokeWidth: Int
+    ) {
+        plotRotatedHalfCirclePoint(centerX, centerY, x, y, cosRotation, sinRotation, drawPositiveX, colorIndex, strokeWidth)
+        plotRotatedHalfCirclePoint(centerX, centerY, y, x, cosRotation, sinRotation, drawPositiveX, colorIndex, strokeWidth)
+        plotRotatedHalfCirclePoint(centerX, centerY, -x, y, cosRotation, sinRotation, drawPositiveX, colorIndex, strokeWidth)
+        plotRotatedHalfCirclePoint(centerX, centerY, -y, x, cosRotation, sinRotation, drawPositiveX, colorIndex, strokeWidth)
+        plotRotatedHalfCirclePoint(centerX, centerY, x, -y, cosRotation, sinRotation, drawPositiveX, colorIndex, strokeWidth)
+        plotRotatedHalfCirclePoint(centerX, centerY, y, -x, cosRotation, sinRotation, drawPositiveX, colorIndex, strokeWidth)
+        plotRotatedHalfCirclePoint(centerX, centerY, -x, -y, cosRotation, sinRotation, drawPositiveX, colorIndex, strokeWidth)
+        plotRotatedHalfCirclePoint(centerX, centerY, -y, -x, cosRotation, sinRotation, drawPositiveX, colorIndex, strokeWidth)
+    }
+
+    private fun plotRotatedHalfCirclePoint(
+        centerX: Int,
+        centerY: Int,
+        localX: Int,
+        localY: Int,
+        cosRotation: Float,
+        sinRotation: Float,
+        drawPositiveX: Boolean,
+        colorIndex: Int,
+        strokeWidth: Int
+    ) {
+        if ((localX >= 0) != drawPositiveX) return
+        val rotatedX = (localX * cosRotation - localY * sinRotation).roundToInt()
+        val rotatedY = (localX * sinRotation + localY * cosRotation).roundToInt()
+        plotStrokePixel(centerX + rotatedX, centerY + rotatedY, colorIndex, strokeWidth)
     }
 
     fun drawAliasedArc(
@@ -320,6 +445,7 @@ class AliasedVectorLayer(private val canvas: EngineCanvas) {
     }
 
     private fun plotStrokePixel(x: Int, y: Int, colorIndex: Int, strokeWidth: Int) {
+        if (x < 0 || x >= canvas.width.toInt() || y < 0 || y >= canvas.height.toInt()) return
         if (strokeWidth <= 1) {
             canvas.setPixel(x.toFloat(), y.toFloat(), colorIndex)
         } else {

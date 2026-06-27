@@ -92,10 +92,20 @@ object SceneManager {
     }
 
     fun update(dt: Float) {
+        // Tick the FrameClock once per frame so the magic circle and other
+        // time-driven visuals can read a monotonic, frame-rate-aware time source.
+        // The clock is ticked BEFORE the scene's update so the scene sees the
+        // new frame count when it queries `FrameClock.phase(...)`.
+        FrameClock.tick()
         update(dt, emptyTouchBuffer, 0)
     }
 
     fun update(dt: Float, touchBuffer: IntArray, touchCount: Int) {
+        // Tick the FrameClock on every frame. The Android platform layer calls
+        // this 3-arg version directly, so we tick here (not just in the 1-arg
+        // wrapper) to guarantee the visual animation clock is updated regardless
+        // of which overload the platform uses.
+        FrameClock.tick()
         val logThisFrame = touchCount > 0
         debugLogUpdateThisFrame = logThisFrame
         if (inputDrainOverflowLogCooldownSeconds > 0f) {

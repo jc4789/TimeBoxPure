@@ -988,6 +988,13 @@ class FocusService : Service() {
     private fun scheduleAlarm() {
         val eng = engine ?: return
         if (!eng.isActive || eng.isRinging) return
+        // Guard: if the small timer has just hit 0 and the engine hasn't reset it
+        // yet (e.g., during a dual.5 auto-loop catch-up), don't schedule a 0-second
+        // alarm. That would fire immediately via onAlarmTriggered() → tick() and
+        // re-enter scheduleAlarm(), creating an infinite re-trigger loop. The user
+        // would see the gentle reminder sound repeat and the first 1 second of
+        // the countdown keep replaying.
+        if (eng.timeRemaining <= 0) return
 
         val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val intent = Intent(this, FocusService::class.java).apply {

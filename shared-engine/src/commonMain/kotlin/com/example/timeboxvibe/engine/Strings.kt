@@ -104,7 +104,12 @@ data class AppStrings(
     val calendarRelaxThemePlaceholder: String,
     val addBlockLabel: String,
     val deleteBlockLabel: String,
-    val calendarBehaviorDesc: String
+    val calendarBehaviorDesc: String,
+
+    // Visuals settings
+    val visualsHeader: String,
+    val demosceneLabel: String,
+    val nebulaLabel: String
 )
 
 fun getStrings(lang: String): AppStrings = when (lang) {
@@ -207,7 +212,12 @@ fun getStrings(lang: String): AppStrings = when (lang) {
         calendarRelaxThemePlaceholder = "放松主题",
         addBlockLabel = "添加区块",
         deleteBlockLabel = "删除区块",
-        calendarBehaviorDesc = "日程区块始终需要手动确认。"
+        calendarBehaviorDesc = "日程区块始终需要手动确认。",
+
+        // Visuals settings (Chinese)
+        visualsHeader = "视觉",
+        demosceneLabel = "演示场特效",
+        nebulaLabel = "背景星云"
     )
     "ja" -> AppStrings(
         title = "タイムボックス",
@@ -308,7 +318,12 @@ fun getStrings(lang: String): AppStrings = when (lang) {
         calendarRelaxThemePlaceholder = "休憩テーマ",
         addBlockLabel = "ブロック追加",
         deleteBlockLabel = "ブロック削除",
-        calendarBehaviorDesc = "カレンダーブロックは常に手動確認が必要です。"
+        calendarBehaviorDesc = "カレンダーブロックは常に手動確認が必要です。",
+
+        // Visuals settings (Japanese)
+        visualsHeader = "ビジュアル",
+        demosceneLabel = "デモシーン演出",
+        nebulaLabel = "背景星雲"
     )
     else -> AppStrings(
         title = "TimeBox Vibe",
@@ -409,6 +424,11 @@ fun getStrings(lang: String): AppStrings = when (lang) {
         calendarRelaxThemePlaceholder = "RELAX THEME",
         addBlockLabel = "ADD BLOCK",
         deleteBlockLabel = "DEL BLOCK",
-        calendarBehaviorDesc = "Calendar blocks always require dismissal."
+        calendarBehaviorDesc = "Calendar blocks always require dismissal.",
+
+        // Visuals settings (English)
+        visualsHeader = "VISUALS",
+        demosceneLabel = "Demoscene Effects",
+        nebulaLabel = "Background Nebula"
     )
 }

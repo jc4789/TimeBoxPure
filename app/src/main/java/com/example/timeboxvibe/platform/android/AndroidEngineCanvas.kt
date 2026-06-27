@@ -30,6 +30,7 @@ class AndroidEngineCanvas(
 
     private val cachedNativePalette = IntArray(16)
     private var lastSyncedRevision = -1
+    private var drawAlpha = 0xFF
 
     private fun checkSyncPalette() {
         val rev = Pc98GraphicsHardware.paletteRevision
@@ -58,7 +59,11 @@ class AndroidEngineCanvas(
 
     private fun getNativeColor(colorIndex: Int): Int {
         checkSyncPalette()
-        return cachedNativePalette[colorIndex and 0x0F]
+        return (drawAlpha shl 24) or (cachedNativePalette[colorIndex and 0x0F] and 0x00FFFFFF)
+    }
+
+    override fun setDrawAlpha(alphaByte: Int) {
+        drawAlpha = alphaByte.coerceIn(0, 0xFF)
     }
 
     fun bind(canvas: Canvas) {
@@ -66,7 +71,8 @@ class AndroidEngineCanvas(
     }
 
     override fun clear(colorIndex: Int) {
-        nativeCanvas.drawColor(getNativeColor(colorIndex))
+        checkSyncPalette()
+        nativeCanvas.drawColor(cachedNativePalette[colorIndex and 0x0F])
     }
 
     override fun setPixel(x: Float, y: Float, colorIndex: Int) {

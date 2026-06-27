@@ -2,12 +2,13 @@
 """
 gen_lut.py
 
-Generate deterministic Kotlin lookup tables for sine/cosine/waveforms.
+Generate deterministic Kotlin lookup tables for sine/cosine/waveforms/Perlin permutation.
 
 Usage:
   python tools/math_oracles/gen_lut.py --kind sin --size 1024 --q 15 --object GeneratedSinLut
   python tools/math_oracles/gen_lut.py --kind cos --size 1024 --q 15 --package engine.generated --out GeneratedCosLut.kt
   python tools/math_oracles/gen_lut.py --kind triangle --size 256 --q 15
+  python tools/math_oracles/gen_lut.py --kind perm --size 256 --seed 42 --out GeneratedPermLut.kt
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import math
+import random
 from pathlib import Path
 
 
@@ -32,6 +34,15 @@ def wave(kind: str, t: float) -> float:
         # -1..1..-1
         return 4.0 * abs(t - 0.5) - 1.0
     raise ValueError(f"unknown kind: {kind}")
+
+
+def perm_table(size: int, seed: int) -> list[int]:
+    """Deterministic Perlin permutation: a shuffled [0..size-1] then doubled to 2*size.
+    The double-list is the standard Perlin trick to avoid modular indexing at sample time."""
+    rng = random.Random(seed)
+    base = list(range(size))
+    rng.shuffle(base)
+    return base + base[:]  # doubled: 512 entries for size=256
 
 
 def emit_kotlin(values, object_name, const_name, package=None, command=None):
@@ -57,15 +68,33 @@ def emit_kotlin(values, object_name, const_name, package=None, command=None):
 
 def main(argv=None):
     p = argparse.ArgumentParser()
-    p.add_argument("--kind", choices=["sin", "cos", "saw", "square", "triangle"], required=True)
-    p.add_argument("--size", type=int, default=1024)
-    p.add_argument("--q", type=int, default=15, help="Fixed-point fractional bits. q=15 means scale 32767.")
+    p.add_argument("--kind", choices=["sin", "cos", "saw", "square", "triangle", "perm"], required=True)
+    p.add_argument("--size", type=int, default=1024, help="For wave: must be power of two. For perm: typically 256.")
+    p.add_argument("--q", type=int, default=15, help="Fixed-point fractional bits. q=15 means scale 32767. Ignored for perm.")
+    p.add_argument("--seed", type=int, default=42, help="Permutation table seed. Ignored for wave.")
     p.add_argument("--object", default="GeneratedLut")
     p.add_argument("--const", default="DATA")
     p.add_argument("--package", default=None)
     p.add_argument("--out", type=Path)
     args = p.parse_args(argv)
 
+    if args.kind == "perm":
+        # Perlin permutation: integer entries 0..size-1, doubled to 2*size
+        if args.size <= 0 or args.size > 256:
+            raise SystemExit("perm size must be in (0, 256]")
+        vals = perm_table(args.size, args.seed)
+        # Pad to multiple of 12 for the chunked output
+        while len(vals) % 12 != 0:
+            vals.append(vals[-1])  # safe — same value as last
+        src = emit_kotlin(vals, args.object, args.const, args.package, command=" ".join(sys_argv_safe()))
+        if args.out:
+            args.out.write_text(src, encoding="utf-8")
+            print(f"Wrote {args.out} entries={len(vals)} (size={args.size} doubled) seed={args.seed}")
+        else:
+            print(src)
+        return
+
+    # Wave kinds: fixed-point 12-bit
     if args.size <= 0 or args.size & (args.size - 1) != 0:
         raise SystemExit("size must be a positive power of two")
     scale = (1 << args.q) - 1

@@ -58,7 +58,7 @@ object ProceduralIconRenderer {
 }
 
 object ProceduralTextRenderer {
-    private const val U = 16f
+    private const val U = 16
     private const val CUSTOM_ID_SUFFIX_CHARS = 6
     private const val SYS_ID_PREFIX_CHARS = 8
 

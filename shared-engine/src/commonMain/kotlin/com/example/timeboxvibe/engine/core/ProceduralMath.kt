@@ -340,19 +340,23 @@ fun drawBresenhamCircle(
             Pair(xc - py, yc - px)
         )
         for (p in points) {
-            if (dashed && (px / 4) % 2 != 0) {
-                continue
-            }
-            if (sw <= 1) {
-                canvas.setPixel(p.first.toFloat(), p.second.toFloat(), colorIndex)
-            } else {
-                canvas.drawRect(
-                    p.first.toFloat() - sw / 2f,
-                    p.second.toFloat() - sw / 2f,
-                    sw.toFloat(),
-                    sw.toFloat(),
-                    colorIndex
-                )
+            val skip = dashed && (px / 4) % 2 != 0
+            if (!skip) {
+                val xVal = p.first
+                val yVal = p.second
+                if (xVal >= 0 && xVal < canvas.width.toInt() && yVal >= 0 && yVal < canvas.height.toInt()) {
+                    if (sw <= 1) {
+                        canvas.setPixel(xVal.toFloat(), yVal.toFloat(), colorIndex)
+                    } else {
+                        canvas.drawRect(
+                            xVal.toFloat() - sw / 2f,
+                            yVal.toFloat() - sw / 2f,
+                            sw.toFloat(),
+                            sw.toFloat(),
+                            colorIndex
+                        )
+                    }
+                }
             }
         }
     }

@@ -26,6 +26,9 @@ object EngineThemes {
      * 煤色 / すすいろ / source #887F7A / RGB 136,127,122 / Munsell - / 12-bit #877 / expanded #887777
      * 海松茶 / みるちゃ / source #5A544B / RGB 90,84,75 / Munsell - / 12-bit #554 / expanded #555544
      * 藤鼠 / ふじねず / source #A6A5C4 / RGB 166,165,196 / Munsell - / 12-bit #AAC / expanded #AAAACC
+     * 薄紅 / うすべに / source #E8A1A8 / RGB 232,161,168 / Munsell - / 12-bit #EAB / expanded #EE88BB
+     *      (added for inner timer beads — a clear pink, distinct from the near-white
+     *      櫻色, and from the red HIGHLIGHT used for the outer beads)
      */
     private object WaColor12 {
         const val 櫻色: Short = 0x0FEE
@@ -50,6 +53,7 @@ object EngineThemes {
         const val 煤色: Short = 0x0877
         const val 海松茶: Short = 0x0554
         const val 藤鼠: Short = 0x0AAC
+        const val 薄紅: Short = 0x0EAB
     }
 
     private val reimuFocus = shortArrayOf(
