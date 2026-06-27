@@ -79,7 +79,7 @@ Replaces the prior 16-layer overlapping layout. Rendered by `NestedTimeboxInstru
 - Render/input helper paths in scenes can still allocate strings in hot paths and need periodic audits.
 
 ## Current Constants
-- `U = 16f`
+- `U = 16` (Int constant, layout refactored to discrete integer grid)
 - `PALETTE_SIZE = 16`
 - `MIN_SAFE_LOGICAL_WIDTH = 320`
 - `MAX_SAFE_LOGICAL_WIDTH = 1200`

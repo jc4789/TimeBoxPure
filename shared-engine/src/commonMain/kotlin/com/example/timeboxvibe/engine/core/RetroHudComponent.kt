@@ -16,8 +16,8 @@ enum class HudAction {
 
 object RetroHudComponent {
     private const val U = 16
-    private const val BUTTON_BORDER = U / 8f
-    private const val ICON_SIZE = U * 2f
+    private val BUTTON_BORDER = (U / 8).toFloat()
+    private val ICON_SIZE = (U * 2).toFloat()
     private const val ICON_SCALE = 1
     private const val HUD_RATIO_NUM = 3f
     private const val HUD_RATIO_DEN = 10f
@@ -76,9 +76,9 @@ object RetroHudComponent {
         if (isPortrait) {
             val hudStartY = (playY + playH).toFloat()
             val hudHeight = logicalHeight - hudStartY
-            val btnHeight = maxOf(U * 2f, hudHeight - U)
-            val gap = U / 2f
-            val sidePad = U / 2f
+            val btnHeight = maxOf((U * 2).toFloat(), hudHeight - U.toFloat())
+            val gap = (U / 2).toFloat()
+            val sidePad = (U / 2).toFloat()
             val colW3 = (playW.toFloat() - sidePad * 2f - gap * (NAV_TABS - 1)) / NAV_TABS
 
             // Fill background of the HUD with black to mask the play area
@@ -97,11 +97,11 @@ object RetroHudComponent {
             renderer.fillRectDither(0f, 0f, hudWidth, logicalHeight, PaletteIndices.BLACK, PaletteIndices.BLACK, SoftDitherPattern.SOLID)
             renderer.drawLine(hudWidth, 0f, hudWidth, logicalHeight, primaryColorIndex, 2f)
 
-            val gap = U / 2f
-            val topPad = U
+            val gap = (U / 2).toFloat()
+            val topPad = U.toFloat()
             val availableH = logicalHeight - topPad * 2f - gap * (NAV_TABS - 1)
-            val preferredBtnH = U * 5f / 2f
-            val minBtnH = U * 3f / 2f
+            val preferredBtnH = (U * 5 / 2).toFloat()
+            val minBtnH = (U * 3 / 2).toFloat()
             val fittedBtnH = availableH / NAV_TABS
             val btnHeight = when {
                 fittedBtnH >= preferredBtnH -> preferredBtnH
@@ -199,9 +199,9 @@ object RetroHudComponent {
         if (isPortrait) {
             val hudStartY = (playY + playH).toFloat()
             val hudHeight = logicalHeight - hudStartY
-            val btnHeight = maxOf(U * 2f, hudHeight - U)
-            val gap = U / 2f
-            val sidePad = U / 2f
+            val btnHeight = maxOf((U * 2).toFloat(), hudHeight - U.toFloat())
+            val gap = (U / 2).toFloat()
+            val sidePad = (U / 2).toFloat()
             val colW3 = (playW.toFloat() - sidePad * 2f - gap * (NAV_TABS - 1)) / NAV_TABS
             val btnY = hudStartY + (hudHeight - btnHeight) / 2f
 
@@ -210,11 +210,11 @@ object RetroHudComponent {
             if (TouchColliderManager.checkAABB(fx, fy, sidePad + (colW3 + gap) * 2f, btnY, colW3, btnHeight)) return HudAction.SELECT_TAB_BOMB
             if (TouchColliderManager.checkAABB(fx, fy, sidePad + (colW3 + gap) * 3f, btnY, colW3, btnHeight)) return HudAction.SELECT_TAB_SYSTEM
         } else {
-            val gap = U / 2f
-            val topPad = U
+            val gap = (U / 2).toFloat()
+            val topPad = U.toFloat()
             val availableH = logicalHeight - topPad * 2f - gap * (NAV_TABS - 1)
-            val preferredBtnH = U * 5f / 2f
-            val minBtnH = U * 3f / 2f
+            val preferredBtnH = (U * 5 / 2).toFloat()
+            val minBtnH = (U * 3 / 2).toFloat()
             val fittedBtnH = availableH / NAV_TABS
             val btnHeight = when {
                 fittedBtnH >= preferredBtnH -> preferredBtnH

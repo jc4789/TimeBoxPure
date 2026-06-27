@@ -110,22 +110,6 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         drawGlyphRaw(glyph, destX, destY, colorIndex, scale, startX, startY, clipWidth, clipHeight)
     }
 
-    fun drawGlyph(
-        char: Char,
-        destX: Float,
-        destY: Float,
-        colorIndex: Int,
-        shadowColorIndex: Int = EngineCanvas.COLOR_TRANSPARENT,
-        sizeMultiplier: Float = TEXT_SCALE_IDENTITY.toFloat(),
-        startX: Float = 0f,
-        startY: Float = 0f,
-        clipWidth: Int = canvas.width.toInt(),
-        clipHeight: Int = canvas.height.toInt()
-    ) {
-        val scaleInt = kotlin.math.round(sizeMultiplier).toInt().coerceAtLeast(TEXT_SCALE_IDENTITY)
-        drawGlyph(char, destX, destY, colorIndex, shadowColorIndex, scaleInt, startX, startY, clipWidth, clipHeight)
-    }
-
     private fun drawGlyphRaw(
         glyph: IntArray,
         destX: Float,
@@ -180,23 +164,6 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
             currentX += (U * fScale) + (charSpacing * fScale)
             i++
         }
-    }
-
-    fun drawText(
-        text: String,
-        destX: Float,
-        destY: Float,
-        colorIndex: Int,
-        shadowColorIndex: Int = EngineCanvas.COLOR_TRANSPARENT,
-        charSpacing: Float = 0f,
-        sizeMultiplier: Float = TEXT_SCALE_IDENTITY.toFloat(),
-        startX: Float = 0f,
-        startY: Float = 0f,
-        clipWidth: Int = canvas.width.toInt(),
-        clipHeight: Int = canvas.height.toInt()
-    ) {
-        val scaleInt = kotlin.math.round(sizeMultiplier).toInt().coerceAtLeast(TEXT_SCALE_IDENTITY)
-        drawText(text, destX, destY, colorIndex, shadowColorIndex, charSpacing, scaleInt, startX, startY, clipWidth, clipHeight)
     }
 
     /**

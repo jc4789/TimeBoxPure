@@ -55,6 +55,7 @@ All aspect ratios are valid, including `1:1`.
 
 ## Required Layout Rules
 
+
 All layout values must derive from:
 
 - `U`
@@ -63,6 +64,25 @@ All layout values must derive from:
 - measured text size
 - named engine constants
 - explicit palette / glyph / hardware laws
+
+## Layout Laws (Updates)
+
+### 1. The Canonical Unit Law
+- The fundamental layout measurement unit is the ROM glyph cell `U = 16`.
+- Macro layout margins, spacing, sizes, and padding must derive strictly from integer multiples or divisions of `U`.
+
+### 2. The Quarter-Block Law
+- Authorized the use of `U / 4` (exactly 4 logical pixels) for layout margins, paddings, border insets, and sub-tile spacing.
+- Used for dense vertical list row spacing (e.g., Settings, Template Customizer, Entropy Scene).
+
+### 3. The U / 8 Detailing Law
+- **Banned for Macro-Layouts**: `U / 8` must not be used for spacing between buttons, list rows, window margins, or layout cursors.
+- **Authorized for Micro-Detailing ONLY**: `U / 8` (exactly 2 logical pixels) is allowed ONLY for:
+  - *Drop Shadows*: Shadow text/box offsets.
+  - *Button Bevels*: Drawing 2-pixel inner/outer borders to simulate 3D panel depth.
+  - *UI Cursors*: define blink cursors or scrollbar thumbs.
+  - *Component Internals*: Bar stepper slot spacing/gaps.
+
 
 ## Responsive Row Stacking
 
