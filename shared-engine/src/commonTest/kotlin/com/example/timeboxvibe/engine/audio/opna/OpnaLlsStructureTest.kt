@@ -17,29 +17,29 @@ class OpnaLlsStructureTest {
     private val sampleRate = 44100
 
     @Test
-    fun leadStartsAfterNCRest() {
+    fun leadStartsAtBeginning() {
         val arr = SoundMelodies.getArrangement(key, 1f)!!
         val firstLeadStart = arr.lead.notes.minOf { it.startMs }
-        val ncBars = 2
-        val ncMs = ncBars * 1492
         assertTrue(
-            firstLeadStart >= ncMs - 1,
-            "Lead's first note should start at or after the 2-bar N.C. rest (>= $ncMs ms), " +
-            "but first note starts at $firstLeadStart ms. " +
-            "If first note is at 0 ms, the intro has no N.C. (no chord) rest."
+            firstLeadStart == 0,
+            "Lead's first note should start immediately at 0 ms, but starts at $firstLeadStart ms."
         )
     }
 
     @Test
-    fun leadIsContinuousAfterIntro() {
+    fun harmonyAndBassStartAfterNCRest() {
         val arr = SoundMelodies.getArrangement(key, 1f)!!
-        val firstLeadStart = arr.lead.notes.minOf { it.startMs }
-        val aStart = 4 * 1492
-        val ebIntroStart = 2 * 1492
+        val firstHarmonyStart = arr.harmony.notes.minOf { it.startMs }
+        val firstBassStart = arr.bass.notes.minOf { it.startMs }
+        val ncBars = 2
+        val ncMs = ncBars * 1492
         assertTrue(
-            firstLeadStart < aStart,
-            "Lead should be present in the E♭m intro section (after $ebIntroStart ms, before $aStart ms), " +
-            "but first lead note is at $firstLeadStart ms."
+            firstHarmonyStart >= ncMs - 1,
+            "Harmony should start at or after the 2-bar N.C. rest (>= $ncMs ms), but starts at $firstHarmonyStart ms."
+        )
+        assertTrue(
+            firstBassStart >= ncMs - 1,
+            "Bass should start at or after the 2-bar N.C. rest (>= $ncMs ms), but starts at $firstBassStart ms."
         )
     }
 

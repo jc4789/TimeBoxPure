@@ -240,19 +240,25 @@ object SoundPreviewPlayer {
                 TimbreRef.FM_PAD_ZUN1 -> Patches.ZunPad1
                 else -> null
             }
+            val leadChannels = intArrayOf(0, 2, 3, 4)
+            var leadChanIdx = 0
             if (leadPatch != null) {
-                synth.fm[0].applyPatch(leadPatch)
+                for (ch in leadChannels) {
+                    synth.fm[ch].applyPatch(leadPatch)
+                }
                 for (note in arrangement.lead.notes) {
                     if (note.freq <= 10f) continue
                     val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
                     val velocity = note.volume * leadGain
                     val (a, d, s, r) = adsrFromNote(note)
+                    val activeCh = leadChannels[leadChanIdx]
                     sequencer.noteFmRaw(
-                        0, midi,
+                        activeCh, midi,
                         msToSamples(note.startMs),
                         msToSamples(note.durationMs),
                         velocity, a, d, s, r
                     )
+                    leadChanIdx = (leadChanIdx + 1) % leadChannels.size
                 }
             } else {
                 for (note in arrangement.lead.notes) {
@@ -283,19 +289,25 @@ object SoundPreviewPlayer {
 
             // 3. Bass lane
             val bassTimbre = arrangement.bass.timbre
+            val bassChannels = intArrayOf(1, 5)
+            var bassChanIdx = 0
             if (bassTimbre == TimbreRef.FM_BASS_ZUN1) {
-                synth.fm[1].applyPatch(Patches.ZunBass1)
+                for (ch in bassChannels) {
+                    synth.fm[ch].applyPatch(Patches.ZunBass1)
+                }
                 for (note in arrangement.bass.notes) {
                     if (note.freq <= 10f) continue
                     val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
                     val velocity = note.volume * bassGain
                     val (a, d, s, r) = adsrFromNote(note)
+                    val activeCh = bassChannels[bassChanIdx]
                     sequencer.noteFmRaw(
-                        1, midi,
+                        activeCh, midi,
                         msToSamples(note.startMs),
                         msToSamples(note.durationMs),
                         velocity, a, d, s, r
                     )
+                    bassChanIdx = (bassChanIdx + 1) % bassChannels.size
                 }
             } else if (bassTimbre == TimbreRef.SSG_BASS_SQUARE) {
                 for (note in arrangement.bass.notes) {

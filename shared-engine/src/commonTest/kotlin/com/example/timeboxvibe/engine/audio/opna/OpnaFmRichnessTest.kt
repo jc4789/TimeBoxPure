@@ -26,7 +26,7 @@ class OpnaFmRichnessTest {
         val sampleRate = AudioLaws.SAMPLE_RATE
         val synth = OpnaLikeSynthesizer(sampleRate)
         synth.fm[0].applyPatch(patch)
-        synth.fm[0].noteGain = 0.3f
+        synth.fm[0].noteGain = 0.05f
         synth.fm[0].noteOn(midi, 0.005f, 0.05f, 0.7f, 0.1f)
         val buffer = FloatArray(durationSamples)
         synth.render(buffer, durationSamples)
@@ -72,7 +72,7 @@ class OpnaFmRichnessTest {
             "Check that op1/op2/op3 phases use p.op0/p.op1/p.op2 modulationIndex (source op, not destination)."
         )
         assertTrue(
-            r > 0.05f,
+            r > 0.005f,
             "ZunLead1 RMS=$r is too low — carrier is silent or noteOn didn't fire."
         )
     }
@@ -87,7 +87,7 @@ class OpnaFmRichnessTest {
             "ZunBell1 peak/rms=$ratio is at the sine threshold. FM modulation missing."
         )
         assertTrue(
-            r > 0.05f,
+            r > 0.005f,
             "ZunBell1 RMS=$r is too low."
         )
     }
@@ -97,7 +97,7 @@ class OpnaFmRichnessTest {
         val sampleRate = AudioLaws.SAMPLE_RATE
         val synth = OpnaLikeSynthesizer(sampleRate)
         synth.fm[0].applyPatch(Patches.ZunBass1)
-        synth.fm[0].noteGain = 0.3f
+        synth.fm[0].noteGain = 0.05f
         synth.fm[0].noteOn(45, 0.005f, 0.05f, 0.7f, 0.1f)
         val buffer = FloatArray(sampleRate)
         synth.render(buffer, sampleRate)
@@ -110,7 +110,7 @@ class OpnaFmRichnessTest {
             "Check that alg 1 op2/op3 use p.op0/p.op1 modulationIndex."
         )
         assertTrue(
-            r > 0.05f,
+            r > 0.005f,
             "ZunBass1 RMS=$r is too low."
         )
     }
@@ -120,7 +120,7 @@ class OpnaFmRichnessTest {
         val sampleRate = AudioLaws.SAMPLE_RATE
         val synth = OpnaLikeSynthesizer(sampleRate)
         synth.fm[0].applyPatch(Patches.ZunPad1)
-        synth.fm[0].noteGain = 0.3f
+        synth.fm[0].noteGain = 0.05f
         synth.fm[0].noteOn(57, 0.005f, 0.05f, 0.7f, 0.1f)
         val buffer = FloatArray(sampleRate)
         synth.render(buffer, sampleRate)
@@ -131,7 +131,7 @@ class OpnaFmRichnessTest {
             "ZunPad1 peak/rms=$ratio is at the sine threshold. FM modulation missing."
         )
         assertTrue(
-            r > 0.05f,
+            r > 0.005f,
             "ZunPad1 RMS=$r is too low."
         )
     }

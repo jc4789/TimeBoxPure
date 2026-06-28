@@ -1051,7 +1051,7 @@ object SoundMelodies {
         val bOffset = introMs + aMs
         val chorusOffset = introMs + aMs + bMs
 
-        val introLead = offsetNotes(buildBallsIntro(vol).notes, ebIntroOffset)
+        val introLead = offsetNotes(buildBallsIntro(vol).notes, ncOffset.toInt())
         val aLead = offsetNotes(buildBallsAMelodyLead(vol).notes, aOffset)
         val bLead = offsetNotes(buildBallsBMelodyLead(vol).notes, bOffset)
         val chorusLead = offsetNotes(buildBallsChorusLead(vol).notes, chorusOffset)

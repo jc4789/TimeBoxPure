@@ -9,7 +9,17 @@ class OpnaFrequencyTest {
     private fun renderFmOneSecond(midi: Int): FloatArray {
         val sampleRate = AudioLaws.SAMPLE_RATE
         val synth = OpnaLikeSynthesizer(sampleRate)
-        synth.fm[0].applyPatch(Patches.ZunLead1)
+        val simpleTestPatch = FmPatch(
+            algorithm = 3,
+            feedback = 0,
+            op0 = OperatorSpec(mul = 1, detune = 0, tl = 127, modulationIndex = 0f, attack = 0.001f, decay = 0.01f, sustain = 1.0f, release = 0.01f),
+            op1 = OperatorSpec(mul = 1, detune = 0, tl = 127, modulationIndex = 0f, attack = 0.001f, decay = 0.01f, sustain = 1.0f, release = 0.01f),
+            op2 = OperatorSpec(mul = 1, detune = 0, tl = 127, modulationIndex = 0f, attack = 0.001f, decay = 0.01f, sustain = 1.0f, release = 0.01f),
+            op3 = OperatorSpec(mul = 1, detune = 0, tl = 0,   modulationIndex = 0f, attack = 0.001f, decay = 0.01f, sustain = 1.0f, release = 0.01f),
+            totalLevel = 1.0f,
+            pms = 0, pan = 0
+        )
+        synth.fm[0].applyPatch(simpleTestPatch)
         val buffer = FloatArray(sampleRate)
         synth.fm[0].noteOn(midi, 0.05f, 0.05f, 0.7f, 0.1f)
         synth.render(buffer, sampleRate)

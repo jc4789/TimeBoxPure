@@ -7,7 +7,7 @@ import kotlin.math.abs
 class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     internal val mixer = OpnaMixer(sampleRate)
     val ssg: Array<SsgVoice> = Array(AudioLaws.SSG_CHANNELS) { SsgVoice(it) }
-    val fm: Array<Fm4OpVoice> = Array(AudioLaws.FM_CHANNELS) { Fm4OpVoice() }
+    val fm: Array<Fm4OpVoice> = Array(AudioLaws.FM_CHANNELS) { Fm4OpVoice(sampleRate) }
     val drums = ProceduralDrums()
     val lfo = Lfo(sampleRate)
 

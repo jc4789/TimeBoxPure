@@ -4,7 +4,7 @@ import com.example.timeboxvibe.engine.audio.AudioLaws
 import com.example.timeboxvibe.engine.audio.midiToFreq
 import com.example.timeboxvibe.engine.core.FastMath
 
-class Fm4OpVoice {
+class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private val opState: Array<OperatorState> = Array(AudioLaws.FM_OPERATORS) { OperatorState() }
     private var patch: FmPatch? = null
     private var baseFrequency: Float = 0f
@@ -51,8 +51,7 @@ class Fm4OpVoice {
     private fun calcPhaseStep(spec: OperatorSpec): Float {
         val mul = if (spec.mul == 0) 0.5f else spec.mul.toFloat()
         val freq = baseFrequency * mul
-        val radiansPerSample = freq * 2f * kotlin.math.PI.toFloat() / AudioLaws.SAMPLE_RATE
-        return radiansPerSample * AudioLaws.detunePhaseMultiplier(spec.detune)
+        return (freq / sampleRate) * AudioLaws.detunePhaseMultiplier(spec.detune)
     }
 
     fun noteOn(midi: Int) {
@@ -72,16 +71,25 @@ class Fm4OpVoice {
             recalcPhaseSteps(p)
             val hasOverrides = (attack != null || decay != null || sustain != null || release != null)
             if (hasOverrides) {
+                setupOpState(0, p.op0)
+                setupOpState(1, p.op1)
+                setupOpState(2, p.op2)
+
                 val a = attack ?: p.op3.attack
                 val d = decay ?: p.op3.decay
                 val s = sustain ?: p.op3.sustain
                 val r = release ?: p.op3.release
-                for (i in 0 until AudioLaws.FM_OPERATORS) {
-                    opState[i].envelope.attack = a
-                    opState[i].envelope.decay = d
-                    opState[i].envelope.sustain = s
-                    opState[i].envelope.release = r
-                }
+                val state = opState[3]
+                state.outputLevel = AudioLaws.tlToAmplitude(p.op3.tl)
+                state.egMode = p.op3.egMode
+                state.envelope.attack = a
+                state.envelope.decay = d
+                state.envelope.sustain = s
+                state.envelope.release = r
+                state.opnEnvelope.attackRate = p.op3.ar
+                state.opnEnvelope.decayRate = p.op3.dr
+                state.opnEnvelope.sustainLevel = p.op3.sl
+                state.opnEnvelope.releaseRate = p.op3.rr
             } else {
                 setupOpState(0, p.op0)
                 setupOpState(1, p.op1)
@@ -159,9 +167,11 @@ class Fm4OpVoice {
         return if (op.egMode == EgMode.OPN_RATE) {
             op.opnEnvelope.next()
         } else {
-            op.envelope.next(1f / AudioLaws.SAMPLE_RATE)
+            op.envelope.next(1f / sampleRate)
         }
     }
+
+    private val INV_TWO_PI = 0.15915494f
 
     private fun renderOne(): Float {
         val p = patch ?: return 0f
@@ -171,49 +181,49 @@ class Fm4OpVoice {
         return when (p.algorithm) {
             0 -> {
                 val s0 = computeOp0(ops, fbShift)
-                val s1 = advanceOp(1, s0 * p.op0.modulationIndex)
-                val s2 = advanceOp(2, s1 * p.op1.modulationIndex)
-                val s3 = advanceOp(3, s2 * p.op2.modulationIndex)
+                val s1 = advanceOp(1, s0 * p.op0.modulationIndex * INV_TWO_PI)
+                val s2 = advanceOp(2, s1 * p.op1.modulationIndex * INV_TWO_PI)
+                val s3 = advanceOp(3, s2 * p.op2.modulationIndex * INV_TWO_PI)
                 s3 * p.totalLevel
             }
             1 -> {
                 val s0 = computeOp0(ops, fbShift)
                 val s1 = computeOpFree(1)
-                val s2 = advanceOp(2, s0 * p.op0.modulationIndex)
-                val s3 = advanceOp(3, s1 * p.op1.modulationIndex)
+                val s2 = advanceOp(2, s0 * p.op0.modulationIndex * INV_TWO_PI)
+                val s3 = advanceOp(3, s1 * p.op1.modulationIndex * INV_TWO_PI)
                 (s2 + s3) * p.totalLevel
             }
             2 -> {
                 val s0 = computeOp0(ops, fbShift)
-                val s1 = advanceOp(1, s0 * p.op0.modulationIndex)
-                val s2 = advanceOp(2, s1 * p.op1.modulationIndex)
+                val s1 = advanceOp(1, s0 * p.op0.modulationIndex * INV_TWO_PI)
+                val s2 = advanceOp(2, s1 * p.op1.modulationIndex * INV_TWO_PI)
                 val s3 = computeOpFree(3)
                 (s2 + s3) * p.totalLevel
             }
             3 -> {
                 val s0 = computeOp0(ops, fbShift)
-                val s1 = advanceOp(1, s0 * p.op0.modulationIndex)
+                val s1 = advanceOp(1, s0 * p.op0.modulationIndex * INV_TWO_PI)
                 val s2 = computeOpFree(2)
-                val s3 = advanceOp(3, s2 * p.op2.modulationIndex)
+                val s3 = advanceOp(3, s2 * p.op2.modulationIndex * INV_TWO_PI)
                 (s1 + s3) * p.totalLevel
             }
             4 -> {
                 val s0 = computeOp0(ops, fbShift)
-                val s1 = advanceOp(1, s0 * p.op0.modulationIndex)
+                val s1 = advanceOp(1, s0 * p.op0.modulationIndex * INV_TWO_PI)
                 val s2 = computeOpFree(2)
-                val s3 = advanceOp(3, s2 * p.op2.modulationIndex)
-                (s1 + s3) * p.totalLevel
+                val s3 = advanceOp(3, (s1 * p.op1.modulationIndex + s2 * p.op2.modulationIndex) * INV_TWO_PI)
+                s3 * p.totalLevel
             }
             5 -> {
                 val s0 = computeOp0(ops, fbShift)
-                val s1 = advanceOp(1, s0 * p.op0.modulationIndex)
-                val s2 = advanceOp(2, s0 * p.op0.modulationIndex)
-                val s3 = advanceOp(3, s0 * p.op0.modulationIndex)
+                val s1 = advanceOp(1, s0 * p.op0.modulationIndex * INV_TWO_PI)
+                val s2 = advanceOp(2, s0 * p.op0.modulationIndex * INV_TWO_PI)
+                val s3 = advanceOp(3, s0 * p.op0.modulationIndex * INV_TWO_PI)
                 (s1 + s2 + s3) * p.totalLevel
             }
             6 -> {
                 val s0 = computeOp0(ops, fbShift)
-                val s1 = advanceOp(1, s0 * p.op0.modulationIndex)
+                val s1 = advanceOp(1, s0 * p.op0.modulationIndex * INV_TWO_PI)
                 val s2 = computeOpFree(2)
                 val s3 = computeOpFree(3)
                 (s1 + s2 + s3) * p.totalLevel
@@ -229,9 +239,11 @@ class Fm4OpVoice {
         }
     }
 
-    private fun sinLutInterpolated(phase: Float): Float {
-        val idxFloat = phase * 162.97466f
-        val idx = if (idxFloat >= 0f) idxFloat.toInt() else (idxFloat.toInt() - 1)
+    private fun sinLutInterpolated(phaseCycles: Float): Float {
+        var wrapped = phaseCycles % 1f
+        if (wrapped < 0f) wrapped += 1f
+        val idxFloat = wrapped * 1024f
+        val idx = idxFloat.toInt()
         val frac = idxFloat - idx
         val idx0 = idx and 1023
         val idx1 = (idx0 + 1) and 1023
@@ -242,10 +254,10 @@ class Fm4OpVoice {
 
     private fun computeOp0(ops: Array<OperatorState>, fbShift: Float): Float {
         val p = patch!!
-        val op0Phase = ops[0].phase + op0Feedback * fbShift
+        val op0Phase = ops[0].phase + op0Feedback * fbShift * INV_TWO_PI
         ops[0].phase += ops[0].phaseStep
-        if (ops[0].phase >= 2f * kotlin.math.PI.toFloat()) {
-            ops[0].phase -= 2f * kotlin.math.PI.toFloat()
+        if (ops[0].phase >= 1f) {
+            ops[0].phase -= 1f
         }
         val raw = sinLutInterpolated(op0Phase)
         val out = raw * envNext(ops[0]) * ops[0].outputLevel
@@ -258,24 +270,24 @@ class Fm4OpVoice {
         val op = opState[opIdx]
         val raw = sinLutInterpolated(op.phase)
         op.phase += op.phaseStep
-        if (op.phase >= 2f * kotlin.math.PI.toFloat()) {
-            op.phase -= 2f * kotlin.math.PI.toFloat()
+        if (op.phase >= 1f) {
+            op.phase -= 1f
         }
         val out = raw * envNext(op) * op.outputLevel
         op.prevOutput = out
-        return out
+        return op.prevOutput
     }
 
     private fun advanceOp(opIdx: Int, phaseMod: Float): Float {
         val op = opState[opIdx]
         val phase = op.phase + phaseMod
         op.phase += op.phaseStep
-        if (op.phase >= 2f * kotlin.math.PI.toFloat()) {
-            op.phase -= 2f * kotlin.math.PI.toFloat()
+        if (op.phase >= 1f) {
+            op.phase -= 1f
         }
         val raw = sinLutInterpolated(phase)
         val out = raw * envNext(op) * op.outputLevel
         op.prevOutput = out
-        return out
+        return op.prevOutput
     }
 }
