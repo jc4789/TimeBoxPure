@@ -9,9 +9,10 @@ class ProceduralDrums {
         const val ATTACK = 1
         const val DECAY = 2
         const val OFF = 3
+        const val KICK_GAIN = 0.7f
+        const val SNARE_GAIN = 0.6f
     }
 
-    // Drum kind enum representation (indices)
     enum class DrumKind {
         KICK, SNARE, HAT, TOM
     }
@@ -20,28 +21,28 @@ class ProceduralDrums {
     private val snareNoise = LfsrNoise(0xBEEF xor 2)
     private val hatNoise = LfsrNoise(0xFACE xor 3)
 
-    // Kick state
     private var kickState: Int = IDLE
     private var kickLevel: Float = 0f
+    internal var kickGain: Float = 1f
     private var kickAgeSamples: Int = 0
     private var kickPhase01: Float = 0f
 
-    // Snare state
     private var snareState: Int = IDLE
     private var snareLevel: Float = 0f
+    internal var snareGain: Float = 1f
     private var snareAgeSamples: Int = 0
     private var snarePhase01_1: Float = 0f
     private var snarePhase01_2: Float = 0f
 
-    // Hat state
     private var hatState: Int = IDLE
     private var hatLevel: Float = 0f
+    internal var hatGain: Float = 1f
     private var hatAgeSamples: Int = 0
     private var hatLastNoise: Float = 0f
 
-    // Tom state
     private var tomState: Int = IDLE
     private var tomLevel: Float = 0f
+    internal var tomGain: Float = 1f
     private var tomAgeSamples: Int = 0
     private var tomPhase01: Float = 0f
     private var tomStartFreq: Float = 150f
@@ -83,22 +84,26 @@ class ProceduralDrums {
     fun reset() {
         kickState = IDLE
         kickLevel = 0f
+        kickGain = 1f
         kickAgeSamples = 0
         kickPhase01 = 0f
 
         snareState = IDLE
         snareLevel = 0f
+        snareGain = 1f
         snareAgeSamples = 0
         snarePhase01_1 = 0f
         snarePhase01_2 = 0f
 
         hatState = IDLE
         hatLevel = 0f
+        hatGain = 1f
         hatAgeSamples = 0
         hatLastNoise = 0f
 
         tomState = IDLE
         tomLevel = 0f
+        tomGain = 1f
         tomAgeSamples = 0
         tomPhase01 = 0f
         tomStartFreq = 150f
@@ -113,7 +118,6 @@ class ProceduralDrums {
         while (i < frames) {
             var mixedSample = 0f
 
-            // Kick: pitch-dropping sine, 120 Hz -> 50 Hz over 50 ms
             if (kickState == DECAY) {
                 val ageMs = (kickAgeSamples * 1000f) / sampleRate
                 val freq = 50f + 70f * exp(-ageMs / 12f)
@@ -122,7 +126,7 @@ class ProceduralDrums {
 
                 val sineValue = FastMath.fastSin((kickPhase01 * 1024).toInt() and 1023)
                 val env = exp(-ageMs / 70f)
-                mixedSample += sineValue * env * kickLevel
+                mixedSample += sineValue * env * kickLevel * KICK_GAIN * kickGain
 
                 kickAgeSamples++
                 if (ageMs > 250f || env < 0.001f) {
@@ -131,7 +135,6 @@ class ProceduralDrums {
                 }
             }
 
-            // Snare: LFSR noise + sum of two sine partials (180 Hz + 330 Hz)
             if (snareState == DECAY) {
                 val ageMs = (snareAgeSamples * 1000f) / sampleRate
                 snarePhase01_1 += 180f / sampleRate
@@ -144,7 +147,7 @@ class ProceduralDrums {
                 val noiseSig = snareNoise.next()
                 val signal = noiseSig * 0.5f + partials
                 val env = exp(-ageMs / 25f)
-                mixedSample += signal * env * snareLevel
+                mixedSample += signal * env * snareLevel * SNARE_GAIN * snareGain
 
                 snareAgeSamples++
                 if (ageMs > 150f || env < 0.001f) {
@@ -153,7 +156,6 @@ class ProceduralDrums {
                 }
             }
 
-            // Hat: high-pass filtered noise, decay 30 ms
             if (hatState == DECAY) {
                 val ageMs = (hatAgeSamples * 1000f) / sampleRate
                 val currentNoise = hatNoise.next()
@@ -161,7 +163,7 @@ class ProceduralDrums {
                 hatLastNoise = currentNoise
 
                 val env = exp(-ageMs / 10f)
-                mixedSample += signal * env * hatLevel * 0.4f
+                mixedSample += signal * env * hatLevel * 0.4f * hatGain
 
                 hatAgeSamples++
                 if (ageMs > 80f || env < 0.001f) {
@@ -170,7 +172,6 @@ class ProceduralDrums {
                 }
             }
 
-            // Tom: pitch-dropping sine
             if (tomState == DECAY) {
                 val ageMs = (tomAgeSamples * 1000f) / sampleRate
                 val freq = (tomStartFreq * 0.4f) + (tomStartFreq * 0.6f) * exp(-ageMs / 30f)
@@ -179,7 +180,7 @@ class ProceduralDrums {
 
                 val sineValue = FastMath.fastSin((tomPhase01 * 1024).toInt() and 1023)
                 val env = exp(-ageMs / 50f)
-                mixedSample += sineValue * env * tomLevel
+                mixedSample += sineValue * env * tomLevel * tomGain
 
                 tomAgeSamples++
                 if (ageMs > 200f || env < 0.001f) {

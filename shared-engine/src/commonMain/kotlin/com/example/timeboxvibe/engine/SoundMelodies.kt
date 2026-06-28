@@ -69,9 +69,9 @@ object SoundMelodies {
         return when (key) {
             "synth-chime" -> {
                 ArrangementLanes(
-                    lead = Lane(listOf(ToneSpec(466f, 0, 800, 0.22f * volume, "square")), TimbreRef.SSG_HARMONY_SQUARE),
+                    lead = Lane(listOf(ToneSpec(466f, 0, 800, 0.7f * volume, "square")), TimbreRef.SSG_HARMONY_SQUARE),
                     harmony = Lane(emptyList(), TimbreRef.SSG_HARMONY_SQUARE),
-                    bass = Lane(listOf(ToneSpec(233f, 0, 800, 0.25f * volume, "triangle")), TimbreRef.SSG_BASS_SQUARE),
+                    bass = Lane(listOf(ToneSpec(233f, 0, 800, 0.5f * volume, "triangle")), TimbreRef.SSG_BASS_SQUARE),
                     percussion = Lane(emptyList(), TimbreRef.DRUM_HAT),
                     tempoBpm = 90,
                     keyRootMidi = 70
@@ -81,10 +81,10 @@ object SoundMelodies {
                 ArrangementLanes(
                     lead = Lane(
                         listOf(
-                            ToneSpec(523.25f, 0, 1800, 0.15f * volume, "square"),
-                            ToneSpec(659.25f, 120, 1800, 0.15f * volume, "square"),
-                            ToneSpec(783.99f, 240, 1800, 0.15f * volume, "square"),
-                            ToneSpec(1046.5f, 360, 1800, 0.15f * volume, "square")
+                            ToneSpec(523.25f, 0, 1800, 0.5f * volume, "square"),
+                            ToneSpec(659.25f, 120, 1800, 0.5f * volume, "square"),
+                            ToneSpec(783.99f, 240, 1800, 0.5f * volume, "square"),
+                            ToneSpec(1046.5f, 360, 1800, 0.5f * volume, "square")
                         ),
                         TimbreRef.FM_LEAD_ZUN1
                     ),
@@ -99,11 +99,17 @@ object SoundMelodies {
                 val e = 217
                 val q = 434
                 val s = 109
+                val kickBeats = badAppleKickBeats(16)
+                val percussion = Lane(
+                    notes = buildKickLane(kickBeats, e, 0.5f * volume) +
+                             buildBadApplePercussion(volume, e).notes,
+                    timbre = TimbreRef.DRUM_HAT
+                )
                 ArrangementLanes(
                     lead = buildBadAppleLead(volume, e, q, s),
                     harmony = buildBadAppleHarmony(volume, e, q),
                     bass = buildBadAppleBass(volume, e),
-                    percussion = buildBadApplePercussion(volume, e),
+                    percussion = percussion,
                     tempoBpm = 138,
                     keyRootMidi = 63
                 )
@@ -112,11 +118,17 @@ object SoundMelodies {
                 val e = 195
                 val q = 390
                 val s = 97
+                val kickBeats = senbonzakuraKickBeats(16)
+                val percussion = Lane(
+                    notes = buildKickLane(kickBeats, e, 0.5f * volume) +
+                             buildSenbonzakuraPercussion(volume, e).notes,
+                    timbre = TimbreRef.DRUM_HAT
+                )
                 ArrangementLanes(
                     lead = buildSenbonzakuraLead(volume, e, q, s),
                     harmony = buildSenbonzakuraHarmony(volume, e, q),
                     bass = buildSenbonzakuraBass(volume, e),
-                    percussion = buildSenbonzakuraPercussion(volume, e),
+                    percussion = percussion,
                     tempoBpm = 154,
                     keyRootMidi = 62
                 )
@@ -199,6 +211,42 @@ object SoundMelodies {
         }
     }
 
+    private fun buildKickLane(
+        kickBeats: List<Int>,
+        e: Int,
+        volume: Float
+    ): List<ToneSpec> {
+        return kickBeats.map { beat ->
+            val startMs = beat * e
+            ToneSpec(-1f, startMs, e, volume, "kick", false)
+        }
+    }
+
+    private fun badAppleKickBeats(bars: Int): List<Int> {
+        val result = mutableListOf<Int>()
+        var bar = 0
+        while (bar < bars) {
+            val base = bar * 8
+            result.add(base + 0)
+            result.add(base + 2)
+            result.add(base + 7)
+            bar++
+        }
+        return result
+    }
+
+    private fun senbonzakuraKickBeats(bars: Int): List<Int> {
+        val result = mutableListOf<Int>()
+        var bar = 0
+        while (bar < bars) {
+            val base = bar * 8
+            result.add(base + 0)
+            result.add(base + 2)
+            bar++
+        }
+        return result
+    }
+
     private fun repeatBar(bar: List<Pair<Float, Int>>, repeats: Int): List<Pair<Float, Int>> {
         val result = mutableListOf<Pair<Float, Int>>()
         repeat(repeats) { result.addAll(bar) }
@@ -244,7 +292,7 @@ object SoundMelodies {
             F4 to e, Eb4 to e, Db4 to e, Eb4 to e
         )
         return Lane(
-            buildChannel(notes, 0.18f * vol, "pulse25",
+            buildChannel(notes, 0.7f * vol, "pulse25",
                 attackMs = 10, decayMs = 50, sustainLevel = 0.7f, releaseMs = 80),
             TimbreRef.FM_LEAD_ZUN1
         )
@@ -266,7 +314,7 @@ object SoundMelodies {
                     repeatBar(dbArp, 1) + repeatBar(ebmArp2, 1)
 
         return Lane(
-            buildChannel(notes, 0.10f * vol, "square",
+            buildChannel(notes, 0.35f * vol, "square",
                 attackMs = 15, decayMs = 30, sustainLevel = 0.5f, releaseMs = 60),
             TimbreRef.SSG_HARMONY_SQUARE
         )
@@ -286,7 +334,7 @@ object SoundMelodies {
         val notes = repeatBar(oneCycle, 4)
 
         return Lane(
-            buildChannel(notes, 0.20f * vol, "triangle",
+            buildChannel(notes, 0.5f * vol, "triangle",
                 attackMs = 5, decayMs = 20, sustainLevel = 0.8f, releaseMs = 30),
             TimbreRef.FM_BASS_ZUN1
         )
@@ -303,7 +351,7 @@ object SoundMelodies {
         val notes = repeatBar(oneBar, 16)
 
         return Lane(
-            buildChannel(notes, 0.06f * vol, "noise-metallic",
+            buildChannel(notes, 0.2f * vol, "noise-metallic",
                 attackMs = 2, decayMs = 0, sustainLevel = 0.0f, releaseMs = 15),
             TimbreRef.DRUM_HAT
         )
@@ -347,7 +395,7 @@ object SoundMelodies {
             D4 to q, D4 to q
         )
         return Lane(
-            buildChannel(notes, 0.18f * vol, "pulse25",
+            buildChannel(notes, 0.7f * vol, "pulse25",
                 attackMs = 8, decayMs = 40, sustainLevel = 0.75f, releaseMs = 60),
             TimbreRef.FM_BELL_ZUN1
         )
@@ -370,7 +418,7 @@ object SoundMelodies {
                     (bbHalf + cHalf) + dmFull
 
         return Lane(
-            buildChannel(notes, 0.10f * vol, "square",
+            buildChannel(notes, 0.35f * vol, "square",
                 attackMs = 5, decayMs = 20, sustainLevel = 0.6f, releaseMs = 40),
             TimbreRef.SSG_HARMONY_SQUARE
         )
@@ -393,7 +441,7 @@ object SoundMelodies {
                     (bbHalf + cHalf) + dmFull
 
         return Lane(
-            buildChannel(notes, 0.20f * vol, "triangle",
+            buildChannel(notes, 0.5f * vol, "triangle",
                 attackMs = 5, decayMs = 15, sustainLevel = 0.85f, releaseMs = 25),
             TimbreRef.FM_BASS_ZUN1
         )
@@ -410,7 +458,7 @@ object SoundMelodies {
         val notes = repeatBar(oneBar, 16)
 
         return Lane(
-            buildChannel(notes, 0.06f * vol, "noise-metallic",
+            buildChannel(notes, 0.2f * vol, "noise-metallic",
                 attackMs = 2, decayMs = 0, sustainLevel = 0.0f, releaseMs = 12),
             TimbreRef.DRUM_HAT
         )

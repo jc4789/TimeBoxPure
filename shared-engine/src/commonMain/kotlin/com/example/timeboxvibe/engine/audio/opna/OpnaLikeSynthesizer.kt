@@ -23,8 +23,19 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     }
 
     fun noteOnFm(channel: Int, midi: Int) {
+        noteOnFm(channel, midi, null, null, null, null)
+    }
+
+    fun noteOnFm(
+        channel: Int,
+        midi: Int,
+        attack: Float?,
+        decay: Float?,
+        sustain: Float?,
+        release: Float?
+    ) {
         if (channel in fm.indices) {
-            fm[channel].noteOn(midi)
+            fm[channel].noteOn(midi, attack, decay, sustain, release)
         }
     }
 
@@ -41,12 +52,24 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         }
     }
 
-    fun triggerDrum(kind: Int) {
+    fun triggerDrum(kind: Int, velocity: Float = 1f) {
         when (kind) {
-            0, ProceduralDrums.DrumKind.KICK.ordinal -> drums.triggerKick()
-            1, ProceduralDrums.DrumKind.SNARE.ordinal -> drums.triggerSnare()
-            2, ProceduralDrums.DrumKind.HAT.ordinal -> drums.triggerHat()
-            3, ProceduralDrums.DrumKind.TOM.ordinal -> drums.triggerTom(150f)
+            0, ProceduralDrums.DrumKind.KICK.ordinal -> {
+                drums.kickGain = velocity
+                drums.triggerKick()
+            }
+            1, ProceduralDrums.DrumKind.SNARE.ordinal -> {
+                drums.snareGain = velocity
+                drums.triggerSnare()
+            }
+            2, ProceduralDrums.DrumKind.HAT.ordinal -> {
+                drums.hatGain = velocity
+                drums.triggerHat()
+            }
+            3, ProceduralDrums.DrumKind.TOM.ordinal -> {
+                drums.tomGain = velocity
+                drums.triggerTom(150f)
+            }
         }
     }
 
@@ -81,37 +104,33 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     fun render(buffer: FloatArray, frames: Int) {
         buffer.fill(0f)
 
-        // Render SSG
         var i = 0
         while (i < ssg.size) {
             ssg[i].render(buffer, frames, sampleRate, mixer.ssgGain)
             i++
         }
 
-        // Render FM
         i = 0
         while (i < fm.size) {
             fm[i].render(buffer, frames, sampleRate, mixer.fmGain)
             i++
         }
 
-        // Render Rhythm
         drums.render(buffer, frames, sampleRate, mixer.rhythmGain)
 
-        // Soft clip and master gain
         softClipAndGain(buffer, frames)
     }
 
     fun render(buffer: FloatArray, frames: Int, sequencer: OpnaSequencer, currentSampleOffset: Long) {
-        // Write events from sequencer into the synthesizer first
         sequencer.writeInto(this, currentSampleOffset, frames)
         render(buffer, frames)
     }
 
     private fun softClipAndGain(buffer: FloatArray, frames: Int) {
+        val masterGain = OpnaAudioConstants.MASTER_GAIN
         var i = 0
         while (i < frames) {
-            val x = buffer[i] * 0.7f
+            val x = buffer[i] * masterGain
             val clipped = x / (1f + abs(x))
             buffer[i] = clipped.coerceIn(-1f, 1f)
             i++

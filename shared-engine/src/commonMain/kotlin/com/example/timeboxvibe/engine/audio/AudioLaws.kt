@@ -9,11 +9,14 @@ internal object AudioLaws {
     const val SAMPLE_RATE: Int = 44100
     const val SSG_GAIN_DB: Float = -18f
 
-    fun tlToAmplitude(tl: Int): Float = (127 - tl.coerceIn(0, 127)) / 127f
+    fun tlToAmplitude(tl: Int): Float =
+        10f.pow(-tl.coerceIn(0, 127) * 0.75f / 20f)
 
-    fun detunePhaseOffset(detune: Int): Float = detune.coerceIn(0, 7) * 0.01f
+    fun feedbackShift(feedback: Int): Float =
+        if (feedback == 0) 0f else 0.03f * feedback.coerceIn(1, 7)
 
-    fun feedbackShift(feedback: Int): Float = feedback.coerceIn(0, 7) * 0.5f
+    fun detunePhaseMultiplier(detune: Int): Float =
+        1.0f + detune.coerceIn(0, 7) * 0.0001f
 
     fun fnumBlockToFreq(block: Int, fnum: Int): Float =
         440f * 2f.pow(block.coerceIn(0, 7) + fnum.coerceIn(0, 2047) / 1024f - 9f)

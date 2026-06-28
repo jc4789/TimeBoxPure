@@ -8,13 +8,14 @@ import android.media.AudioTrack
 import android.media.MediaPlayer
 import android.os.Handler
 import android.os.Looper
+import com.example.timeboxvibe.engine.audio.opna.OpnaAudioConstants
 import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
 import com.example.timeboxvibe.engine.audio.opna.OpnaSequencer
 import com.example.timeboxvibe.engine.audio.opna.Patches
 import com.example.timeboxvibe.engine.audio.opna.ProceduralDrums
 import kotlin.math.exp
-import kotlin.math.sin
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 object SoundPreviewPlayer {
     @Volatile
@@ -35,11 +36,6 @@ object SoundPreviewPlayer {
         }
     }
 
-    /**
-     * The PC-98 "Thock"
-     * Generates a heavy, mechanical UI click using a low-frequency square/triangle blend
-     * with a rapid pitch-drop (FM synthesis) to simulate a physical switch.
-     */
     fun playTick(volume: Float) {
         try {
             var track = tickTrack
@@ -51,15 +47,12 @@ object SoundPreviewPlayer {
 
                 for (i in 0 until numSamples) {
                     val t = i.toFloat() / sampleRate
-                    // Pitch drop: Starts at 300Hz, drops rapidly to 100Hz
                     val freq = 300.0 * exp(-50.0 * t)
                     val phase = 2.0 * Math.PI * freq * t
 
-                    // Crunchy Square-like wave
                     var sample = if (sin(phase) > 0) 0.8f else -0.8f
 
                     val ageMs = i * 1000 / sampleRate
-                    // Extremely sharp attack and decay for that mechanical "clack"
                     val envelope = when {
                         ageMs < 2 -> ageMs / 2f
                         else -> {
@@ -114,9 +107,6 @@ object SoundPreviewPlayer {
         } catch (e: Exception) { e.printStackTrace() }
         activeTrack = null
 
-        // WE DO NOT RELEASE tickTrack HERE ANYMORE!
-        // We want the 'thock' to stay loaded in memory so it has zero latency.
-
         try {
             mediaPlayer?.let {
                 if (it.isPlaying) {
@@ -150,7 +140,9 @@ object SoundPreviewPlayer {
             val runnable = Runnable { stop() }
             stopRunnable = runnable
             handler.postDelayed(runnable, 3500)
-        } catch (e: Exception) { e.printStackTrace() }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     fun playGentleReminder(context: Context, soundKey: String, volume: Float) {
@@ -175,7 +167,9 @@ object SoundPreviewPlayer {
                     val runnable = Runnable { stop() }
                     stopRunnable = runnable
                     handler.postDelayed(runnable, 1000)
-                } catch (e: Exception) { e.printStackTrace() }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
             else -> playSpecsStreaming(soundKey, volume, shouldLoop = false, stopAfterMs = 1500L)
         }
@@ -201,7 +195,9 @@ object SoundPreviewPlayer {
                         start()
                         afd.close()
                     }
-                } catch (e: Exception) { e.printStackTrace() }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
             else -> playSpecsStreaming(soundKey, volume, shouldLoop = true)
         }
@@ -223,6 +219,11 @@ object SoundPreviewPlayer {
 
             fun msToSamples(ms: Int): Long = (ms.toLong() * sampleRate) / 1000L
 
+            val leadGain = OpnaAudioConstants.LANE_GAIN_LEAD
+            val harmonyGain = OpnaAudioConstants.LANE_GAIN_HARMONY
+            val bassGain = OpnaAudioConstants.LANE_GAIN_BASS
+            val percussionGain = OpnaAudioConstants.LANE_GAIN_PERCUSSION
+
             // 1. Lead lane
             val leadTimbre = arrangement.lead.timbre
             val leadPatch = when (leadTimbre) {
@@ -236,13 +237,25 @@ object SoundPreviewPlayer {
                 for (note in arrangement.lead.notes) {
                     if (note.freq <= 10f) continue
                     val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
-                    sequencer.noteFmRaw(0, midi, msToSamples(note.startMs), msToSamples(note.durationMs))
+                    val velocity = note.volume * leadGain
+                    val (a, d, s, r) = adsrFromNote(note)
+                    sequencer.noteFmRaw(
+                        0, midi,
+                        msToSamples(note.startMs),
+                        msToSamples(note.durationMs),
+                        velocity, a, d, s, r
+                    )
                 }
             } else {
                 for (note in arrangement.lead.notes) {
                     if (note.freq <= 10f) continue
                     val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
-                    sequencer.noteSsgRaw(0, midi, msToSamples(note.startMs), msToSamples(note.durationMs))
+                    sequencer.noteSsgRaw(
+                        0, midi,
+                        msToSamples(note.startMs),
+                        msToSamples(note.durationMs),
+                        note.volume * leadGain
+                    )
                 }
             }
 
@@ -250,7 +263,12 @@ object SoundPreviewPlayer {
             for (note in arrangement.harmony.notes) {
                 if (note.freq <= 10f) continue
                 val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
-                sequencer.noteSsgRaw(1, midi, msToSamples(note.startMs), msToSamples(note.durationMs))
+                sequencer.noteSsgRaw(
+                    1, midi,
+                    msToSamples(note.startMs),
+                    msToSamples(note.durationMs),
+                    note.volume * harmonyGain
+                )
             }
 
             // 3. Bass lane
@@ -260,26 +278,49 @@ object SoundPreviewPlayer {
                 for (note in arrangement.bass.notes) {
                     if (note.freq <= 10f) continue
                     val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
-                    sequencer.noteFmRaw(1, midi, msToSamples(note.startMs), msToSamples(note.durationMs))
+                    val velocity = note.volume * bassGain
+                    val (a, d, s, r) = adsrFromNote(note)
+                    sequencer.noteFmRaw(
+                        1, midi,
+                        msToSamples(note.startMs),
+                        msToSamples(note.durationMs),
+                        velocity, a, d, s, r
+                    )
                 }
             } else if (bassTimbre == TimbreRef.SSG_BASS_SQUARE) {
                 for (note in arrangement.bass.notes) {
                     if (note.freq <= 10f) continue
                     val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
-                    sequencer.noteSsgRaw(2, midi, msToSamples(note.startMs), msToSamples(note.durationMs))
+                    sequencer.noteSsgRaw(
+                        2, midi,
+                        msToSamples(note.startMs),
+                        msToSamples(note.durationMs),
+                        note.volume * bassGain
+                    )
                 }
             }
 
             // 4. Percussion lane
             for (note in arrangement.percussion.notes) {
-                val kind = if (note.freq >= 5000f) {
-                    ProceduralDrums.DrumKind.HAT
+                val kind: ProceduralDrums.DrumKind?
+                val velocity: Float
+                if (note.freq == -1f) {
+                    kind = ProceduralDrums.DrumKind.KICK
+                    velocity = note.volume * percussionGain
+                } else if (note.freq >= 5000f) {
+                    kind = ProceduralDrums.DrumKind.HAT
+                    velocity = note.volume * percussionGain
                 } else if (note.freq > 0f) {
-                    ProceduralDrums.DrumKind.SNARE
+                    kind = ProceduralDrums.DrumKind.SNARE
+                    velocity = note.volume * percussionGain
                 } else {
                     continue
                 }
-                sequencer.noteDrumRaw(kind, msToSamples(note.startMs))
+                sequencer.noteDrumRaw(
+                    kind,
+                    msToSamples(note.startMs),
+                    velocity
+                )
             }
 
             val maxDurationMs = listOf(
@@ -376,4 +417,18 @@ object SoundPreviewPlayer {
         streamThread = thread
         thread.start()
     }
+
+    private fun adsrFromNote(note: ToneSpec): Quadruple<Float?, Float?, Float?, Float?> {
+        if (!note.useADSR) {
+            return Quadruple(null, null, null, null)
+        }
+        return Quadruple(
+            note.attackMs / 1000f,
+            note.decayMs / 1000f,
+            note.sustainLevel,
+            note.releaseMs / 1000f
+        )
+    }
 }
+
+private data class Quadruple<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)

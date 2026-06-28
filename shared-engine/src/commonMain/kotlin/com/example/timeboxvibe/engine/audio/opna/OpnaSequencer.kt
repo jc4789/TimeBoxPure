@@ -5,23 +5,27 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Int, val beatsPerBar: Int = 4)
         const val MAX_EVENTS_PER_CHANNEL = 1024
     }
 
-    // FM events: channel, midi, startSample, durationSamples
     private val fmChannelIdx    = IntArray(MAX_EVENTS_PER_CHANNEL)
     private val fmMidi          = IntArray(MAX_EVENTS_PER_CHANNEL)
     private val fmStartSample   = LongArray(MAX_EVENTS_PER_CHANNEL)
     private val fmDurationSamp  = LongArray(MAX_EVENTS_PER_CHANNEL)
+    private val fmVelocity      = FloatArray(MAX_EVENTS_PER_CHANNEL)
+    private val fmAttack        = FloatArray(MAX_EVENTS_PER_CHANNEL)
+    private val fmDecay         = FloatArray(MAX_EVENTS_PER_CHANNEL)
+    private val fmSustain       = FloatArray(MAX_EVENTS_PER_CHANNEL)
+    private val fmRelease       = FloatArray(MAX_EVENTS_PER_CHANNEL)
     private var fmEventCount    = 0
 
-    // SSG events: channel, midi, startSample, durationSamples
     private val ssgChannelIdx   = IntArray(MAX_EVENTS_PER_CHANNEL)
     private val ssgMidi         = IntArray(MAX_EVENTS_PER_CHANNEL)
     private val ssgStartSample  = LongArray(MAX_EVENTS_PER_CHANNEL)
     private val ssgDurSamp      = LongArray(MAX_EVENTS_PER_CHANNEL)
+    private val ssgVelocity     = FloatArray(MAX_EVENTS_PER_CHANNEL)
     private var ssgEventCount   = 0
 
-    // Drum events: kind, startSample
     private val drumKind        = IntArray(MAX_EVENTS_PER_CHANNEL)
     private val drumStartSample = LongArray(MAX_EVENTS_PER_CHANNEL)
+    private val drumVelocity    = FloatArray(MAX_EVENTS_PER_CHANNEL)
     private var drumEventCount  = 0
 
     var customLoopLength: Long = 0L
@@ -30,58 +34,77 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Int, val beatsPerBar: Int = 4)
     fun barToSample(bar: Int): Long = (bar * beatsPerBar * 60f * sampleRate / bpm).toLong()
 
     fun noteFm(channel: Int, midi: Int, atBeat: Float, durBeats: Float) {
-        val idx = fmEventCount
-        if (idx >= MAX_EVENTS_PER_CHANNEL) return
-        fmChannelIdx[idx]    = channel
-        fmMidi[idx]          = midi
-        fmStartSample[idx]   = beatToSample(atBeat)
-        fmDurationSamp[idx]  = beatToSample(durBeats)
-        fmEventCount = idx + 1
+        noteFmRaw(channel, midi, beatToSample(atBeat), beatToSample(durBeats))
     }
 
     fun noteFmRaw(channel: Int, midi: Int, startSample: Long, durationSamples: Long) {
+        noteFmRaw(channel, midi, startSample, durationSamples, 1f, null, null, null, null)
+    }
+
+    fun noteFmRaw(
+        channel: Int,
+        midi: Int,
+        startSample: Long,
+        durationSamples: Long,
+        velocity: Float,
+        attack: Float?,
+        decay: Float?,
+        sustain: Float?,
+        release: Float?
+    ) {
         val idx = fmEventCount
         if (idx >= MAX_EVENTS_PER_CHANNEL) return
         fmChannelIdx[idx]    = channel
         fmMidi[idx]          = midi
         fmStartSample[idx]   = startSample
         fmDurationSamp[idx]  = durationSamples
+        fmVelocity[idx]      = velocity
+        fmAttack[idx]        = attack ?: 0f
+        fmDecay[idx]         = decay ?: 0f
+        fmSustain[idx]       = sustain ?: 0f
+        fmRelease[idx]       = release ?: 0f
         fmEventCount = idx + 1
     }
 
     fun noteSsg(channel: Int, midi: Int, atBeat: Float, durBeats: Float) {
-        val idx = ssgEventCount
-        if (idx >= MAX_EVENTS_PER_CHANNEL) return
-        ssgChannelIdx[idx]   = channel
-        ssgMidi[idx]         = midi
-        ssgStartSample[idx]  = beatToSample(atBeat)
-        ssgDurSamp[idx]      = beatToSample(durBeats)
-        ssgEventCount = idx + 1
+        noteSsgRaw(channel, midi, beatToSample(atBeat), beatToSample(durBeats))
     }
 
     fun noteSsgRaw(channel: Int, midi: Int, startSample: Long, durationSamples: Long) {
+        noteSsgRaw(channel, midi, startSample, durationSamples, 1f)
+    }
+
+    fun noteSsgRaw(
+        channel: Int,
+        midi: Int,
+        startSample: Long,
+        durationSamples: Long,
+        velocity: Float
+    ) {
         val idx = ssgEventCount
         if (idx >= MAX_EVENTS_PER_CHANNEL) return
         ssgChannelIdx[idx]   = channel
         ssgMidi[idx]         = midi
         ssgStartSample[idx]  = startSample
         ssgDurSamp[idx]      = durationSamples
+        ssgVelocity[idx]     = velocity
         ssgEventCount = idx + 1
     }
 
     fun noteDrum(kind: ProceduralDrums.DrumKind, atBeat: Float) {
-        val idx = drumEventCount
-        if (idx >= MAX_EVENTS_PER_CHANNEL) return
-        drumKind[idx]        = kind.ordinal
-        drumStartSample[idx] = beatToSample(atBeat)
-        drumEventCount = idx + 1
+        noteDrumRaw(kind, beatToSample(atBeat))
     }
 
     fun noteDrumRaw(kind: ProceduralDrums.DrumKind, startSample: Long) {
+        noteDrumRaw(kind, startSample, 1f)
+    }
+
+    fun noteDrumRaw(kind: ProceduralDrums.DrumKind, startSample: Long, velocity: Float) {
         val idx = drumEventCount
         if (idx >= MAX_EVENTS_PER_CHANNEL) return
         drumKind[idx]        = kind.ordinal
         drumStartSample[idx] = startSample
+        drumVelocity[idx]    = velocity
         drumEventCount = idx + 1
     }
 
@@ -94,8 +117,6 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Int, val beatsPerBar: Int = 4)
 
     fun loopLengthSamples(): Long {
         if (customLoopLength > 0L) return customLoopLength
-        // D18: loopLength = bars * beatsPerBar * sampleRate * 60 / bpm
-        // Defaulting to 4 bars for typical motif loops
         return (4L * beatsPerBar * sampleRate * 60) / bpm
     }
 
@@ -112,7 +133,6 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Int, val beatsPerBar: Int = 4)
     }
 
     fun writeInto(synth: OpnaLikeSynthesizer, loopOffsetSample: Long, chunkSize: Int) {
-        // FM events
         var i = 0
         while (i < fmEventCount) {
             val start = fmStartSample[i]
@@ -120,7 +140,15 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Int, val beatsPerBar: Int = 4)
             val end = start + duration
 
             if (isSampleInChunk(start, loopOffsetSample, chunkSize)) {
-                synth.noteOnFm(fmChannelIdx[i], fmMidi[i])
+                val attack = if (fmAttack[i] > 0f) fmAttack[i] else null
+                val decay = if (fmDecay[i] > 0f) fmDecay[i] else null
+                val sustain = if (fmSustain[i] > 0f) fmSustain[i] else null
+                val release = if (fmRelease[i] > 0f) fmRelease[i] else null
+                synth.noteOnFm(
+                    fmChannelIdx[i], fmMidi[i],
+                    attack, decay, sustain, release
+                )
+                synth.fm[fmChannelIdx[i]].noteGain = fmVelocity[i]
             }
             if (isSampleInChunk(end, loopOffsetSample, chunkSize)) {
                 synth.noteOffFm(fmChannelIdx[i])
@@ -128,7 +156,6 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Int, val beatsPerBar: Int = 4)
             i++
         }
 
-        // SSG events
         i = 0
         while (i < ssgEventCount) {
             val start = ssgStartSample[i]
@@ -137,6 +164,7 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Int, val beatsPerBar: Int = 4)
 
             if (isSampleInChunk(start, loopOffsetSample, chunkSize)) {
                 synth.noteOnSsg(ssgChannelIdx[i], ssgMidi[i])
+                synth.ssg[ssgChannelIdx[i]].noteGain = ssgVelocity[i]
             }
             if (isSampleInChunk(end, loopOffsetSample, chunkSize)) {
                 synth.noteOffSsg(ssgChannelIdx[i])
@@ -144,13 +172,13 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Int, val beatsPerBar: Int = 4)
             i++
         }
 
-        // Drum events
         i = 0
         while (i < drumEventCount) {
             val start = drumStartSample[i]
             if (isSampleInChunk(start, loopOffsetSample, chunkSize)) {
                 val kind = drumKind[i]
-                synth.triggerDrum(kind)
+                val velocity = drumVelocity[i]
+                synth.triggerDrum(kind, velocity)
             }
             i++
         }
