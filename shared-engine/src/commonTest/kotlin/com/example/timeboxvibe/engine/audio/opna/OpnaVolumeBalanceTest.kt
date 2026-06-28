@@ -120,7 +120,7 @@ class OpnaVolumeBalanceTest {
         val sampleRate = 44100
         val synth = OpnaLikeSynthesizer(sampleRate)
         val sequencer = OpnaSequencer(sampleRate, arr.tempoBpm)
-        synth.fm[0].applyPatch(Patches.ZunLead1)
+        synth.fm[0].applyPatch(LlsPatches.At54)
         for (note in arr.lead.notes) {
             if (note.freq <= 10f) continue
             val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).toInt()
@@ -129,7 +129,8 @@ class OpnaVolumeBalanceTest {
                 note.volume * OpnaAudioConstants.LANE_GAIN_LEAD, null, null, null, null)
         }
         val chunk = FloatArray(1024)
-        var pos = 0L
+        val startOffsetMs = arr.lead.notes.minOf { it.startMs }
+        var pos = startOffsetMs * sampleRate / 1000L
         var sumSq = 0.0
         var peak = 0f
         var totalSamples = 0
@@ -150,7 +151,7 @@ class OpnaVolumeBalanceTest {
             i++
         }
         val rms = kotlin.math.sqrt(sumSq / totalSamples).toFloat()
-        assertTrue(rms > 0.01f, "LotusLandStory RMS=$rms is too low (5-second render)")
+        assertTrue(rms > 0.01f, "LotusLandStory RMS=$rms is too low (5-second render from lead start)")
         assertTrue(peak > 0.05f, "LotusLandStory peak=$peak is too low")
     }
 }

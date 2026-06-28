@@ -7,9 +7,9 @@ import kotlin.test.assertTrue
 
 /**
  * Structure test for synth-bad-apple-LotusLandStory.
- * Locks in the section sizes and the intro structure (2 N.C. + 2 E♭m).
+ * Locks in the section sizes and the intro structure (14 bars intro + 8 bars A + 16 bars B + 16 bars chorus).
  *
- * Total: 4 + 16 + 12 + 15 = 47 bars at 160.73 BPM = ~70.2 sec
+ * Total: 14 + 8 + 16 + 16 = 54 bars at 160.73 BPM = ~80.6 sec
  */
 class OpnaLlsStructureTest {
 
@@ -17,29 +17,31 @@ class OpnaLlsStructureTest {
     private val sampleRate = 44100
 
     @Test
-    fun leadStartsAtBeginning() {
+    fun leadStartsAtASection() {
         val arr = SoundMelodies.getArrangement(key, 1f)!!
         val firstLeadStart = arr.lead.notes.minOf { it.startMs }
+        val aSectionBars = 14
+        val aSectionMs = (aSectionBars * 4 * 60000f / 160.73f).toInt()
         assertTrue(
-            firstLeadStart == 0,
-            "Lead's first note should start immediately at 0 ms, but starts at $firstLeadStart ms."
+            firstLeadStart in (aSectionMs - 100)..(aSectionMs + 100),
+            "Lead's first note should start at the A section (~$aSectionMs ms), but starts at $firstLeadStart ms."
         )
     }
 
     @Test
-    fun harmonyAndBassStartAfterNCRest() {
+    fun harmonyAndBassStartAtASection() {
         val arr = SoundMelodies.getArrangement(key, 1f)!!
         val firstHarmonyStart = arr.harmony.notes.minOf { it.startMs }
         val firstBassStart = arr.bass.notes.minOf { it.startMs }
-        val ncBars = 2
-        val ncMs = ncBars * 1492
+        val aSectionBars = 14
+        val aSectionMs = (aSectionBars * 4 * 60000f / 160.73f).toInt()
         assertTrue(
-            firstHarmonyStart >= ncMs - 1,
-            "Harmony should start at or after the 2-bar N.C. rest (>= $ncMs ms), but starts at $firstHarmonyStart ms."
+            firstHarmonyStart >= aSectionMs - 100,
+            "Harmony should start at or after the A section (>= $aSectionMs ms), but starts at $firstHarmonyStart ms."
         )
         assertTrue(
-            firstBassStart >= ncMs - 1,
-            "Bass should start at or after the 2-bar N.C. rest (>= $ncMs ms), but starts at $firstBassStart ms."
+            firstBassStart >= aSectionMs - 100,
+            "Bass should start at or after the A section (>= $aSectionMs ms), but starts at $firstBassStart ms."
         )
     }
 
@@ -49,7 +51,7 @@ class OpnaLlsStructureTest {
         val leadNoteCount = arr.lead.notes.size
         assertTrue(
             leadNoteCount >= 50,
-            "Lead should have at least 50 notes for a 47-bar song, got $leadNoteCount. " +
+            "Lead should have at least 50 notes for a 54-bar song, got $leadNoteCount. " +
             "If low, the B section or chorus may be empty."
         )
     }
@@ -78,7 +80,7 @@ class OpnaLlsStructureTest {
         val arr = SoundMelodies.getArrangement(key, 1f)!!
         val leadTimbre = arr.lead.timbre
         assertTrue(
-            leadTimbre == TimbreRef.FM_LEAD_ZUN1 || leadTimbre == TimbreRef.SSG_HARMONY_SQUARE,
+            leadTimbre == TimbreRef.FM_LEAD_ZUN1 || leadTimbre == TimbreRef.SSG_HARMONY_SQUARE || leadTimbre == TimbreRef.FM_LLS_AT54,
             "Lead timbre should be consistent throughout the song (no mid-song switch). " +
             "Got $leadTimbre."
         )
@@ -90,9 +92,9 @@ class OpnaLlsStructureTest {
         val allNotes = arr.lead.notes + arr.harmony.notes + arr.bass.notes + arr.percussion.notes
         val maxEnd = allNotes.maxOf { it.startMs + it.durationMs }
         assertTrue(
-            maxEnd in 65000..80000,
-            "Total duration $maxEnd ms is outside [65000, 80000]. " +
-            "Expected ~70000 ms for 47 bars at 160.73 BPM."
+            maxEnd in 75000..85000,
+            "Total duration $maxEnd ms is outside [75000, 85000]. " +
+            "Expected ~80600 ms for 54 bars at 160.73 BPM."
         )
     }
 

@@ -8,6 +8,7 @@ import android.media.AudioTrack
 import android.media.MediaPlayer
 import android.os.Handler
 import android.os.Looper
+import com.example.timeboxvibe.engine.audio.opna.LlsPatches
 import com.example.timeboxvibe.engine.audio.opna.OpnaAudioConstants
 import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
 import com.example.timeboxvibe.engine.audio.opna.OpnaSequencer
@@ -240,6 +241,10 @@ object SoundPreviewPlayer {
                 TimbreRef.FM_LEAD_ZUN1 -> Patches.ZunLead1
                 TimbreRef.FM_BELL_ZUN1 -> Patches.ZunBell1
                 TimbreRef.FM_PAD_ZUN1 -> Patches.ZunPad1
+                TimbreRef.FM_LLS_AT54 -> LlsPatches.At54
+                TimbreRef.FM_LLS_AT74 -> LlsPatches.At74
+                TimbreRef.FM_LLS_AT99 -> LlsPatches.At99
+                TimbreRef.FM_LLS_AT181 -> LlsPatches.At181
                 else -> null
             }
             val leadChannel = 0

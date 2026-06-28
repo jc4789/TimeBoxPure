@@ -58,9 +58,9 @@ class OpnaBadAppleLotusLandStoryTest {
         val allNotes = arr.lead.notes + arr.harmony.notes + arr.bass.notes + arr.percussion.notes
         val maxEnd = allNotes.maxOf { it.startMs + it.durationMs }
         assertTrue(
-            maxEnd in 65000..80000,
-            "Total arrangement duration $maxEnd ms is out of range [65000, 80000]. " +
-            "Expected ~70000 ms for 47 bars at 160.73 BPM."
+            maxEnd in 75000..85000,
+            "Total arrangement duration $maxEnd ms is out of range [75000, 85000]. " +
+            "Expected ~80600 ms for 54 bars at 160.73 BPM."
         )
     }
 

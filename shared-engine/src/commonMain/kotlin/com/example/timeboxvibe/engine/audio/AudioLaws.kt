@@ -9,7 +9,7 @@ internal object AudioLaws {
     const val SAMPLE_RATE: Int = 44100
     const val SSG_GAIN_DB: Float = -18f
 
-    const val OPNA_OUTPUT_GAIN: Float = 2.0f
+    const val OPNA_OUTPUT_GAIN: Float = 1.0f
 
     fun tlToAmplitude(tl: Int): Float =
         10f.pow(-tl.coerceIn(0, 127) * 0.75f / 20f)
