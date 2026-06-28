@@ -45,4 +45,10 @@ python tools/math_oracles/framebuffer_hash.py actual.bin --expected expected.bin
 python tools/math_oracles/repo_brief.py . --out ENGINE_BRIEF.generated.md
 ```
 
+## OPNA Audio Hot-Path Audit
+
+```powershell
+python tools/math_oracles/opna_audit.py
+```
+
 Rule: Python computes. Kotlin executes. The LLM reads compact reports.

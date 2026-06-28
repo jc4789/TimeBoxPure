@@ -41,6 +41,11 @@ kotlin {
                 implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
             }
         }
+        val commonTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+            }
+        }
     }
 }
 
@@ -50,4 +55,19 @@ android {
     defaultConfig {
         minSdk = 24
     }
+}
+
+val opnaAudit by tasks.registering(Exec::class) {
+    group = "verification"
+    description = "Runs the OPNA audio hot-path audit."
+    workingDir = rootProject.projectDir
+    if (org.gradle.internal.os.OperatingSystem.current().isWindows) {
+        commandLine("python", "tools/math_oracles/opna_audit.py")
+    } else {
+        commandLine("python3", "tools/math_oracles/opna_audit.py")
+    }
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask<*>>().configureEach {
+    dependsOn(opnaAudit)
 }

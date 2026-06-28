@@ -8,9 +8,13 @@ import android.media.AudioTrack
 import android.media.MediaPlayer
 import android.os.Handler
 import android.os.Looper
-import kotlin.math.abs
+import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
+import com.example.timeboxvibe.engine.audio.opna.OpnaSequencer
+import com.example.timeboxvibe.engine.audio.opna.Patches
+import com.example.timeboxvibe.engine.audio.opna.ProceduralDrums
 import kotlin.math.exp
 import kotlin.math.sin
+import kotlin.math.roundToInt
 
 object SoundPreviewPlayer {
     @Volatile
@@ -27,15 +31,7 @@ object SoundPreviewPlayer {
         stop()
         when (soundKey) {
             "oriental" -> playOrientalPreview(context, volume)
-            "synth-bad-apple", "synth-senbonzakura" -> {
-                val allNotes = SoundMelodies.getMelody(soundKey, volume, false)
-                playSpecsStreaming(allNotes, shouldLoop = false, stopAfterMs = 3500L)
-            }
-            "synth-chime", "synth-victory" -> {
-                val melody = SoundMelodies.getMelody(soundKey, volume, false)
-                val bass = SoundMelodies.getMelody(soundKey, volume, true)
-                playSpecsStreaming(melody + bass, shouldLoop = false, stopAfterMs = 3500L)
-            }
+            else -> playSpecsStreaming(soundKey, volume, shouldLoop = false, stopAfterMs = 3500L)
         }
     }
 
@@ -107,7 +103,7 @@ object SoundPreviewPlayer {
 
     fun stop() {
         isStreaming = false
-        
+
         try {
             activeTrack?.let {
                 if (it.playState == AudioTrack.PLAYSTATE_PLAYING) {
@@ -135,22 +131,9 @@ object SoundPreviewPlayer {
         stopRunnable = null
     }
 
-    private fun computeEnvelope(ageMs: Int, spec: ToneSpec): Float {
-        return com.example.timeboxvibe.engine.core.ChiptuneSynthesizer.computeEnvelope(ageMs, spec)
-    }
-
-    private fun generateWaveform(phase: Double, t: Float, spec: ToneSpec): Float {
-        return com.example.timeboxvibe.engine.core.ChiptuneSynthesizer.generateWaveform(phase, t, spec)
-    }
-
-    private fun softClip(x: Float): Float {
-        return com.example.timeboxvibe.engine.core.ChiptuneSynthesizer.softClip(x)
-    }
-
     private fun playOrientalPreview(context: Context, volume: Float) {
         try {
             mediaPlayer = MediaPlayer().apply {
-                // THE FIX: Route MediaPlayer through the ALARM channel so it doesn't get muted!
                 setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_ALARM)
@@ -162,7 +145,7 @@ object SoundPreviewPlayer {
                 setVolume(volume, volume)
                 prepare()
                 start()
-                afd.close() // Safer to close AFTER prepare
+                afd.close()
             }
             val runnable = Runnable { stop() }
             stopRunnable = runnable
@@ -194,15 +177,7 @@ object SoundPreviewPlayer {
                     handler.postDelayed(runnable, 1000)
                 } catch (e: Exception) { e.printStackTrace() }
             }
-            "synth-bad-apple", "synth-senbonzakura" -> {
-                val allNotes = SoundMelodies.getMelody(soundKey, volume, false)
-                playSpecsStreaming(allNotes, shouldLoop = false, stopAfterMs = 1500L)
-            }
-            "synth-chime", "synth-victory" -> {
-                val melody = SoundMelodies.getMelody(soundKey, volume, false)
-                val bass = SoundMelodies.getMelody(soundKey, volume, true)
-                playSpecsStreaming(melody + bass, shouldLoop = false, stopAfterMs = 1500L)
-            }
+            else -> playSpecsStreaming(soundKey, volume, shouldLoop = false, stopAfterMs = 1500L)
         }
     }
 
@@ -228,32 +203,95 @@ object SoundPreviewPlayer {
                     }
                 } catch (e: Exception) { e.printStackTrace() }
             }
-            "synth-bad-apple", "synth-senbonzakura" -> {
-                val allNotes = SoundMelodies.getMelody(soundKey, volume, false)
-                playSpecsStreaming(allNotes, shouldLoop = true)
-            }
-            "synth-chime", "synth-victory" -> {
-                val melody = SoundMelodies.getMelody(soundKey, volume, false)
-                val bass = SoundMelodies.getMelody(soundKey, volume, true)
-                playSpecsStreaming(melody + bass, shouldLoop = true)
-            }
+            else -> playSpecsStreaming(soundKey, volume, shouldLoop = true)
         }
     }
 
-    private fun playSpecsStreaming(specs: List<ToneSpec>, shouldLoop: Boolean, stopAfterMs: Long = -1L) {
-        stop()
-        if (specs.isEmpty()) return
+    private fun playSpecsStreaming(soundKey: String, volume: Float, shouldLoop: Boolean, stopAfterMs: Long = -1L) {
+        val arrangement = SoundMelodies.getArrangement(soundKey, volume) ?: return
 
         isStreaming = true
-
-        val maxDurationMs = specs.maxOf { it.startMs + it.durationMs }.toLong()
-        if (maxDurationMs <= 0L) return
 
         val thread = Thread(Runnable {
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO)
 
             val sampleRate = 44100
             val chunkSize = 1024
+
+            val synth = OpnaLikeSynthesizer(sampleRate)
+            val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm)
+
+            fun msToSamples(ms: Int): Long = (ms.toLong() * sampleRate) / 1000L
+
+            // 1. Lead lane
+            val leadTimbre = arrangement.lead.timbre
+            val leadPatch = when (leadTimbre) {
+                TimbreRef.FM_LEAD_ZUN1 -> Patches.ZunLead1
+                TimbreRef.FM_BELL_ZUN1 -> Patches.ZunBell1
+                TimbreRef.FM_PAD_ZUN1 -> Patches.ZunPad1
+                else -> null
+            }
+            if (leadPatch != null) {
+                synth.fm[0].applyPatch(leadPatch)
+                for (note in arrangement.lead.notes) {
+                    if (note.freq <= 10f) continue
+                    val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
+                    sequencer.noteFmRaw(0, midi, msToSamples(note.startMs), msToSamples(note.durationMs))
+                }
+            } else {
+                for (note in arrangement.lead.notes) {
+                    if (note.freq <= 10f) continue
+                    val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
+                    sequencer.noteSsgRaw(0, midi, msToSamples(note.startMs), msToSamples(note.durationMs))
+                }
+            }
+
+            // 2. Harmony lane
+            for (note in arrangement.harmony.notes) {
+                if (note.freq <= 10f) continue
+                val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
+                sequencer.noteSsgRaw(1, midi, msToSamples(note.startMs), msToSamples(note.durationMs))
+            }
+
+            // 3. Bass lane
+            val bassTimbre = arrangement.bass.timbre
+            if (bassTimbre == TimbreRef.FM_BASS_ZUN1) {
+                synth.fm[1].applyPatch(Patches.ZunBass1)
+                for (note in arrangement.bass.notes) {
+                    if (note.freq <= 10f) continue
+                    val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
+                    sequencer.noteFmRaw(1, midi, msToSamples(note.startMs), msToSamples(note.durationMs))
+                }
+            } else if (bassTimbre == TimbreRef.SSG_BASS_SQUARE) {
+                for (note in arrangement.bass.notes) {
+                    if (note.freq <= 10f) continue
+                    val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
+                    sequencer.noteSsgRaw(2, midi, msToSamples(note.startMs), msToSamples(note.durationMs))
+                }
+            }
+
+            // 4. Percussion lane
+            for (note in arrangement.percussion.notes) {
+                val kind = if (note.freq >= 5000f) {
+                    ProceduralDrums.DrumKind.HAT
+                } else if (note.freq > 0f) {
+                    ProceduralDrums.DrumKind.SNARE
+                } else {
+                    continue
+                }
+                sequencer.noteDrumRaw(kind, msToSamples(note.startMs))
+            }
+
+            val maxDurationMs = listOf(
+                arrangement.lead.notes.maxOfOrNull { it.startMs + it.durationMs } ?: 0,
+                arrangement.harmony.notes.maxOfOrNull { it.startMs + it.durationMs } ?: 0,
+                arrangement.bass.notes.maxOfOrNull { it.startMs + it.durationMs } ?: 0,
+                arrangement.percussion.notes.maxOfOrNull { it.startMs + it.durationMs } ?: 0
+            ).maxOrNull()?.toLong() ?: 0L
+
+            if (maxDurationMs <= 0L) return@Runnable
+
+            sequencer.customLoopLength = msToSamples(maxDurationMs.toInt())
 
             val minBufferSize = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_FLOAT)
             val audioTrackBufferSize = maxOf(minBufferSize, chunkSize * 4 * 4)
@@ -297,92 +335,23 @@ object SoundPreviewPlayer {
             }
 
             val floatBuffer = FloatArray(chunkSize)
-
             var currentSampleOffset = 0L
-            val maxDurationSamples = (maxDurationMs * sampleRate) / 1000L
 
             try {
                 while (isStreaming) {
-                    floatBuffer.fill(0f)
-
-                    val chunkStartGlobal = currentSampleOffset
-                    val chunkEndGlobal = currentSampleOffset + chunkSize
-
-                    // If we have a non-looping limit in absolute playback terms
                     if (stopAfterMs > 0L) {
-                        val elapsedGlobalMs = (chunkStartGlobal * 1000L) / sampleRate
+                        val elapsedGlobalMs = (currentSampleOffset * 1000L) / sampleRate
                         if (elapsedGlobalMs >= stopAfterMs) {
                             break
                         }
                     } else if (!shouldLoop) {
-                        val elapsedGlobalMs = (chunkStartGlobal * 1000L) / sampleRate
+                        val elapsedGlobalMs = (currentSampleOffset * 1000L) / sampleRate
                         if (elapsedGlobalMs >= maxDurationMs) {
                             break
                         }
                     }
 
-                    // Pre-calculate which specs overlap with this chunk
-                    val activeSpecs = mutableListOf<ToneSpec>()
-
-                    if (shouldLoop) {
-                        val chunkStartMelody = chunkStartGlobal % maxDurationSamples
-                        val chunkEndMelody = chunkStartMelody + chunkSize
-
-                        if (chunkEndMelody <= maxDurationSamples) {
-                            val cS = chunkStartMelody
-                            val cE = chunkEndMelody
-                            for (spec in specs) {
-                                val specStart = (spec.startMs * sampleRate) / 1000L
-                                val specEnd = specStart + (spec.durationMs * sampleRate) / 1000L
-                                if (specStart < cE && specEnd > cS) {
-                                    activeSpecs.add(spec)
-                                }
-                            }
-                        } else {
-                            val cS1 = chunkStartMelody
-                            val cE1 = maxDurationSamples
-                            val cS2 = 0L
-                            val cE2 = chunkEndMelody % maxDurationSamples
-                            for (spec in specs) {
-                                val specStart = (spec.startMs * sampleRate) / 1000L
-                                val specEnd = specStart + (spec.durationMs * sampleRate) / 1000L
-                                val overlapsPortionA = specStart < cE1 && specEnd > cS1
-                                val overlapsPortionB = specStart < cE2 && specEnd > cS2
-                                if (overlapsPortionA || overlapsPortionB) {
-                                    activeSpecs.add(spec)
-                                }
-                            }
-                        }
-                    } else {
-                        val cS = chunkStartGlobal
-                        val cE = chunkEndGlobal
-                        for (spec in specs) {
-                            val specStart = (spec.startMs * sampleRate) / 1000L
-                            val specEnd = specStart + (spec.durationMs * sampleRate) / 1000L
-                            if (specStart < cE && specEnd > cS) {
-                                activeSpecs.add(spec)
-                            }
-                        }
-                    }
-
-                    // Render if we have active specs
-                    if (activeSpecs.isNotEmpty()) {
-                        com.example.timeboxvibe.engine.core.ChiptuneSynthesizer.renderChunk(
-                            specs = activeSpecs,
-                            shouldLoop = shouldLoop,
-                            chunkStartGlobal = chunkStartGlobal,
-                            chunkSize = chunkSize,
-                            sampleRate = sampleRate,
-                            maxDurationSamples = maxDurationSamples,
-                            floatBuffer = floatBuffer
-                        )
-                    }
-
-                    // Apply soft-clipping and write to AudioTrack
-                    for (i in 0 until chunkSize) {
-                        val mixed = floatBuffer[i] * 2.8f
-                        floatBuffer[i] = softClip(mixed).coerceIn(-1.0f, 1.0f)
-                    }
+                    synth.render(floatBuffer, chunkSize, sequencer, currentSampleOffset)
 
                     val written = audioTrack.write(floatBuffer, 0, chunkSize, AudioTrack.WRITE_BLOCKING)
                     if (written < 0) {

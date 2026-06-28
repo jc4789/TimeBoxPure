@@ -1,0 +1,12 @@
+package com.example.timeboxvibe.engine.audio.opna
+
+data class OperatorSpec(
+    val mul: Int,
+    val detune: Int,
+    val tl: Int,
+    val modulationIndex: Float = 0f,
+    val attack: Float = 0.002f,
+    val decay: Float = 0.06f,
+    val sustain: Float = 0.55f,
+    val release: Float = 0.04f
+)
