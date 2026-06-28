@@ -2,7 +2,6 @@ package com.example.timeboxvibe.engine.audio.opna
 
 import com.example.timeboxvibe.engine.audio.AudioLaws
 import com.example.timeboxvibe.engine.audio.midiToFreq
-import kotlin.math.abs
 
 class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     internal val mixer = OpnaMixer(sampleRate)
@@ -11,9 +10,15 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     val drums = ProceduralDrums()
     val lfo = Lfo(sampleRate)
 
+    var preClampPeak: Float = 0f
+
     private val fmActiveNoteId = IntArray(AudioLaws.FM_CHANNELS) { -1 }
     private val ssgActiveNoteId = IntArray(AudioLaws.SSG_CHANNELS) { -1 }
     private val tempMonoBuffer = FloatArray(sampleRate)
+
+    private var filterStateL: Float = 0f
+    private var filterStateR: Float = 0f
+    private val filterAlpha: Float = 0.15f
 
     fun noteOnSsg(channel: Int, midi: Int) {
         if (channel in ssg.indices) {
@@ -109,6 +114,8 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         }
         drums.reset()
         lfo.reset()
+        filterStateL = 0f
+        filterStateR = 0f
     }
 
     fun render(buffer: FloatArray, frames: Int) {
@@ -121,7 +128,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             offset += chunkFrames
             remaining -= chunkFrames
         }
-        softClipAndGain(buffer, frames)
+        applyGainAndClamp(buffer, frames)
     }
 
     fun render(buffer: FloatArray, frames: Int, sequencer: OpnaSequencer, currentSampleOffset: Long) {
@@ -139,7 +146,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             remaining -= chunkFrames
             sampleOffset += chunkFrames
         }
-        softClipAndGain(buffer, frames)
+        applyGainAndClamp(buffer, frames)
     }
 
     fun renderStereo(stereoBuffer: FloatArray, frames: Int) {
@@ -152,7 +159,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             offset += chunkFrames
             remaining -= chunkFrames
         }
-        softClipAndGainStereo(stereoBuffer, frames)
+        applyGainAndClampStereo(stereoBuffer, frames)
     }
 
     fun renderStereo(stereoBuffer: FloatArray, frames: Int, sequencer: OpnaSequencer, currentSampleOffset: Long) {
@@ -170,7 +177,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             remaining -= chunkFrames
             sampleOffset += chunkFrames
         }
-        softClipAndGainStereo(stereoBuffer, frames)
+        applyGainAndClampStereo(stereoBuffer, frames)
     }
 
     private fun renderSegment(buffer: FloatArray, startFrame: Int, frames: Int) {
@@ -297,6 +304,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                 SequencerEvent.SSG_ON -> {
                     val ch = nextEvent.channel
                     if (ch in ssg.indices) {
+                        ssg[ch].duty = nextEvent.duty
                         ssg[ch].noteOn(midiToFreq(nextEvent.midi))
                         ssg[ch].noteGain = nextEvent.velocity
                         ssgActiveNoteId[ch] = nextEvent.noteId
@@ -376,6 +384,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                 SequencerEvent.SSG_ON -> {
                     val ch = nextEvent.channel
                     if (ch in ssg.indices) {
+                        ssg[ch].duty = nextEvent.duty
                         ssg[ch].noteOn(midiToFreq(nextEvent.midi))
                         ssg[ch].noteGain = nextEvent.velocity
                         ssgActiveNoteId[ch] = nextEvent.noteId
@@ -397,25 +406,45 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         }
     }
 
-    private fun softClipAndGain(buffer: FloatArray, frames: Int) {
+    private fun applyGainAndClamp(buffer: FloatArray, frames: Int) {
         val outputGain = AudioLaws.OPNA_OUTPUT_GAIN * OpnaAudioConstants.MASTER_GAIN
+        var peak = 0f
         var i = 0
         while (i < frames) {
             val x = buffer[i] * outputGain
-            buffer[i] = (x / (1f + abs(x))).coerceIn(-1f, 1f)
+            val filtered = (1f - filterAlpha) * x + filterAlpha * filterStateL
+            filterStateL = filtered
+            val absX = if (filtered < 0f) -filtered else filtered
+            if (absX > peak) peak = absX
+            buffer[i] = filtered.coerceIn(-1f, 1f)
             i++
         }
+        preClampPeak = peak
     }
 
-    private fun softClipAndGainStereo(stereoBuffer: FloatArray, frames: Int) {
+    private fun applyGainAndClampStereo(stereoBuffer: FloatArray, frames: Int) {
         val outputGain = AudioLaws.OPNA_OUTPUT_GAIN * OpnaAudioConstants.MASTER_GAIN
         val totalSamples = frames * 2
+        var peak = 0f
         var i = 0
         while (i < totalSamples) {
             val x = stereoBuffer[i] * outputGain
-            stereoBuffer[i] = (x / (1f + abs(x))).coerceIn(-1f, 1f)
+            val isLeft = (i % 2) == 0
+            val filtered = if (isLeft) {
+                val f = (1f - filterAlpha) * x + filterAlpha * filterStateL
+                filterStateL = f
+                f
+            } else {
+                val f = (1f - filterAlpha) * x + filterAlpha * filterStateR
+                filterStateR = f
+                f
+            }
+            val absX = if (filtered < 0f) -filtered else filtered
+            if (absX > peak) peak = absX
+            stereoBuffer[i] = filtered.coerceIn(-1f, 1f)
             i++
         }
+        preClampPeak = peak
     }
 
     companion object {

@@ -54,4 +54,32 @@ class OpnaStereoTest {
         assertTrue(rightSum > 10.0f, "Right channel should have active output signal ($rightSum)")
         assertTrue(leftSum < 0.001f, "Left channel should be silent ($leftSum) for hard right pan")
     }
+
+    @Test
+    fun testCenterPanBothChannelsEqual() {
+        val sampleRate = 44100
+        val synth = OpnaLikeSynthesizer(sampleRate)
+
+        val centerPanPatch = Patches.ZunLead1.copy(pan = 0)
+        synth.fm[0].applyPatch(centerPanPatch)
+        synth.fm[0].noteOn(69)
+
+        val stereoBuffer = FloatArray(4096 * 2)
+        synth.renderStereo(stereoBuffer, 4096)
+
+        var leftSum = 0f
+        var rightSum = 0f
+        var i = 0
+        while (i < 4096) {
+            leftSum += abs(stereoBuffer[i * 2])
+            rightSum += abs(stereoBuffer[i * 2 + 1])
+            i++
+        }
+
+        assertTrue(leftSum > 10.0f, "Left channel should have active output signal ($leftSum)")
+        assertTrue(rightSum > 10.0f, "Right channel should have active output signal ($rightSum)")
+
+        val ratio = if (leftSum > rightSum) leftSum / rightSum else rightSum / leftSum
+        assertTrue(ratio < 1.1f, "Center pan should produce equal signal on both channels, ratio=$ratio")
+    }
 }

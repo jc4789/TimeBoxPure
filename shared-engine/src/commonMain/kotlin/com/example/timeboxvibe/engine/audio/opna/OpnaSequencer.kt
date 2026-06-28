@@ -19,6 +19,7 @@ internal class SequencerEvent {
     var decay: Float = -1f
     var sustain: Float = -1f
     var release: Float = -1f
+    var duty: Float = 0.5f
 }
 
 class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 4) {
@@ -109,6 +110,17 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
         durationSamples: Long,
         velocity: Float
     ) {
+        noteSsgRaw(channel, midi, startSample, durationSamples, velocity, 0.5f)
+    }
+
+    fun noteSsgRaw(
+        channel: Int,
+        midi: Int,
+        startSample: Long,
+        durationSamples: Long,
+        velocity: Float,
+        duty: Float
+    ) {
         if (eventCount + 2 > MAX_EVENTS) return
         val noteId = nextNoteId()
         isSorted = false
@@ -125,6 +137,7 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
         onEv.decay = -1f
         onEv.sustain = -1f
         onEv.release = -1f
+        onEv.duty = duty
 
         // 2. SSG_OFF Event
         val offEv = events[eventCount++]
@@ -138,6 +151,7 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
         offEv.decay = -1f
         offEv.sustain = -1f
         offEv.release = -1f
+        offEv.duty = duty
     }
 
     fun noteDrum(kind: ProceduralDrums.DrumKind, atBeat: Float) {

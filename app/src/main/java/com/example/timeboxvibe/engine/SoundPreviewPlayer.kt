@@ -18,6 +18,8 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 object SoundPreviewPlayer {
+    private const val GATE_RATIO = 0.85f
+
     @Volatile
     private var isStreaming = false
     private var streamThread: Thread? = null
@@ -232,7 +234,7 @@ object SoundPreviewPlayer {
             val bassGain = OpnaAudioConstants.LANE_GAIN_BASS
             val percussionGain = OpnaAudioConstants.LANE_GAIN_PERCUSSION
 
-            // 1. Lead lane
+            // 1. Lead lane - monophonic on single channel
             val leadTimbre = arrangement.lead.timbre
             val leadPatch = when (leadTimbre) {
                 TimbreRef.FM_LEAD_ZUN1 -> Patches.ZunLead1
@@ -240,36 +242,34 @@ object SoundPreviewPlayer {
                 TimbreRef.FM_PAD_ZUN1 -> Patches.ZunPad1
                 else -> null
             }
-            val leadChannels = intArrayOf(0, 2, 3, 4)
-            var leadChanIdx = 0
+            val leadChannel = 0
             if (leadPatch != null) {
-                for (ch in leadChannels) {
-                    synth.fm[ch].applyPatch(leadPatch)
-                }
+                synth.fm[leadChannel].applyPatch(leadPatch)
                 for (note in arrangement.lead.notes) {
                     if (note.freq <= 10f) continue
                     val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
                     val velocity = note.volume * leadGain
                     val (a, d, s, r) = adsrFromNote(note)
-                    val activeCh = leadChannels[leadChanIdx]
+                    val gateSamples = msToSamples((note.durationMs * GATE_RATIO).toInt())
                     sequencer.noteFmRaw(
-                        activeCh, midi,
+                        leadChannel, midi,
                         msToSamples(note.startMs),
-                        msToSamples(note.durationMs),
+                        gateSamples,
                         velocity, a, d, s, r
                     )
-                    leadChanIdx = (leadChanIdx + 1) % leadChannels.size
                 }
             } else {
                 for (note in arrangement.lead.notes) {
                     if (note.freq <= 10f) continue
                     val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
-                    synth.ssg[0].duty = parseDutyCycle(note.type)
+                    val duty = parseDutyCycle(note.type)
+                    val gateSamples = msToSamples((note.durationMs * GATE_RATIO).toInt())
                     sequencer.noteSsgRaw(
                         0, midi,
                         msToSamples(note.startMs),
-                        msToSamples(note.durationMs),
-                        note.volume * leadGain
+                        gateSamples,
+                        note.volume * leadGain,
+                        duty
                     )
                 }
             }
@@ -278,47 +278,47 @@ object SoundPreviewPlayer {
             for (note in arrangement.harmony.notes) {
                 if (note.freq <= 10f) continue
                 val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
-                synth.ssg[1].duty = parseDutyCycle(note.type)
+                val duty = parseDutyCycle(note.type)
+                val gateSamples = msToSamples((note.durationMs * GATE_RATIO).toInt())
                 sequencer.noteSsgRaw(
                     1, midi,
                     msToSamples(note.startMs),
-                    msToSamples(note.durationMs),
-                    note.volume * harmonyGain
+                    gateSamples,
+                    note.volume * harmonyGain,
+                    duty
                 )
             }
 
-            // 3. Bass lane
+            // 3. Bass lane - monophonic on single channel
             val bassTimbre = arrangement.bass.timbre
-            val bassChannels = intArrayOf(1, 5)
-            var bassChanIdx = 0
+            val bassChannel = 1
             if (bassTimbre == TimbreRef.FM_BASS_ZUN1) {
-                for (ch in bassChannels) {
-                    synth.fm[ch].applyPatch(Patches.ZunBass1)
-                }
+                synth.fm[bassChannel].applyPatch(Patches.ZunBass1)
                 for (note in arrangement.bass.notes) {
                     if (note.freq <= 10f) continue
                     val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
                     val velocity = note.volume * bassGain
                     val (a, d, s, r) = adsrFromNote(note)
-                    val activeCh = bassChannels[bassChanIdx]
+                    val gateSamples = msToSamples((note.durationMs * GATE_RATIO).toInt())
                     sequencer.noteFmRaw(
-                        activeCh, midi,
+                        bassChannel, midi,
                         msToSamples(note.startMs),
-                        msToSamples(note.durationMs),
+                        gateSamples,
                         velocity, a, d, s, r
                     )
-                    bassChanIdx = (bassChanIdx + 1) % bassChannels.size
                 }
             } else if (bassTimbre == TimbreRef.SSG_BASS_SQUARE) {
                 for (note in arrangement.bass.notes) {
                     if (note.freq <= 10f) continue
                     val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
-                    synth.ssg[2].duty = parseDutyCycle(note.type)
+                    val duty = parseDutyCycle(note.type)
+                    val gateSamples = msToSamples((note.durationMs * GATE_RATIO).toInt())
                     sequencer.noteSsgRaw(
                         2, midi,
                         msToSamples(note.startMs),
-                        msToSamples(note.durationMs),
-                        note.volume * bassGain
+                        gateSamples,
+                        note.volume * bassGain,
+                        duty
                     )
                 }
             }
@@ -422,6 +422,7 @@ object SoundPreviewPlayer {
                         renderOffset = currentSampleOffset % songLenSamples
                         if (renderOffset < lastWrappedOffset) {
                             sequencer.nextEventIdx = 0
+                            synth.allNotesOff()
                         }
                         lastWrappedOffset = renderOffset
                     }
