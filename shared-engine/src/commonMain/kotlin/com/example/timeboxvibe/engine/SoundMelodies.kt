@@ -38,21 +38,42 @@ object SoundMelodies {
     fun getMelody(key: String, volume: Float, isBass: Boolean): List<ToneSpec> {
         return when (key) {
             "synth-chime" -> {
+                val e = 333
+                val q = 667
                 if (isBass) {
-                    listOf(ToneSpec(233f, 0, 800, 0.25f * volume, "triangle"))
+                    listOf(
+                        ToneSpec(116f, 0, q, 0.5f * volume, "pulse12", true, 5, 20, 0.3f, 30),
+                        ToneSpec(116f, q, q, 0.5f * volume, "pulse12", true, 5, 20, 0.3f, 30),
+                        ToneSpec(174f, 2*q, q, 0.5f * volume, "pulse12", true, 5, 20, 0.3f, 30)
+                    )
                 } else {
-                    listOf(ToneSpec(466f, 0, 800, 0.22f * volume, "square"))
+                    listOf(
+                        ToneSpec(466f, 0, e, 0.7f * volume, "pulse25", true, 5, 30, 0.3f, 50),
+                        ToneSpec(554f, e, e, 0.7f * volume, "pulse25", true, 5, 30, 0.3f, 50),
+                        ToneSpec(698f, 2*e, q, 0.7f * volume, "pulse25", true, 5, 30, 0.3f, 50),
+                        ToneSpec(554f, 2*e+q, e, 0.7f * volume, "pulse25", true, 5, 30, 0.3f, 50),
+                        ToneSpec(466f, 2*e+q+e, e, 0.7f * volume, "pulse25", true, 5, 30, 0.3f, 50),
+                        ToneSpec(349f, 2*e+q+2*e, q, 0.7f * volume, "pulse25", true, 5, 30, 0.3f, 50)
+                    )
                 }
             }
             "synth-victory" -> {
+                val e = 250
+                val q = 500
+                val h = 1000
                 if (isBass) {
-                    emptyList()
+                    listOf(
+                        ToneSpec(130f, 0, q, 0.5f * volume, "pulse12", true, 5, 20, 0.5f, 30),
+                        ToneSpec(130f, q, q, 0.5f * volume, "pulse12", true, 5, 20, 0.5f, 30),
+                        ToneSpec(196f, 2*q, q, 0.5f * volume, "pulse12", true, 5, 20, 0.5f, 30),
+                        ToneSpec(261f, 2*q+q, q, 0.5f * volume, "pulse12", true, 5, 20, 0.5f, 30)
+                    )
                 } else {
                     listOf(
-                        ToneSpec(523.25f, 0, 1800, 0.15f * volume, "square"),
-                        ToneSpec(659.25f, 120, 1800, 0.15f * volume, "square"),
-                        ToneSpec(783.99f, 240, 1800, 0.15f * volume, "square"),
-                        ToneSpec(1046.5f, 360, 1800, 0.15f * volume, "square")
+                        ToneSpec(523f, 0, e, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 50),
+                        ToneSpec(659f, e, e, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 50),
+                        ToneSpec(784f, 2*e, q, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 50),
+                        ToneSpec(1046f, 2*e+q, h, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 100)
                     )
                 }
             }
@@ -69,29 +90,56 @@ object SoundMelodies {
     fun getArrangement(key: String, volume: Float = 1f): ArrangementLanes? {
         return when (key) {
             "synth-chime" -> {
+                val e = 333
+                val q = 667
                 ArrangementLanes(
-                    lead = Lane(listOf(ToneSpec(466f, 0, 800, 0.7f * volume, "square")), TimbreRef.SSG_HARMONY_SQUARE),
+                    lead = Lane(listOf(
+                        ToneSpec(466f, 0, e, 0.7f * volume, "pulse25", true, 5, 30, 0.3f, 50),
+                        ToneSpec(554f, e, e, 0.7f * volume, "pulse25", true, 5, 30, 0.3f, 50),
+                        ToneSpec(698f, 2*e, q, 0.7f * volume, "pulse25", true, 5, 30, 0.3f, 50),
+                        ToneSpec(554f, 2*e+q, e, 0.7f * volume, "pulse25", true, 5, 30, 0.3f, 50),
+                        ToneSpec(466f, 2*e+q+e, e, 0.7f * volume, "pulse25", true, 5, 30, 0.3f, 50),
+                        ToneSpec(349f, 2*e+q+2*e, q, 0.7f * volume, "pulse25", true, 5, 30, 0.3f, 50)
+                    ), TimbreRef.FM_BELL_ZUN1),
                     harmony = Lane(emptyList(), TimbreRef.SSG_HARMONY_SQUARE),
-                    bass = Lane(listOf(ToneSpec(233f, 0, 800, 0.5f * volume, "triangle")), TimbreRef.SSG_BASS_SQUARE),
-                    percussion = Lane(emptyList(), TimbreRef.DRUM_HAT),
+                    bass = Lane(listOf(
+                        ToneSpec(116f, 0, q, 0.5f * volume, "pulse12", true, 5, 20, 0.3f, 30),
+                        ToneSpec(116f, q, q, 0.5f * volume, "pulse12", true, 5, 20, 0.3f, 30),
+                        ToneSpec(174f, 2*q, q, 0.5f * volume, "pulse12", true, 5, 20, 0.3f, 30)
+                    ), TimbreRef.FM_BASS_ZUN1),
+                    percussion = Lane(listOf(
+                        ToneSpec(8000f, q, e, 0.3f * volume, "hat", false),
+                        ToneSpec(8000f, 2*q+q, e, 0.3f * volume, "hat", false)
+                    ), TimbreRef.DRUM_HAT),
                     tempoBpm = 90f,
                     keyRootMidi = 70
                 )
             }
             "synth-victory" -> {
+                val e = 250
+                val q = 500
+                val h = 1000
                 ArrangementLanes(
                     lead = Lane(
                         listOf(
-                            ToneSpec(523.25f, 0, 1800, 0.5f * volume, "square"),
-                            ToneSpec(659.25f, 120, 1800, 0.5f * volume, "square"),
-                            ToneSpec(783.99f, 240, 1800, 0.5f * volume, "square"),
-                            ToneSpec(1046.5f, 360, 1800, 0.5f * volume, "square")
+                            ToneSpec(523f, 0, e, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 50),
+                            ToneSpec(659f, e, e, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 50),
+                            ToneSpec(784f, 2*e, q, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 50),
+                            ToneSpec(1046f, 2*e+q, h, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 100)
                         ),
                         TimbreRef.FM_LEAD_ZUN1
                     ),
                     harmony = Lane(emptyList(), TimbreRef.SSG_HARMONY_SQUARE),
-                    bass = Lane(emptyList(), TimbreRef.FM_BASS_ZUN1),
-                    percussion = Lane(emptyList(), TimbreRef.DRUM_HAT),
+                    bass = Lane(listOf(
+                        ToneSpec(130f, 0, q, 0.5f * volume, "pulse12", true, 5, 20, 0.5f, 30),
+                        ToneSpec(130f, q, q, 0.5f * volume, "pulse12", true, 5, 20, 0.5f, 30),
+                        ToneSpec(196f, 2*q, q, 0.5f * volume, "pulse12", true, 5, 20, 0.5f, 30),
+                        ToneSpec(261f, 2*q+q, q, 0.5f * volume, "pulse12", true, 5, 20, 0.5f, 30)
+                    ), TimbreRef.FM_BASS_ZUN1),
+                    percussion = Lane(listOf(
+                        ToneSpec(-1f, 0, q, 0.5f * volume, "kick", false),
+                        ToneSpec(3000f, 2*q, q, 0.4f * volume, "snare", false)
+                    ), TimbreRef.DRUM_HAT),
                     tempoBpm = 120f,
                     keyRootMidi = 60
                 )
@@ -240,8 +288,8 @@ object SoundMelodies {
         while (bar < bars) {
             val base = bar * 8
             result.add(base + 0)
-            result.add(base + 2)
-            result.add(base + 7)
+            result.add(base + 4)
+            if (bar % 4 == 3) result.add(base + 7)
             bar++
         }
         return result
@@ -253,7 +301,7 @@ object SoundMelodies {
         while (bar < bars) {
             val base = bar * 8
             result.add(base + 0)
-            result.add(base + 2)
+            result.add(base + 4)
             bar++
         }
         return result
@@ -716,110 +764,65 @@ object SoundMelodies {
     }
 
     private fun buildBallsBMelodyLead(vol: Float): Lane {
-        val phraseA = mutableListOf<Pair<Float, Int>>()
-        phraseA.add(C5 to BA_LLS_EIGHTH_MS)
-        phraseA.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(Ab4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(G4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(Ab4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(C5 to BA_LLS_EIGHTH_MS)
-        phraseA.add(D5 to BA_LLS_EIGHTH_MS)
-        phraseA.add(Eb5 to BA_LLS_EIGHTH_MS)
-        phraseA.add(D5 to BA_LLS_EIGHTH_MS)
-        phraseA.add(C5 to BA_LLS_EIGHTH_MS)
-        phraseA.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(Ab4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(G4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(F4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(G4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(F4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(Eb4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(D4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(C4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(D4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(Eb4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(F4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(G4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(Eb4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(G4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(G4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(Eb4 to BA_LLS_EIGHTH_MS)
-        phraseA.add(Bb3 to BA_LLS_EIGHTH_MS)
-        val phraseAv = mutableListOf<Pair<Float, Int>>()
-        phraseAv.add(C5 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(Ab4 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(G4 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(Ab4 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(C5 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(D5 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(Eb5 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(D5 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(C5 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(C5 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(D5 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(Eb5 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(G4 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(D4 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(F4 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(G4 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(D4 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(Bb3 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(G4 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(Eb4 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(G4 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(Ab4 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(Gb4 to BA_LLS_EIGHTH_MS)
-        phraseAv.add(F4 to BA_LLS_EIGHTH_MS)
-        val phraseB = mutableListOf<Pair<Float, Int>>()
-        phraseB.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phraseB.add(C5 to BA_LLS_EIGHTH_MS)
-        phraseB.add(D5 to BA_LLS_EIGHTH_MS)
-        phraseB.add(Eb5 to BA_LLS_EIGHTH_MS)
-        phraseB.add(F5 to BA_LLS_EIGHTH_MS)
-        phraseB.add(Eb5 to BA_LLS_EIGHTH_MS)
-        phraseB.add(D5 to BA_LLS_EIGHTH_MS)
-        phraseB.add(C5 to BA_LLS_EIGHTH_MS)
-        phraseB.add(D5 to BA_LLS_EIGHTH_MS)
-        phraseB.add(C5 to BA_LLS_EIGHTH_MS)
-        phraseB.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phraseB.add(Ab4 to BA_LLS_EIGHTH_MS)
-        phraseB.add(G4 to BA_LLS_EIGHTH_MS)
-        phraseB.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phraseB.add(Db5 to BA_LLS_EIGHTH_MS)
-        phraseB.add(F5 to BA_LLS_EIGHTH_MS)
-        phraseB.add(Eb5 to BA_LLS_EIGHTH_MS)
-        phraseB.add(Db5 to BA_LLS_EIGHTH_MS)
-        phraseB.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phraseB.add(G4 to BA_LLS_EIGHTH_MS)
-        phraseB.add(G4 to BA_LLS_EIGHTH_MS)
-        phraseB.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phraseB.add(Eb4 to BA_LLS_EIGHTH_MS)
-        phraseB.add(Bb3 to BA_LLS_EIGHTH_MS)
-        phraseB.add(G4 to BA_LLS_EIGHTH_MS)
-        phraseB.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phraseB.add(Eb4 to BA_LLS_EIGHTH_MS)
-        phraseB.add(Bb3 to BA_LLS_EIGHTH_MS)
-        phraseB.add(Eb4 to BA_LLS_EIGHTH_MS)
-        phraseB.add(Bb3 to BA_LLS_EIGHTH_MS)
-        phraseB.add(G3 to BA_LLS_EIGHTH_MS)
-        phraseB.add(Bb3 to BA_LLS_EIGHTH_MS)
-        val notes = phraseA + phraseAv + phraseB
+        val phrase1 = mutableListOf<Pair<Float, Int>>()
+        phrase1.add(Eb4 to BA_LLS_QUARTER_MS)
+        phrase1.add(Gb4 to BA_LLS_QUARTER_MS)
+        phrase1.add(Bb4 to BA_LLS_QUARTER_MS)
+        phrase1.add(C5 to BA_LLS_QUARTER_MS)
+        phrase1.add(D5 to BA_LLS_QUARTER_MS)
+        phrase1.add(C5 to BA_LLS_QUARTER_MS)
+        phrase1.add(Bb4 to BA_LLS_QUARTER_MS)
+        phrase1.add(Ab4 to BA_LLS_QUARTER_MS)
+        phrase1.add(G4 to BA_LLS_QUARTER_MS)
+        phrase1.add(Bb4 to BA_LLS_QUARTER_MS)
+        phrase1.add(Eb5 to BA_LLS_QUARTER_MS)
+        phrase1.add(D5 to BA_LLS_QUARTER_MS)
+        phrase1.add(C5 to BA_LLS_QUARTER_MS)
+        phrase1.add(Bb4 to BA_LLS_QUARTER_MS)
+        phrase1.add(Ab4 to BA_LLS_QUARTER_MS)
+        phrase1.add(G4 to BA_LLS_QUARTER_MS)
+
+        val phrase2 = mutableListOf<Pair<Float, Int>>()
+        phrase2.add(Eb4 to BA_LLS_QUARTER_MS)
+        phrase2.add(Gb4 to BA_LLS_QUARTER_MS)
+        phrase2.add(Bb4 to BA_LLS_QUARTER_MS)
+        phrase2.add(C5 to BA_LLS_QUARTER_MS)
+        phrase2.add(D5 to BA_LLS_QUARTER_MS)
+        phrase2.add(C5 to BA_LLS_QUARTER_MS)
+        phrase2.add(Bb4 to BA_LLS_QUARTER_MS)
+        phrase2.add(Ab4 to BA_LLS_QUARTER_MS)
+        phrase2.add(G4 to BA_LLS_QUARTER_MS)
+        phrase2.add(Bb4 to BA_LLS_QUARTER_MS)
+        phrase2.add(D5 to BA_LLS_QUARTER_MS)
+        phrase2.add(C5 to BA_LLS_QUARTER_MS)
+        phrase2.add(Bb4 to BA_LLS_QUARTER_MS)
+        phrase2.add(Ab4 to BA_LLS_QUARTER_MS)
+        phrase2.add(G4 to BA_LLS_QUARTER_MS)
+        phrase2.add(F4 to BA_LLS_QUARTER_MS)
+
+        val phrase3 = mutableListOf<Pair<Float, Int>>()
+        phrase3.add(D5 to BA_LLS_QUARTER_MS)
+        phrase3.add(C5 to BA_LLS_QUARTER_MS)
+        phrase3.add(Bb4 to BA_LLS_QUARTER_MS)
+        phrase3.add(Ab4 to BA_LLS_QUARTER_MS)
+        phrase3.add(G4 to BA_LLS_QUARTER_MS)
+        phrase3.add(Ab4 to BA_LLS_QUARTER_MS)
+        phrase3.add(C5 to BA_LLS_QUARTER_MS)
+        phrase3.add(Db5 to BA_LLS_QUARTER_MS)
+        phrase3.add(D5 to BA_LLS_QUARTER_MS)
+        phrase3.add(F5 to BA_LLS_QUARTER_MS)
+        phrase3.add(Db5 to BA_LLS_QUARTER_MS)
+        phrase3.add(Bb4 to BA_LLS_QUARTER_MS)
+        phrase3.add(G4 to BA_LLS_QUARTER_MS)
+        phrase3.add(Bb4 to BA_LLS_QUARTER_MS)
+        phrase3.add(Eb5 to BA_LLS_QUARTER_MS)
+        phrase3.add(G4 to BA_LLS_QUARTER_MS)
+
+        val notes = phrase1 + phrase2 + phrase3
         return Lane(
             buildChannel(notes, 0.7f * vol, "pulse25",
-                attackMs = 8, decayMs = 40, sustainLevel = 0.75f, releaseMs = 60),
-            TimbreRef.FM_BELL_ZUN1
+                attackMs = 12, decayMs = 60, sustainLevel = 0.75f, releaseMs = 80),
+            TimbreRef.FM_LEAD_ZUN1
         )
     }
 
@@ -905,22 +908,21 @@ object SoundMelodies {
 
     private fun buildBallsChorusLead(vol: Float): Lane {
         val phrase2bar = mutableListOf<Pair<Float, Int>>()
-        phrase2bar.add(D5 to BA_LLS_EIGHTH_MS)
-        phrase2bar.add(D5 to BA_LLS_EIGHTH_MS)
+        phrase2bar.add(Eb5 to BA_LLS_EIGHTH_MS)
+        phrase2bar.add(F5 to BA_LLS_EIGHTH_MS)
+        phrase2bar.add(Eb5 to BA_LLS_EIGHTH_MS)
+        phrase2bar.add(Db5 to BA_LLS_EIGHTH_MS)
         phrase2bar.add(C5 to BA_LLS_EIGHTH_MS)
         phrase2bar.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phrase2bar.add(A4 to BA_LLS_EIGHTH_MS)
-        phrase2bar.add(G4 to BA_LLS_EIGHTH_MS)
-        phrase2bar.add(A4 to BA_LLS_EIGHTH_MS)
-        phrase2bar.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phrase2bar.add(G4 to BA_LLS_EIGHTH_MS)
-        phrase2bar.add(Bb4 to BA_LLS_EIGHTH_MS)
-        phrase2bar.add(D4 to BA_LLS_EIGHTH_MS)
-        phrase2bar.add(G4 to BA_LLS_EIGHTH_MS)
-        phrase2bar.add(F4 to BA_LLS_EIGHTH_MS)
-        phrase2bar.add(A4 to BA_LLS_EIGHTH_MS)
         phrase2bar.add(C5 to BA_LLS_EIGHTH_MS)
-        phrase2bar.add(F4 to BA_LLS_EIGHTH_MS)
+        phrase2bar.add(G4 to BA_LLS_EIGHTH_MS)
+        phrase2bar.add(Bb4 to BA_LLS_EIGHTH_MS)
+        phrase2bar.add(D5 to BA_LLS_EIGHTH_MS)
+        phrase2bar.add(G5 to BA_LLS_EIGHTH_MS)
+        phrase2bar.add(F5 to BA_LLS_EIGHTH_MS)
+        phrase2bar.add(Eb5 to BA_LLS_QUARTER_MS)
+        phrase2bar.add(C5 to BA_LLS_QUARTER_MS)
+
         val phrase2barV = mutableListOf<Pair<Float, Int>>()
         phrase2barV.add(D5 to BA_LLS_EIGHTH_MS)
         phrase2barV.add(Eb5 to BA_LLS_EIGHTH_MS)
@@ -933,24 +935,21 @@ object SoundMelodies {
         phrase2barV.add(G4 to BA_LLS_EIGHTH_MS)
         phrase2barV.add(Bb4 to BA_LLS_EIGHTH_MS)
         phrase2barV.add(D5 to BA_LLS_EIGHTH_MS)
-        phrase2barV.add(G4 to BA_LLS_EIGHTH_MS)
-        phrase2barV.add(F4 to BA_LLS_EIGHTH_MS)
-        phrase2barV.add(A4 to BA_LLS_EIGHTH_MS)
-        phrase2barV.add(C5 to BA_LLS_EIGHTH_MS)
-        phrase2barV.add(F4 to BA_LLS_EIGHTH_MS)
+        phrase2barV.add(G5 to BA_LLS_EIGHTH_MS)
+        phrase2barV.add(F5 to BA_LLS_QUARTER_MS)
+        phrase2barV.add(D5 to BA_LLS_QUARTER_MS)
+
         val notes = phrase2bar + phrase2barV + phrase2bar + phrase2barV +
                     phrase2bar + phrase2barV + phrase2bar
         val final = mutableListOf<Pair<Float, Int>>()
-        final.add(Bb4 to BA_LLS_EIGHTH_MS)
-        final.add(A4 to BA_LLS_EIGHTH_MS)
-        final.add(G4 to BA_LLS_EIGHTH_MS)
-        final.add(F4 to BA_LLS_EIGHTH_MS)
-        final.add(Eb4 to BA_LLS_EIGHTH_MS)
-        final.add(G4 to BA_LLS_QUARTER_MS * 2)
+        final.add(Bb4 to BA_LLS_QUARTER_MS)
+        final.add(D5 to BA_LLS_QUARTER_MS)
+        final.add(C5 to BA_LLS_QUARTER_MS)
+        final.add(D5 to BA_LLS_HALF_MS)
         return Lane(
             buildChannel(notes + final, 0.7f * vol, "pulse25",
-                attackMs = 8, decayMs = 35, sustainLevel = 0.75f, releaseMs = 70),
-            TimbreRef.FM_BELL_ZUN1
+                attackMs = 6, decayMs = 30, sustainLevel = 0.75f, releaseMs = 80),
+            TimbreRef.FM_LEAD_ZUN1
         )
     }
 
@@ -1045,22 +1044,24 @@ object SoundMelodies {
         val aMs = aBars * BA_LLS_WHOLE_MS
         val bMs = bBars * BA_LLS_WHOLE_MS
 
-        val introOffset = 0
+        val ncBars = 2
+        val ncOffset = 0L
+        val ebIntroOffset = ncBars * BA_LLS_WHOLE_MS
         val aOffset = introMs
         val bOffset = introMs + aMs
         val chorusOffset = introMs + aMs + bMs
 
-        val introLead = offsetNotes(buildBallsIntro(vol).notes, introOffset)
+        val introLead = offsetNotes(buildBallsIntro(vol).notes, ebIntroOffset)
         val aLead = offsetNotes(buildBallsAMelodyLead(vol).notes, aOffset)
         val bLead = offsetNotes(buildBallsBMelodyLead(vol).notes, bOffset)
         val chorusLead = offsetNotes(buildBallsChorusLead(vol).notes, chorusOffset)
 
-        val introHarmony = offsetNotes(emptyList<ToneSpec>(), introOffset)
+        val introHarmony = offsetNotes(emptyList<ToneSpec>(), ebIntroOffset)
         val aHarmony = offsetNotes(buildBallsAMelodyHarmony(vol).notes, aOffset)
         val bHarmony = offsetNotes(buildBallsBMelodyHarmony(vol).notes, bOffset)
         val chorusHarmony = offsetNotes(buildBallsChorusHarmony(vol).notes, chorusOffset)
 
-        val introBass = offsetNotes(buildBallsIntroBass(vol).notes, introOffset)
+        val introBass = offsetNotes(buildBallsIntroBass(vol).notes, ebIntroOffset)
         val aBass = offsetNotes(buildBallsAMelodyBass(vol).notes, aOffset)
         val bBass = offsetNotes(buildBallsBMelodyBass(vol).notes, bOffset)
         val chorusBass = offsetNotes(buildBallsChorusBass(vol).notes, chorusOffset)

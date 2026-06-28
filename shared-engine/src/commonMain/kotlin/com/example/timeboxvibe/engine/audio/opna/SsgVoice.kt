@@ -1,6 +1,6 @@
 package com.example.timeboxvibe.engine.audio.opna
 
-internal class SsgVoice(channelIndex: Int = 0) {
+class SsgVoice(channelIndex: Int = 0) {
     var enabled: Boolean = false
     var frequency: Float = 0f
     var duty: Float = 0.5f

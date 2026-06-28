@@ -1,32 +1,43 @@
 package com.example.timeboxvibe.engine.audio.opna
 
-class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 4) {
+internal class SequencerEvent {
     companion object {
-        const val MAX_EVENTS_PER_CHANNEL = 1024
+        const val FM_ON = 0
+        const val FM_OFF = 1
+        const val SSG_ON = 2
+        const val SSG_OFF = 3
+        const val DRUM = 4
     }
 
-    internal val fmChannelIdx    = IntArray(MAX_EVENTS_PER_CHANNEL)
-    internal val fmMidi          = IntArray(MAX_EVENTS_PER_CHANNEL)
-    internal val fmStartSample   = LongArray(MAX_EVENTS_PER_CHANNEL)
-    internal val fmDurationSamp  = LongArray(MAX_EVENTS_PER_CHANNEL)
-    internal val fmVelocity      = FloatArray(MAX_EVENTS_PER_CHANNEL)
-    internal val fmAttack        = FloatArray(MAX_EVENTS_PER_CHANNEL)
-    internal val fmDecay         = FloatArray(MAX_EVENTS_PER_CHANNEL)
-    internal val fmSustain       = FloatArray(MAX_EVENTS_PER_CHANNEL)
-    internal val fmRelease       = FloatArray(MAX_EVENTS_PER_CHANNEL)
-    internal var fmEventCount    = 0
+    var type: Int = 0
+    var sampleTime: Long = 0L
+    var channel: Int = 0
+    var midi: Int = 0
+    var velocity: Float = 0f
+    var noteId: Int = 0
+    var attack: Float = -1f
+    var decay: Float = -1f
+    var sustain: Float = -1f
+    var release: Float = -1f
+}
 
-    internal val ssgChannelIdx   = IntArray(MAX_EVENTS_PER_CHANNEL)
-    internal val ssgMidi         = IntArray(MAX_EVENTS_PER_CHANNEL)
-    internal val ssgStartSample  = LongArray(MAX_EVENTS_PER_CHANNEL)
-    internal val ssgDurSamp      = LongArray(MAX_EVENTS_PER_CHANNEL)
-    internal val ssgVelocity     = FloatArray(MAX_EVENTS_PER_CHANNEL)
-    internal var ssgEventCount   = 0
+class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 4) {
+    companion object {
+        const val MAX_EVENTS = 4096
+    }
 
-    internal val drumKind        = IntArray(MAX_EVENTS_PER_CHANNEL)
-    internal val drumStartSample = LongArray(MAX_EVENTS_PER_CHANNEL)
-    internal val drumVelocity    = FloatArray(MAX_EVENTS_PER_CHANNEL)
-    internal var drumEventCount  = 0
+    internal val events = Array(MAX_EVENTS) { SequencerEvent() }
+    internal var eventCount = 0
+    var nextEventIdx = 0
+    var isSorted = false
+
+    private var noteIdCounter = 1
+
+    private fun nextNoteId(): Int {
+        val id = noteIdCounter
+        noteIdCounter = if (noteIdCounter == Int.MAX_VALUE) 1 else noteIdCounter + 1
+        return id
+    }
 
     var customLoopLength: Long = 0L
 
@@ -52,18 +63,35 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
         sustain: Float?,
         release: Float?
     ) {
-        val idx = fmEventCount
-        if (idx >= MAX_EVENTS_PER_CHANNEL) return
-        fmChannelIdx[idx]    = channel
-        fmMidi[idx]          = midi
-        fmStartSample[idx]   = startSample
-        fmDurationSamp[idx]  = durationSamples
-        fmVelocity[idx]      = velocity
-        fmAttack[idx]        = attack ?: 0f
-        fmDecay[idx]         = decay ?: 0f
-        fmSustain[idx]       = sustain ?: 0f
-        fmRelease[idx]       = release ?: 0f
-        fmEventCount = idx + 1
+        if (eventCount + 2 > MAX_EVENTS) return
+        val noteId = nextNoteId()
+        isSorted = false
+
+        // 1. FM_ON Event
+        val onEv = events[eventCount++]
+        onEv.type = SequencerEvent.FM_ON
+        onEv.sampleTime = startSample
+        onEv.channel = channel
+        onEv.midi = midi
+        onEv.velocity = velocity
+        onEv.noteId = noteId
+        onEv.attack = attack ?: -1f
+        onEv.decay = decay ?: -1f
+        onEv.sustain = sustain ?: -1f
+        onEv.release = release ?: -1f
+
+        // 2. FM_OFF Event
+        val offEv = events[eventCount++]
+        offEv.type = SequencerEvent.FM_OFF
+        offEv.sampleTime = startSample + durationSamples
+        offEv.channel = channel
+        offEv.midi = midi
+        offEv.velocity = 0f
+        offEv.noteId = noteId
+        offEv.attack = -1f
+        offEv.decay = -1f
+        offEv.sustain = -1f
+        offEv.release = -1f
     }
 
     fun noteSsg(channel: Int, midi: Int, atBeat: Float, durBeats: Float) {
@@ -81,14 +109,35 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
         durationSamples: Long,
         velocity: Float
     ) {
-        val idx = ssgEventCount
-        if (idx >= MAX_EVENTS_PER_CHANNEL) return
-        ssgChannelIdx[idx]   = channel
-        ssgMidi[idx]         = midi
-        ssgStartSample[idx]  = startSample
-        ssgDurSamp[idx]      = durationSamples
-        ssgVelocity[idx]     = velocity
-        ssgEventCount = idx + 1
+        if (eventCount + 2 > MAX_EVENTS) return
+        val noteId = nextNoteId()
+        isSorted = false
+
+        // 1. SSG_ON Event
+        val onEv = events[eventCount++]
+        onEv.type = SequencerEvent.SSG_ON
+        onEv.sampleTime = startSample
+        onEv.channel = channel
+        onEv.midi = midi
+        onEv.velocity = velocity
+        onEv.noteId = noteId
+        onEv.attack = -1f
+        onEv.decay = -1f
+        onEv.sustain = -1f
+        onEv.release = -1f
+
+        // 2. SSG_OFF Event
+        val offEv = events[eventCount++]
+        offEv.type = SequencerEvent.SSG_OFF
+        offEv.sampleTime = startSample + durationSamples
+        offEv.channel = channel
+        offEv.midi = midi
+        offEv.velocity = 0f
+        offEv.noteId = noteId
+        offEv.attack = -1f
+        offEv.decay = -1f
+        offEv.sustain = -1f
+        offEv.release = -1f
     }
 
     fun noteDrum(kind: ProceduralDrums.DrumKind, atBeat: Float) {
@@ -100,23 +149,47 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
     }
 
     fun noteDrumRaw(kind: ProceduralDrums.DrumKind, startSample: Long, velocity: Float) {
-        val idx = drumEventCount
-        if (idx >= MAX_EVENTS_PER_CHANNEL) return
-        drumKind[idx]        = kind.ordinal
-        drumStartSample[idx] = startSample
-        drumVelocity[idx]    = velocity
-        drumEventCount = idx + 1
+        if (eventCount + 1 > MAX_EVENTS) return
+        isSorted = false
+
+        val ev = events[eventCount++]
+        ev.type = SequencerEvent.DRUM
+        ev.sampleTime = startSample
+        ev.channel = 0
+        ev.midi = kind.ordinal
+        ev.velocity = velocity
+        ev.noteId = 0
+        ev.attack = -1f
+        ev.decay = -1f
+        ev.sustain = -1f
+        ev.release = -1f
     }
 
     fun clear() {
-        fmEventCount = 0
-        ssgEventCount = 0
-        drumEventCount = 0
+        eventCount = 0
+        nextEventIdx = 0
+        noteIdCounter = 1
         customLoopLength = 0L
+        isSorted = false
     }
 
     fun loopLengthSamples(): Long {
         if (customLoopLength > 0L) return customLoopLength
         return (4L * beatsPerBar * sampleRate * 60 / bpm).toLong()
+    }
+
+    fun sortEvents() {
+        var i = 1
+        while (i < eventCount) {
+            val key = events[i]
+            var j = i - 1
+            while (j >= 0 && events[j].sampleTime > key.sampleTime) {
+                events[j + 1] = events[j]
+                j--
+            }
+            events[j + 1] = key
+            i++
+        }
+        isSorted = true
     }
 }

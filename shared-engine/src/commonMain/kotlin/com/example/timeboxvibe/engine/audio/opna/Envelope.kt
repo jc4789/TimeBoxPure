@@ -1,6 +1,6 @@
 package com.example.timeboxvibe.engine.audio.opna
 
-internal class Envelope {
+class Envelope {
     companion object {
         const val OFF: Int = 0
         const val ATTACK: Int = 1

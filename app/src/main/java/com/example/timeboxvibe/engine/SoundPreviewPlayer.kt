@@ -32,7 +32,7 @@ object SoundPreviewPlayer {
         stop()
         when (soundKey) {
             "oriental" -> playOrientalPreview(context, volume)
-            else -> playSpecsStreaming(soundKey, volume, shouldLoop = false, stopAfterMs = 3500L)
+            else -> playSpecsStreaming(soundKey, volume, shouldLoop = false, stopAfterMs = 7000L)
         }
     }
 
@@ -96,6 +96,14 @@ object SoundPreviewPlayer {
 
     fun stop() {
         isStreaming = false
+        val t = streamThread
+        if (t != null) {
+            try {
+                t.interrupt()
+                t.join(1000)
+            } catch (e: Exception) {}
+            streamThread = null
+        }
 
         try {
             activeTrack?.let {
@@ -171,7 +179,7 @@ object SoundPreviewPlayer {
                     e.printStackTrace()
                 }
             }
-            else -> playSpecsStreaming(soundKey, volume, shouldLoop = false, stopAfterMs = 1500L)
+            else -> playSpecsStreaming(soundKey, volume, shouldLoop = false, stopAfterMs = 5000L)
         }
     }
 
@@ -250,6 +258,7 @@ object SoundPreviewPlayer {
                 for (note in arrangement.lead.notes) {
                     if (note.freq <= 10f) continue
                     val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
+                    synth.ssg[0].duty = parseDutyCycle(note.type)
                     sequencer.noteSsgRaw(
                         0, midi,
                         msToSamples(note.startMs),
@@ -263,6 +272,7 @@ object SoundPreviewPlayer {
             for (note in arrangement.harmony.notes) {
                 if (note.freq <= 10f) continue
                 val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
+                synth.ssg[1].duty = parseDutyCycle(note.type)
                 sequencer.noteSsgRaw(
                     1, midi,
                     msToSamples(note.startMs),
@@ -291,6 +301,7 @@ object SoundPreviewPlayer {
                 for (note in arrangement.bass.notes) {
                     if (note.freq <= 10f) continue
                     val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
+                    synth.ssg[2].duty = parseDutyCycle(note.type)
                     sequencer.noteSsgRaw(
                         2, midi,
                         msToSamples(note.startMs),
@@ -334,8 +345,8 @@ object SoundPreviewPlayer {
 
             sequencer.customLoopLength = msToSamples(maxDurationMs.toInt())
 
-            val minBufferSize = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_FLOAT)
-            val audioTrackBufferSize = maxOf(minBufferSize, chunkSize * 4 * 4)
+            val minBufferSize = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_FLOAT)
+            val audioTrackBufferSize = maxOf(minBufferSize, chunkSize * 4 * 4 * 2)
 
             val audioTrack = try {
                 AudioTrack.Builder()
@@ -349,7 +360,7 @@ object SoundPreviewPlayer {
                         AudioFormat.Builder()
                             .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
                             .setSampleRate(sampleRate)
-                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
                             .build()
                     )
                     .setBufferSizeInBytes(audioTrackBufferSize)
@@ -375,11 +386,13 @@ object SoundPreviewPlayer {
                 return@Runnable
             }
 
-            val floatBuffer = FloatArray(chunkSize)
+            val floatBuffer = FloatArray(chunkSize * 2)
             var currentSampleOffset = 0L
+            val songLenSamples = sequencer.loopLengthSamples()
+            var lastWrappedOffset = 0L
 
             try {
-                while (isStreaming) {
+                while (isStreaming && !Thread.currentThread().isInterrupted) {
                     if (stopAfterMs > 0L) {
                         val elapsedGlobalMs = (currentSampleOffset * 1000L) / sampleRate
                         if (elapsedGlobalMs >= stopAfterMs) {
@@ -392,9 +405,18 @@ object SoundPreviewPlayer {
                         }
                     }
 
-                    synth.render(floatBuffer, chunkSize, sequencer, currentSampleOffset)
+                    var renderOffset = currentSampleOffset
+                    if (shouldLoop && songLenSamples > 0L) {
+                        renderOffset = currentSampleOffset % songLenSamples
+                        if (renderOffset < lastWrappedOffset) {
+                            sequencer.nextEventIdx = 0
+                        }
+                        lastWrappedOffset = renderOffset
+                    }
 
-                    val written = audioTrack.write(floatBuffer, 0, chunkSize, AudioTrack.WRITE_BLOCKING)
+                    synth.renderStereo(floatBuffer, chunkSize, sequencer, renderOffset)
+
+                    val written = audioTrack.write(floatBuffer, 0, chunkSize * 2, AudioTrack.WRITE_BLOCKING)
                     if (written < 0) {
                         break
                     }
@@ -416,6 +438,15 @@ object SoundPreviewPlayer {
 
         streamThread = thread
         thread.start()
+    }
+
+    private fun parseDutyCycle(type: String): Float {
+        return when (type) {
+            "square" -> 0.5f
+            "pulse25" -> 0.25f
+            "pulse12" -> 0.125f
+            else -> 0.5f
+        }
     }
 
     private fun adsrFromNote(note: ToneSpec): Quadruple<Float?, Float?, Float?, Float?> {

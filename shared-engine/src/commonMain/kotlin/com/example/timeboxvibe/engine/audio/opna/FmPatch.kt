@@ -7,5 +7,7 @@ data class FmPatch(
     val op1: OperatorSpec,
     val op2: OperatorSpec,
     val op3: OperatorSpec,
-    val totalLevel: Float = 0.5f
+    val totalLevel: Float = 0.5f,
+    val pms: Int = 0,
+    val pan: Int = 0
 )
