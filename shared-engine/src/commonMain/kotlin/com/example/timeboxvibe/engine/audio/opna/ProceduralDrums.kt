@@ -113,7 +113,7 @@ class ProceduralDrums {
         hatNoise.reset(0xFACE xor 3)
     }
 
-    fun render(buffer: FloatArray, frames: Int, sampleRate: Int, gainScale: Float) {
+    fun render(buffer: FloatArray, frames: Int, sampleRate: Int, gainScale: Float, startFrame: Int = 0) {
         var i = 0
         while (i < frames) {
             var mixedSample = 0f
@@ -189,7 +189,7 @@ class ProceduralDrums {
                 }
             }
 
-            buffer[i] += mixedSample * gainScale
+            buffer[startFrame + i] += mixedSample * gainScale
             i++
         }
     }

@@ -100,7 +100,7 @@ class Fm4OpVoice {
         patch = null
     }
 
-    fun render(buffer: FloatArray, frames: Int, sampleRate: Int, gainScale: Float) {
+    fun render(buffer: FloatArray, frames: Int, sampleRate: Int, gainScale: Float, startFrame: Int = 0) {
         val p = patch ?: return
 
         val isAlg0 = p.algorithm == 0
@@ -115,7 +115,7 @@ class Fm4OpVoice {
         var i = 0
         while (i < frames) {
             val sample = renderOne(sampleRate)
-            buffer[i] += sample * combinedGain
+            buffer[startFrame + i] += sample * combinedGain
             i++
         }
     }

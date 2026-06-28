@@ -103,34 +103,195 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     fun render(buffer: FloatArray, frames: Int) {
         buffer.fill(0f)
-
-        var i = 0
-        while (i < ssg.size) {
-            ssg[i].render(buffer, frames, sampleRate, mixer.ssgGain)
-            i++
-        }
-
-        i = 0
-        while (i < fm.size) {
-            fm[i].render(buffer, frames, sampleRate, mixer.fmGain)
-            i++
-        }
-
-        drums.render(buffer, frames, sampleRate, mixer.rhythmGain)
-
+        renderSegment(buffer, 0, frames)
         softClipAndGain(buffer, frames)
     }
 
     fun render(buffer: FloatArray, frames: Int, sequencer: OpnaSequencer, currentSampleOffset: Long) {
-        sequencer.writeInto(this, currentSampleOffset, frames)
-        render(buffer, frames)
+        buffer.fill(0f)
+        renderWithSequencer(buffer, frames, sequencer, currentSampleOffset)
+        softClipAndGain(buffer, frames)
+    }
+
+    private fun renderSegment(buffer: FloatArray, startFrame: Int, frames: Int) {
+        if (frames <= 0) return
+        var i = 0
+        while (i < ssg.size) {
+            ssg[i].render(buffer, frames, sampleRate, mixer.ssgGain, startFrame)
+            i++
+        }
+        i = 0
+        while (i < fm.size) {
+            fm[i].render(buffer, frames, sampleRate, mixer.fmGain, startFrame)
+            i++
+        }
+        drums.render(buffer, frames, sampleRate, mixer.rhythmGain, startFrame)
+    }
+
+    private fun renderWithSequencer(
+        buffer: FloatArray,
+        frames: Int,
+        sequencer: OpnaSequencer,
+        currentSampleOffset: Long
+    ) {
+        val chunkEnd = currentSampleOffset + frames
+        var renderPos = 0
+
+        var fmIdx = 0
+        var ssgIdx = 0
+        var drumIdx = 0
+        var fmPhase = 0
+        var ssgPhase = 0
+
+        while (fmIdx < sequencer.fmEventCount) {
+            val end = sequencer.fmStartSample[fmIdx] + sequencer.fmDurationSamp[fmIdx]
+            if (end > currentSampleOffset) {
+                if (sequencer.fmStartSample[fmIdx] < currentSampleOffset) {
+                    fmPhase = 1
+                }
+                break
+            }
+            fmIdx++
+        }
+        while (ssgIdx < sequencer.ssgEventCount) {
+            val end = sequencer.ssgStartSample[ssgIdx] + sequencer.ssgDurSamp[ssgIdx]
+            if (end > currentSampleOffset) {
+                if (sequencer.ssgStartSample[ssgIdx] < currentSampleOffset) {
+                    ssgPhase = 1
+                }
+                break
+            }
+            ssgIdx++
+        }
+        while (drumIdx < sequencer.drumEventCount) {
+            if (sequencer.drumStartSample[drumIdx] >= currentSampleOffset) break
+            drumIdx++
+        }
+
+        while (renderPos < frames) {
+            var nextTime = Long.MAX_VALUE
+            var applyFmOn = false
+            var applyFmOff = false
+            var applySsgOn = false
+            var applySsgOff = false
+            var applyDrum = false
+
+            if (fmIdx < sequencer.fmEventCount) {
+                val evTime = if (fmPhase == 0) {
+                    sequencer.fmStartSample[fmIdx]
+                } else {
+                    sequencer.fmStartSample[fmIdx] + sequencer.fmDurationSamp[fmIdx]
+                }
+                if (evTime >= currentSampleOffset && evTime < chunkEnd) {
+                    if (evTime < nextTime) {
+                        nextTime = evTime
+                        applyFmOn = fmPhase == 0
+                        applyFmOff = fmPhase == 1
+                        applySsgOn = false
+                        applySsgOff = false
+                        applyDrum = false
+                    } else if (evTime == nextTime) {
+                        if (fmPhase == 0) applyFmOn = true else applyFmOff = true
+                    }
+                }
+            }
+
+            if (ssgIdx < sequencer.ssgEventCount) {
+                val evTime = if (ssgPhase == 0) {
+                    sequencer.ssgStartSample[ssgIdx]
+                } else {
+                    sequencer.ssgStartSample[ssgIdx] + sequencer.ssgDurSamp[ssgIdx]
+                }
+                if (evTime >= currentSampleOffset && evTime < chunkEnd) {
+                    if (evTime < nextTime) {
+                        nextTime = evTime
+                        applyFmOn = false
+                        applyFmOff = false
+                        applySsgOn = ssgPhase == 0
+                        applySsgOff = ssgPhase == 1
+                        applyDrum = false
+                    } else if (evTime == nextTime) {
+                        if (ssgPhase == 0) applySsgOn = true else applySsgOff = true
+                    }
+                }
+            }
+
+            if (drumIdx < sequencer.drumEventCount) {
+                val evTime = sequencer.drumStartSample[drumIdx]
+                if (evTime >= currentSampleOffset && evTime < chunkEnd) {
+                    if (evTime < nextTime) {
+                        nextTime = evTime
+                        applyFmOn = false
+                        applyFmOff = false
+                        applySsgOn = false
+                        applySsgOff = false
+                        applyDrum = true
+                    } else if (evTime == nextTime) {
+                        applyDrum = true
+                    }
+                }
+            }
+
+            if (nextTime == Long.MAX_VALUE) {
+                renderSegment(buffer, renderPos, frames - renderPos)
+                break
+            }
+
+            val eventOffset = (nextTime - currentSampleOffset).toInt()
+            if (eventOffset > renderPos) {
+                renderSegment(buffer, renderPos, eventOffset - renderPos)
+            }
+            renderPos = eventOffset
+
+            if (applyFmOn) {
+                val ch = sequencer.fmChannelIdx[fmIdx]
+                val midi = sequencer.fmMidi[fmIdx]
+                val a = if (sequencer.fmAttack[fmIdx] > 0f) sequencer.fmAttack[fmIdx] else null
+                val d = if (sequencer.fmDecay[fmIdx] > 0f) sequencer.fmDecay[fmIdx] else null
+                val s = if (sequencer.fmSustain[fmIdx] > 0f) sequencer.fmSustain[fmIdx] else null
+                val r = if (sequencer.fmRelease[fmIdx] > 0f) sequencer.fmRelease[fmIdx] else null
+                if (ch in fm.indices) {
+                    fm[ch].noteOn(midi, a, d, s, r)
+                    fm[ch].noteGain = sequencer.fmVelocity[fmIdx]
+                }
+                fmPhase = 1
+            }
+            if (applyFmOff) {
+                val ch = sequencer.fmChannelIdx[fmIdx]
+                if (ch in fm.indices) {
+                    fm[ch].noteOff()
+                }
+                fmIdx++
+                fmPhase = 0
+            }
+            if (applySsgOn) {
+                val ch = sequencer.ssgChannelIdx[ssgIdx]
+                if (ch in ssg.indices) {
+                    ssg[ch].noteOn(midiToFreq(sequencer.ssgMidi[ssgIdx]))
+                    ssg[ch].noteGain = sequencer.ssgVelocity[ssgIdx]
+                }
+                ssgPhase = 1
+            }
+            if (applySsgOff) {
+                val ch = sequencer.ssgChannelIdx[ssgIdx]
+                if (ch in ssg.indices) {
+                    ssg[ch].noteOff()
+                }
+                ssgIdx++
+                ssgPhase = 0
+            }
+            if (applyDrum) {
+                triggerDrum(sequencer.drumKind[drumIdx], sequencer.drumVelocity[drumIdx])
+                drumIdx++
+            }
+        }
     }
 
     private fun softClipAndGain(buffer: FloatArray, frames: Int) {
-        val masterGain = OpnaAudioConstants.MASTER_GAIN
+        val outputGain = AudioLaws.OPNA_OUTPUT_GAIN
         var i = 0
         while (i < frames) {
-            val x = buffer[i] * masterGain
+            val x = buffer[i] * outputGain
             val clipped = x / (1f + abs(x))
             buffer[i] = clipped.coerceIn(-1f, 1f)
             i++

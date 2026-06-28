@@ -32,7 +32,7 @@ internal class SsgVoice(channelIndex: Int = 0) {
         noise.reset(0xACE1)
     }
 
-    fun render(buffer: FloatArray, frames: Int, sampleRate: Int, gainScale: Float) {
+    fun render(buffer: FloatArray, frames: Int, sampleRate: Int, gainScale: Float, startFrame: Int = 0) {
         if (!enabled && env.stage == Envelope.OFF) return
 
         val dt = 1f / sampleRate
@@ -47,7 +47,7 @@ internal class SsgVoice(channelIndex: Int = 0) {
                 if (phase01 < duty) 1f else -1f
             }
 
-            buffer[i] += signal * envVal * combinedGain
+            buffer[startFrame + i] += signal * envVal * combinedGain
 
             phase01 += step
             if (phase01 >= 1f) {

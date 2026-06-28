@@ -9,6 +9,15 @@ internal object AudioLaws {
     const val SAMPLE_RATE: Int = 44100
     const val SSG_GAIN_DB: Float = -18f
 
+    /**
+     * Output calibration gain applied once per sample, BEFORE softClip.
+     * v1 is calibrated to match the previous chiptune engine's practical
+     * loudness on Android device speakers. This is a hardware-agnostic
+     * master output knob, not a per-engine "match old loudness" gain.
+     * Do not apply any other gain after softClip.
+     */
+    const val OPNA_OUTPUT_GAIN: Float = 2.8f
+
     fun tlToAmplitude(tl: Int): Float =
         10f.pow(-tl.coerceIn(0, 127) * 0.75f / 20f)
 
