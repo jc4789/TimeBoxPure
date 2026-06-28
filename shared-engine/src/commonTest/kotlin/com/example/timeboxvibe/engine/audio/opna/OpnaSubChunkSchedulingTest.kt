@@ -7,6 +7,8 @@ import kotlin.test.assertTrue
 
 class OpnaSubChunkSchedulingTest {
 
+    private val testBpm = 120f
+
     private fun rms(buffer: FloatArray, start: Int, end: Int): Float {
         if (end <= start) return 0f
         var sum = 0.0
@@ -28,7 +30,7 @@ class OpnaSubChunkSchedulingTest {
         val synth = OpnaLikeSynthesizer(sampleRate)
         synth.fm[0].applyPatch(Patches.ZunLead1)
 
-        val seq = OpnaSequencer(sampleRate, bpm = 120)
+        val seq = OpnaSequencer(sampleRate, bpm = testBpm)
         seq.noteFmRaw(
             channel = 0,
             midi = 69,
@@ -67,7 +69,7 @@ class OpnaSubChunkSchedulingTest {
 
         val synth = OpnaLikeSynthesizer(sampleRate)
 
-        val seq = OpnaSequencer(sampleRate, bpm = 120)
+        val seq = OpnaSequencer(sampleRate, bpm = testBpm)
         seq.noteDrumRaw(ProceduralDrums.DrumKind.KICK, kickSample, 0.7f)
 
         val buffer = FloatArray(chunkSize)
@@ -95,7 +97,7 @@ class OpnaSubChunkSchedulingTest {
         val synth = OpnaLikeSynthesizer(sampleRate)
         synth.fm[0].applyPatch(Patches.ZunLead1)
 
-        val seq = OpnaSequencer(sampleRate, bpm = 120)
+        val seq = OpnaSequencer(sampleRate, bpm = testBpm)
         seq.noteFmRaw(
             channel = 0,
             midi = 69,
@@ -124,7 +126,7 @@ class OpnaSubChunkSchedulingTest {
         val synth = OpnaLikeSynthesizer(sampleRate)
         synth.fm[0].applyPatch(Patches.ZunLead1)
 
-        val seq = OpnaSequencer(sampleRate, bpm = 120)
+        val seq = OpnaSequencer(sampleRate, bpm = testBpm)
         seq.noteFmRaw(
             channel = 0,
             midi = 69,
@@ -161,7 +163,7 @@ class OpnaSubChunkSchedulingTest {
         val synth = OpnaLikeSynthesizer(sampleRate)
         synth.fm[0].applyPatch(Patches.ZunLead1)
 
-        val seq = OpnaSequencer(sampleRate, bpm = 120)
+        val seq = OpnaSequencer(sampleRate, bpm = testBpm)
         seq.noteFmRaw(
             channel = 0,
             midi = 69,
@@ -198,7 +200,7 @@ class OpnaSubChunkSchedulingTest {
         val synth = OpnaLikeSynthesizer(sampleRate)
         synth.fm[0].applyPatch(Patches.ZunLead1)
 
-        val seq = OpnaSequencer(sampleRate, bpm = 120)
+        val seq = OpnaSequencer(sampleRate, bpm = testBpm)
 
         val buffer = FloatArray(chunkSize)
         synth.render(buffer, chunkSize, seq, currentSampleOffset = 0L)

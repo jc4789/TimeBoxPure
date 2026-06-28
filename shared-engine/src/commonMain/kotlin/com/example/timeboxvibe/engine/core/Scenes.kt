@@ -2092,8 +2092,8 @@ object SettingsScene : Scene {
 
     private val languages = arrayOf("en", "zh", "ja")
 
-    private val soundKeys = arrayOf("synth-chime", "synth-victory", "oriental", "synth-bad-apple", "synth-senbonzakura")
-    private val soundNames = arrayOf("ZEN CHIME", "VICTORY", "ORIENTAL", "BAD APPLE", "SENBONZAKURA")
+    private val soundKeys = arrayOf("synth-chime", "synth-victory", "oriental", "synth-bad-apple", "synth-senbonzakura", "synth-bad-apple-LotusLandStory")
+    private val soundNames = arrayOf("ZEN CHIME", "VICTORY", "ORIENTAL", "BAD APPLE", "SENBONZAKURA", "Bad Apple!!(東方幻想郷)")
 
     private val themes = arrayOf("reimu", "marisa", "alice", "kaguya")
 

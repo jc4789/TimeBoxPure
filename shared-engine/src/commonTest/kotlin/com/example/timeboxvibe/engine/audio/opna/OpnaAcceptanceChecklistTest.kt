@@ -9,7 +9,7 @@ class OpnaAcceptanceChecklistTest {
     @Test
     fun testFullEnsemble() {
         val synth = OpnaLikeSynthesizer(44100)
-        val seq = OpnaSequencer(44100, 138)
+        val seq = OpnaSequencer(44100, 138f)
         OpnaPatterns.focusMotif(seq)
 
         val samples = 176400 // 4 seconds at 44.1 kHz

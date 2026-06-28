@@ -135,19 +135,19 @@ class Fm4OpVoice {
                      ops[0].outputLevel
             op0SelfMod = s0
 
-            val op1Phase = ops[1].phase + s0 * p.op1.modulationIndex
+            val op1Phase = ops[1].phase + s0 * p.op0.modulationIndex
             ops[1].phase += ops[1].phaseStep
             val s1 = FastMath.fastSin(phaseToIdx(op1Phase)) *
                      ops[1].envelope.next(dt) *
                      ops[1].outputLevel
 
-            val op2Phase = ops[2].phase + s1 * p.op2.modulationIndex
+            val op2Phase = ops[2].phase + s1 * p.op1.modulationIndex
             ops[2].phase += ops[2].phaseStep
             val s2 = FastMath.fastSin(phaseToIdx(op2Phase)) *
                      ops[2].envelope.next(dt) *
                      ops[2].outputLevel
 
-            val op3Phase = ops[3].phase + s2 * p.op3.modulationIndex
+            val op3Phase = ops[3].phase + s2 * p.op2.modulationIndex
             ops[3].phase += ops[3].phaseStep
             val s3 = FastMath.fastSin(phaseToIdx(op3Phase)) *
                      ops[3].envelope.next(dt) *
@@ -169,13 +169,13 @@ class Fm4OpVoice {
                      ops[1].envelope.next(dt) *
                      ops[1].outputLevel
 
-            val op2Phase = ops[2].phase + s0 * p.op2.modulationIndex
+            val op2Phase = ops[2].phase + s0 * p.op0.modulationIndex
             ops[2].phase += ops[2].phaseStep
             val s2 = FastMath.fastSin(phaseToIdx(op2Phase)) *
                      ops[2].envelope.next(dt) *
                      ops[2].outputLevel
 
-            val op3Phase = ops[3].phase + s1 * p.op3.modulationIndex
+            val op3Phase = ops[3].phase + s1 * p.op1.modulationIndex
             ops[3].phase += ops[3].phaseStep
             val s3 = FastMath.fastSin(phaseToIdx(op3Phase)) *
                      ops[3].envelope.next(dt) *

@@ -4,13 +4,15 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 class OpnaDeterminismTest {
+    private val testBpm = 120f
+
     @Test
     fun testSynthDeterminism() {
         val synth1 = OpnaLikeSynthesizer(44100)
         val synth2 = OpnaLikeSynthesizer(44100)
 
-        val seq1 = OpnaSequencer(44100, 120)
-        val seq2 = OpnaSequencer(44100, 120)
+        val seq1 = OpnaSequencer(44100, testBpm)
+        val seq2 = OpnaSequencer(44100, testBpm)
 
         OpnaPatterns.focusMotif(seq1)
         OpnaPatterns.focusMotif(seq2)

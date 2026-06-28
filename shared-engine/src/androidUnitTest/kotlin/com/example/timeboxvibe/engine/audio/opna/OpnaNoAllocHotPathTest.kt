@@ -4,10 +4,12 @@ import org.junit.Test
 import kotlin.test.assertTrue
 
 class OpnaNoAllocHotPathTest {
+    private val testBpm = 120f
+
     @Test
     fun testNoAllocationsInHotPath() {
         val synth = OpnaLikeSynthesizer(44100)
-        val seq = OpnaSequencer(44100, 120)
+        val seq = OpnaSequencer(44100, testBpm)
         OpnaPatterns.focusMotif(seq)
 
         val buffer = FloatArray(1024)

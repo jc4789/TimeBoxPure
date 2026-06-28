@@ -1,6 +1,6 @@
 package com.example.timeboxvibe.engine.audio.opna
 
-class OpnaSequencer(val sampleRate: Int, val bpm: Int, val beatsPerBar: Int = 4) {
+class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 4) {
     companion object {
         const val MAX_EVENTS_PER_CHANNEL = 1024
     }
@@ -117,6 +117,6 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Int, val beatsPerBar: Int = 4)
 
     fun loopLengthSamples(): Long {
         if (customLoopLength > 0L) return customLoopLength
-        return (4L * beatsPerBar * sampleRate * 60) / bpm
+        return (4L * beatsPerBar * sampleRate * 60 / bpm).toLong()
     }
 }
