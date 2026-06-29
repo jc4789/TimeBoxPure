@@ -9,9 +9,12 @@ internal object AudioSinLut {
     }
 
     fun sin01(phaseCycles: Double): Float {
-        val wrapped = phaseCycles - kotlin.math.floor(phaseCycles)
+        var wrapped = phaseCycles - kotlin.math.floor(phaseCycles)
+        if (wrapped >= 1.0) wrapped = 0.0
+        if (wrapped < 0.0) wrapped = 0.0
+        
         val x = wrapped * SIZE.toDouble()
-        val i = x.toInt()
+        val i = x.toInt().coerceIn(0, SIZE - 1)
         val frac = (x - i.toDouble()).toFloat()
 
         val a = table[i]
