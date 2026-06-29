@@ -6,8 +6,11 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
 import android.media.MediaPlayer
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
+import android.util.Log
 import com.example.timeboxvibe.engine.audio.opna.LlsPatches
 import com.example.timeboxvibe.engine.audio.opna.OpnaAudioConstants
 import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
@@ -19,7 +22,8 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 object SoundPreviewPlayer {
-    private const val GATE_RATIO = 0.85f
+    private const val GATE_RATIO = 0.95f
+    private const val TAG = "SoundPreviewPlayer"
 
     @Volatile
     private var isStreaming = false
@@ -30,12 +34,14 @@ object SoundPreviewPlayer {
     private var mediaPlayer: MediaPlayer? = null
     private val handler = Handler(Looper.getMainLooper())
     private var stopRunnable: Runnable? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     fun playPreview(context: Context, soundKey: String, volume: Float) {
         stop()
         when (soundKey) {
             "oriental" -> playOrientalPreview(context, volume)
-            else -> playSpecsStreaming(soundKey, volume, shouldLoop = false, stopAfterMs = 7000L)
+            "synth-bad-apple-LotusLandStory" -> playSpecsStreaming(context, soundKey, volume, shouldLoop = false, stopAfterMs = 25000L)
+            else -> playSpecsStreaming(context, soundKey, volume, shouldLoop = false, stopAfterMs = 7000L)
         }
     }
 
@@ -130,6 +136,13 @@ object SoundPreviewPlayer {
 
         stopRunnable?.let { handler.removeCallbacks(it) }
         stopRunnable = null
+
+        wakeLock?.let {
+            if (it.isHeld) {
+                try { it.release() } catch (e: Exception) { e.printStackTrace() }
+            }
+        }
+        wakeLock = null
     }
 
     private fun playOrientalPreview(context: Context, volume: Float) {
@@ -182,7 +195,7 @@ object SoundPreviewPlayer {
                     e.printStackTrace()
                 }
             }
-            else -> playSpecsStreaming(soundKey, volume, shouldLoop = false, stopAfterMs = 5000L)
+            else -> playSpecsStreaming(context, soundKey, volume, shouldLoop = false, stopAfterMs = 5000L)
         }
     }
 
@@ -210,23 +223,39 @@ object SoundPreviewPlayer {
                     e.printStackTrace()
                 }
             }
-            else -> playSpecsStreaming(soundKey, volume, shouldLoop = true)
+            else -> playSpecsStreaming(context, soundKey, volume, shouldLoop = true)
         }
     }
 
-    private fun playSpecsStreaming(soundKey: String, volume: Float, shouldLoop: Boolean, stopAfterMs: Long = -1L) {
+    private fun playSpecsStreaming(context: Context, soundKey: String, volume: Float, shouldLoop: Boolean, stopAfterMs: Long = -1L) {
         val arrangement = SoundMelodies.getArrangement(soundKey, volume) ?: return
+
+        try {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            val wl = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TimeBox::SoundPreviewWakeLock")
+            wl.acquire(30 * 1000L)
+            wakeLock = wl
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to acquire wake lock", e)
+        }
 
         isStreaming = true
 
         val thread = Thread(Runnable {
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO)
 
-            val sampleRate = 44100
+            val sampleRate = 48000 
             val chunkSize = 1024
 
             val synth = OpnaLikeSynthesizer(sampleRate)
             val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm)
+
+            synth.enableOutputFilter = true
+            var i = 0
+            while (i < synth.fm.size) {
+                synth.fm[i].enableOversampling = true
+                i++
+            }
 
             fun msToSamples(ms: Int): Long = (ms.toLong() * sampleRate) / 1000L
 
@@ -297,8 +326,13 @@ object SoundPreviewPlayer {
             // 3. Bass lane - monophonic on single channel
             val bassTimbre = arrangement.bass.timbre
             val bassChannel = 1
-            if (bassTimbre == TimbreRef.FM_BASS_ZUN1) {
-                synth.fm[bassChannel].applyPatch(Patches.ZunBass1)
+            val bassPatch = when (bassTimbre) {
+                TimbreRef.FM_BASS_ZUN1 -> Patches.ZunBass1
+                TimbreRef.FM_LLS_AT99 -> LlsPatches.At99
+                else -> null
+            }
+            if (bassPatch != null) {
+                synth.fm[bassChannel].applyPatch(bassPatch)
                 for (note in arrangement.bass.notes) {
                     if (note.freq <= 10f) continue
                     val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
@@ -363,10 +397,10 @@ object SoundPreviewPlayer {
             sequencer.customLoopLength = msToSamples(maxDurationMs.toInt())
 
             val minBufferSize = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_FLOAT)
-            val audioTrackBufferSize = maxOf(minBufferSize, chunkSize * 4 * 4 * 2)
+            val audioTrackBufferSize = maxOf(minBufferSize, chunkSize * 8 * 4 * 2)
 
             val audioTrack = try {
-                AudioTrack.Builder()
+                val builder = AudioTrack.Builder()
                     .setAudioAttributes(
                         AudioAttributes.Builder()
                             .setUsage(AudioAttributes.USAGE_ALARM)
@@ -382,7 +416,12 @@ object SoundPreviewPlayer {
                     )
                     .setBufferSizeInBytes(audioTrackBufferSize)
                     .setTransferMode(AudioTrack.MODE_STREAM)
-                    .build()
+                
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                }
+                
+                builder.build()
             } catch (e: Exception) {
                 e.printStackTrace()
                 return@Runnable
@@ -407,6 +446,7 @@ object SoundPreviewPlayer {
             var currentSampleOffset = 0L
             val songLenSamples = sequencer.loopLengthSamples()
             var lastWrappedOffset = 0L
+            var lastUnderrunCount = 0
 
             try {
                 while (isStreaming && !Thread.currentThread().isInterrupted) {
@@ -437,6 +477,14 @@ object SoundPreviewPlayer {
                     val written = audioTrack.write(floatBuffer, 0, chunkSize * 2, AudioTrack.WRITE_BLOCKING)
                     if (written < 0) {
                         break
+                    }
+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        val underrunCount = audioTrack.underrunCount
+                        if (underrunCount > lastUnderrunCount) {
+                            Log.w(TAG, "AudioTrack underrun detected: $underrunCount total")
+                            lastUnderrunCount = underrunCount
+                        }
                     }
 
                     currentSampleOffset += chunkSize

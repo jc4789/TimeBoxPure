@@ -2,7 +2,7 @@ package com.example.timeboxvibe.engine.audio.opna
 
 import com.example.timeboxvibe.engine.core.FastMath
 
-class Lfo(val sampleRate: Int = 44100) {
+class Lfo(val sampleRate: Int = 48000) {
     companion object {
         private val AMS_DEPTH_TABLE = floatArrayOf(0f, 0.016f, 0.031f, 0.063f)
         private val PMS_DEPTH_TABLE = floatArrayOf(0f, 0.0005f, 0.001f, 0.002f, 0.004f, 0.008f, 0.016f, 0.032f)

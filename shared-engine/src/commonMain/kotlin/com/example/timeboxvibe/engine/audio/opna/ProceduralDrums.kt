@@ -123,7 +123,7 @@ class ProceduralDrums {
                 kickPhase01 += freq / sampleRate
                 if (kickPhase01 >= 1f) kickPhase01 -= 1f
 
-                val sineValue = AudioSinLut.sin01(kickPhase01)
+                val sineValue = AudioSinLut.sin01(kickPhase01.toDouble())
                 val env = exp(-ageMs / 70f)
                 mixedSample += sineValue * env * kickLevel * KICK_GAIN * kickGain
 
@@ -141,8 +141,8 @@ class ProceduralDrums {
                 snarePhase01_2 += 330f / sampleRate
                 if (snarePhase01_2 >= 1f) snarePhase01_2 -= 1f
 
-                val partials = 0.3f * AudioSinLut.sin01(snarePhase01_1) +
-                               0.3f * AudioSinLut.sin01(snarePhase01_2)
+                val partials = 0.3f * AudioSinLut.sin01(snarePhase01_1.toDouble()) +
+                               0.3f * AudioSinLut.sin01(snarePhase01_2.toDouble())
                 val noiseSig = snareNoise.next()
                 val signal = noiseSig * 0.5f + partials
                 val env = exp(-ageMs / 25f)
@@ -177,7 +177,7 @@ class ProceduralDrums {
                 tomPhase01 += freq / sampleRate
                 if (tomPhase01 >= 1f) tomPhase01 -= 1f
 
-                val sineValue = AudioSinLut.sin01(tomPhase01)
+                val sineValue = AudioSinLut.sin01(tomPhase01.toDouble())
                 val env = exp(-ageMs / 50f)
                 mixedSample += sineValue * env * tomLevel * tomGain
 

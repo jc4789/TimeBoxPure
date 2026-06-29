@@ -41,10 +41,17 @@ class SsgVoice(channelIndex: Int = 0) {
         var i = 0
         while (i < frames) {
             val envVal = env.next(dt)
-            val signal = if (useNoise) {
+            var signal = if (useNoise) {
                 noise.next()
             } else {
-                if (phase01 < duty) 1f else -1f
+                var s = if (phase01 < duty) 1f else -1f
+                
+                if (phase01 < step) {
+                    s += polyBlep(phase01 / step, step)
+                } else if (phase01 >= duty && phase01 - step < duty) {
+                    s -= polyBlep((phase01 - duty) / step, step)
+                }
+                s
             }
 
             buffer[startFrame + i] += signal * envVal * combinedGain
@@ -54,6 +61,21 @@ class SsgVoice(channelIndex: Int = 0) {
                 phase01 -= 1f
             }
             i++
+        }
+    }
+
+    private fun polyBlep(t: Float, dt: Float): Float {
+        if (dt <= 0f) return 0f
+        return when {
+            t < dt -> {
+                val t2 = t / dt
+                2f * t2 - t2 * t2 - 1f
+            }
+            t > 1f - dt -> {
+                val t2 = (t - 1f) / dt
+                t2 * t2 + 2f * t2 + 1f
+            }
+            else -> 0f
         }
     }
 }

@@ -11,6 +11,7 @@ class OpnRateEnvelope {
         const val RELEASE: Int = 4
 
         private const val MAX_RATE = 63
+        private const val BASE_SAMPLE_RATE = 48000.0
 
         private val attackStepTable = FloatArray(MAX_RATE + 1)
         private val decayStepTable = FloatArray(MAX_RATE + 1)
@@ -29,7 +30,7 @@ class OpnRateEnvelope {
                     val p = effectiveRate shr 2
                     val q = effectiveRate and 3
                     val pow2 = 2.0.pow(p)
-                    val base = (1.0 / 44100.0) * pow2
+                    val base = (1.0 / BASE_SAMPLE_RATE) * pow2
                     val qf = q.toDouble()
                     val attackInc = (base * (3.0 + 2.0 * qf) / 4.0).toFloat()
                     val decayInc = (base * (1.0 + 0.5 * qf)).toFloat()
@@ -57,6 +58,11 @@ class OpnRateEnvelope {
     var releaseRate: Int = 12
 
     private var keyScaleValue: Int = 0
+    private var sampleRateRatio: Float = 1.0f
+
+    fun setSampleRate(sampleRate: Int) {
+        sampleRateRatio = BASE_SAMPLE_RATE.toFloat() / sampleRate
+    }
 
     fun setKeyScale(block: Int, fnum: Int) {
         keyScaleValue = keyCode(block, fnum)
@@ -86,7 +92,7 @@ class OpnRateEnvelope {
             }
             ATTACK -> {
                 val effectiveRate = (attackRate + keyScaleValue).coerceIn(0, MAX_RATE)
-                val step = attackStepTable[effectiveRate]
+                val step = attackStepTable[effectiveRate] * sampleRateRatio
                 if (step <= 0f) {
                     if (attackRate + keyScaleValue < 4) return level
                 }
@@ -98,7 +104,7 @@ class OpnRateEnvelope {
             }
             DECAY -> {
                 val effectiveRate = (decayRate + keyScaleValue).coerceIn(0, MAX_RATE)
-                val step = decayStepTable[effectiveRate]
+                val step = decayStepTable[effectiveRate] * sampleRateRatio
                 val sl = sustainLevel.toFloat() / 15.0f
                 level -= step
                 if (level <= sl) {
@@ -110,7 +116,7 @@ class OpnRateEnvelope {
             }
             RELEASE -> {
                 val effectiveRate = (releaseRate + keyScaleValue).coerceIn(0, MAX_RATE)
-                val step = decayStepTable[effectiveRate]
+                val step = decayStepTable[effectiveRate] * sampleRateRatio
                 level -= step
                 if (level <= 0f) {
                     level = 0f

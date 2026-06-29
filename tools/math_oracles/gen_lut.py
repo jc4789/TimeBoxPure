@@ -83,9 +83,6 @@ def main(argv=None):
         if args.size <= 0 or args.size > 256:
             raise SystemExit("perm size must be in (0, 256]")
         vals = perm_table(args.size, args.seed)
-        # Pad to multiple of 12 for the chunked output
-        while len(vals) % 12 != 0:
-            vals.append(vals[-1])  # safe — same value as last
         src = emit_kotlin(vals, args.object, args.const, args.package, command=" ".join(sys_argv_safe()))
         if args.out:
             args.out.write_text(src, encoding="utf-8")

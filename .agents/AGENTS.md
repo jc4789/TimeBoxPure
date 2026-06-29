@@ -392,7 +392,6 @@ Required before patching:
 2. Read each relevant file line by line.
 3. List the exact gates, flags, handlers, and call paths found.
 4. State which old/debug/test code is still active.
-5. Only then propose a minimal patch.
 
 
 

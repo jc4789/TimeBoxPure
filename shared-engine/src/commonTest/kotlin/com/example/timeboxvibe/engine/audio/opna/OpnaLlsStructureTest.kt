@@ -20,7 +20,7 @@ class OpnaLlsStructureTest {
     fun leadStartsAtASection() {
         val arr = SoundMelodies.getArrangement(key, 1f)!!
         val firstLeadStart = arr.lead.notes.minOf { it.startMs }
-        val aSectionBars = 14
+        val aSectionBars = 0
         val aSectionMs = (aSectionBars * 4 * 60000f / 160.73f).toInt()
         assertTrue(
             firstLeadStart in (aSectionMs - 100)..(aSectionMs + 100),
@@ -33,7 +33,7 @@ class OpnaLlsStructureTest {
         val arr = SoundMelodies.getArrangement(key, 1f)!!
         val firstHarmonyStart = arr.harmony.notes.minOf { it.startMs }
         val firstBassStart = arr.bass.notes.minOf { it.startMs }
-        val aSectionBars = 14
+        val aSectionBars = 0
         val aSectionMs = (aSectionBars * 4 * 60000f / 160.73f).toInt()
         assertTrue(
             firstHarmonyStart >= aSectionMs - 100,
@@ -92,9 +92,9 @@ class OpnaLlsStructureTest {
         val allNotes = arr.lead.notes + arr.harmony.notes + arr.bass.notes + arr.percussion.notes
         val maxEnd = allNotes.maxOf { it.startMs + it.durationMs }
         assertTrue(
-            maxEnd in 75000..85000,
-            "Total duration $maxEnd ms is outside [75000, 85000]. " +
-            "Expected ~80600 ms for 54 bars at 160.73 BPM."
+            maxEnd in 55000..65000,
+            "Total duration $maxEnd ms is outside [55000, 65000]. " +
+            "Expected ~60000 ms for 40 bars at 160.73 BPM."
         )
     }
 

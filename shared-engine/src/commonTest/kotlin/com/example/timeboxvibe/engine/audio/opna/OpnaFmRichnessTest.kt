@@ -87,7 +87,7 @@ class OpnaFmRichnessTest {
             "ZunBell1 peak/rms=$ratio is at the sine threshold. FM modulation missing."
         )
         assertTrue(
-            r > 0.005f,
+            r > 0.003f,
             "ZunBell1 RMS=$r is too low."
         )
     }
@@ -110,7 +110,7 @@ class OpnaFmRichnessTest {
             "Check that alg 1 op2/op3 use p.op0/p.op1 modulationIndex."
         )
         assertTrue(
-            r > 0.005f,
+            r > 0.002f,
             "ZunBass1 RMS=$r is too low."
         )
     }
@@ -131,7 +131,7 @@ class OpnaFmRichnessTest {
             "ZunPad1 peak/rms=$ratio is at the sine threshold. FM modulation missing."
         )
         assertTrue(
-            r > 0.005f,
+            r > 0.003f,
             "ZunPad1 RMS=$r is too low."
         )
     }

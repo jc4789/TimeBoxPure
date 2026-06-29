@@ -19,6 +19,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private var filterStateL: Float = 0f
     private var filterStateR: Float = 0f
     private val filterAlpha: Float = 0.15f
+    var enableOutputFilter: Boolean = false
 
     fun noteOnSsg(channel: Int, midi: Int) {
         if (channel in ssg.indices) {
@@ -412,8 +413,13 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         var i = 0
         while (i < frames) {
             val x = buffer[i] * outputGain
-            val filtered = (1f - filterAlpha) * x + filterAlpha * filterStateL
-            filterStateL = filtered
+            val filtered = if (enableOutputFilter) {
+                val f = (1f - filterAlpha) * x + filterAlpha * filterStateL
+                filterStateL = f
+                f
+            } else {
+                x
+            }
             val absX = if (filtered < 0f) -filtered else filtered
             if (absX > peak) peak = absX
             buffer[i] = filtered.coerceIn(-1f, 1f)
@@ -430,14 +436,18 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         while (i < totalSamples) {
             val x = stereoBuffer[i] * outputGain
             val isLeft = (i % 2) == 0
-            val filtered = if (isLeft) {
-                val f = (1f - filterAlpha) * x + filterAlpha * filterStateL
-                filterStateL = f
-                f
+            val filtered = if (enableOutputFilter) {
+                if (isLeft) {
+                    val f = (1f - filterAlpha) * x + filterAlpha * filterStateL
+                    filterStateL = f
+                    f
+                } else {
+                    val f = (1f - filterAlpha) * x + filterAlpha * filterStateR
+                    filterStateR = f
+                    f
+                }
             } else {
-                val f = (1f - filterAlpha) * x + filterAlpha * filterStateR
-                filterStateR = f
-                f
+                x
             }
             val absX = if (filtered < 0f) -filtered else filtered
             if (absX > peak) peak = absX
