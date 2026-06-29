@@ -422,7 +422,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             }
             val absX = if (filtered < 0f) -filtered else filtered
             if (absX > peak) peak = absX
-            buffer[i] = filtered.coerceIn(-1f, 1f)
+            buffer[i] = kotlin.math.tanh(filtered)
             i++
         }
         preClampPeak = peak
@@ -451,7 +451,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             }
             val absX = if (filtered < 0f) -filtered else filtered
             if (absX > peak) peak = absX
-            stereoBuffer[i] = filtered.coerceIn(-1f, 1f)
+            stereoBuffer[i] = kotlin.math.tanh(filtered)
             i++
         }
         preClampPeak = peak

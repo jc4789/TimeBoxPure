@@ -250,49 +250,49 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         return when (p.algorithm) {
             0 -> {
                 val s0 = computeOp0(ops, fbShift)
-                val s1 = advanceOp(1, s0 * ops[1].modulationIndex)
-                val s2 = advanceOp(2, s1 * ops[2].modulationIndex)
-                val s3 = advanceOp(3, s2 * ops[3].modulationIndex)
+                val s1 = advanceOp(1, s0 * ops[0].modulationIndex)
+                val s2 = advanceOp(2, s1 * ops[1].modulationIndex)
+                val s3 = advanceOp(3, s2 * ops[2].modulationIndex)
                 s3 * p.totalLevel
             }
             1 -> {
                 val s0 = computeOp0(ops, fbShift)
                 val s1 = computeOpFree(1)
-                val s2 = advanceOp(2, s0 * ops[2].modulationIndex)
-                val s3 = advanceOp(3, s1 * ops[3].modulationIndex)
+                val s2 = advanceOp(2, s0 * ops[0].modulationIndex)
+                val s3 = advanceOp(3, s1 * ops[1].modulationIndex)
                 (s2 + s3) * 0.5f * p.totalLevel
             }
             2 -> {
                 val s0 = computeOp0(ops, fbShift)
-                val s1 = advanceOp(1, s0 * ops[1].modulationIndex)
-                val s2 = advanceOp(2, s1 * ops[2].modulationIndex)
+                val s1 = advanceOp(1, s0 * ops[0].modulationIndex)
+                val s2 = advanceOp(2, s1 * ops[1].modulationIndex)
                 val s3 = computeOpFree(3)
                 (s2 + s3) * 0.5f * p.totalLevel
             }
             3 -> {
                 val s0 = computeOp0(ops, fbShift)
-                val s1 = advanceOp(1, s0 * ops[1].modulationIndex)
+                val s1 = advanceOp(1, s0 * ops[0].modulationIndex)
                 val s2 = computeOpFree(2)
-                val s3 = advanceOp(3, s2 * ops[3].modulationIndex)
+                val s3 = advanceOp(3, s2 * ops[2].modulationIndex)
                 (s1 + s3) * 0.5f * p.totalLevel
             }
             4 -> {
                 val s0 = computeOp0(ops, fbShift)
-                val s1 = advanceOp(1, s0 * ops[1].modulationIndex)
+                val s1 = advanceOp(1, s0 * ops[0].modulationIndex)
                 val s2 = computeOpFree(2)
-                val s3 = advanceOp(3, (s1 * ops[3].modulationIndex + s2 * ops[3].modulationIndex))
+                val s3 = advanceOp(3, s1 * ops[1].modulationIndex + s2 * ops[2].modulationIndex)
                 s3 * p.totalLevel
             }
             5 -> {
                 val s0 = computeOp0(ops, fbShift)
-                val s1 = advanceOp(1, s0 * ops[1].modulationIndex)
-                val s2 = advanceOp(2, s0 * ops[2].modulationIndex)
-                val s3 = advanceOp(3, s0 * ops[3].modulationIndex)
+                val s1 = advanceOp(1, s0 * ops[0].modulationIndex)
+                val s2 = advanceOp(2, s0 * ops[0].modulationIndex)
+                val s3 = advanceOp(3, s0 * ops[0].modulationIndex)
                 (s1 + s2 + s3) * (1f / 3f) * p.totalLevel
             }
             6 -> {
                 val s0 = computeOp0(ops, fbShift)
-                val s1 = advanceOp(1, s0 * ops[1].modulationIndex)
+                val s1 = advanceOp(1, s0 * ops[0].modulationIndex)
                 val s2 = computeOpFree(2)
                 val s3 = computeOpFree(3)
                 (s1 + s2 + s3) * (1f / 3f) * p.totalLevel
