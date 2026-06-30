@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
+import com.example.timeboxvibe.engine.audio.mml.MmlArrangementScheduler
 import com.example.timeboxvibe.engine.audio.opna.LlsPatches
 import com.example.timeboxvibe.engine.audio.opna.OpnaAudioConstants
 import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
@@ -27,8 +28,10 @@ object SoundPreviewPlayer {
 
     @Volatile
     private var isStreaming = false
+    @Volatile
     private var streamThread: Thread? = null
 
+    @Volatile
     private var activeTrack: AudioTrack? = null
     private var tickTrack: AudioTrack? = null
     private var mediaPlayer: MediaPlayer? = null
@@ -106,12 +109,12 @@ object SoundPreviewPlayer {
     fun stop() {
         isStreaming = false
         val t = streamThread
+        streamThread = null
         if (t != null) {
             try {
                 t.interrupt()
-                t.join(1000)
+                t.join(50)
             } catch (e: Exception) {}
-            streamThread = null
         }
 
         try {
@@ -248,7 +251,7 @@ object SoundPreviewPlayer {
             val chunkSize = 1024
 
             val synth = OpnaLikeSynthesizer(sampleRate)
-            val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm)
+            val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
 
             synth.enableOutputFilter = true
             var i = 0
@@ -259,6 +262,9 @@ object SoundPreviewPlayer {
 
             fun msToSamples(ms: Int): Long = (ms.toLong() * sampleRate) / 1000L
 
+            if (arrangement.routing == ArrangementRouting.MML_LOGICAL_TRACKS) {
+                MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
+            } else {
             val leadGain = OpnaAudioConstants.LANE_GAIN_LEAD
             val harmonyGain = OpnaAudioConstants.LANE_GAIN_HARMONY
             val bassGain = OpnaAudioConstants.LANE_GAIN_BASS
@@ -309,17 +315,59 @@ object SoundPreviewPlayer {
             }
 
             // 2. Harmony lane
+            val isLeadSsg = (leadPatch == null)
+            val isBassSsg = (arrangement.bass.timbre == TimbreRef.SSG_BASS_SQUARE)
+            val harmonyChannels = mutableListOf<Int>()
+            harmonyChannels.add(1)
+            if (!isLeadSsg) harmonyChannels.add(0)
+            if (!isBassSsg) harmonyChannels.add(2)
+
+            val channelEndTimes = LongArray(3)
             for (note in arrangement.harmony.notes) {
                 if (note.freq <= 10f) continue
                 val midi = (12f * kotlin.math.log2(note.freq / 440f) + 69f).roundToInt()
                 val duty = parseDutyCycle(note.type)
+                val startSample = msToSamples(note.startMs)
                 val gateSamples = msToSamples((note.durationMs * GATE_RATIO).toInt())
+                val endSample = startSample + gateSamples
+
+                var targetChannel = 1
+                var found = false
+                var cIdx = 0
+                while (cIdx < harmonyChannels.size) {
+                    val ch = harmonyChannels[cIdx]
+                    if (channelEndTimes[ch] <= startSample) {
+                        targetChannel = ch
+                        found = true
+                        break
+                    }
+                    cIdx++
+                }
+                if (!found) {
+                    var minEnd = Long.MAX_VALUE
+                    var cIdx2 = 0
+                    while (cIdx2 < harmonyChannels.size) {
+                        val ch = harmonyChannels[cIdx2]
+                        if (channelEndTimes[ch] < minEnd) {
+                            minEnd = channelEndTimes[ch]
+                            targetChannel = ch
+                        }
+                        cIdx2++
+                    }
+                }
+                channelEndTimes[targetChannel] = endSample
+
+                val (a, d, s, r) = adsrFromNote(note)
                 sequencer.noteSsgRaw(
-                    1, midi,
-                    msToSamples(note.startMs),
+                    targetChannel, midi,
+                    startSample,
                     gateSamples,
                     note.volume * harmonyGain,
-                    duty
+                    duty,
+                    a ?: -1f,
+                    d ?: -1f,
+                    s ?: -1f,
+                    r ?: -1f
                 )
             }
 
@@ -384,20 +432,22 @@ object SoundPreviewPlayer {
                     velocity
                 )
             }
+            }
 
             val maxDurationMs = listOf(
                 arrangement.lead.notes.maxOfOrNull { it.startMs + it.durationMs } ?: 0,
                 arrangement.harmony.notes.maxOfOrNull { it.startMs + it.durationMs } ?: 0,
                 arrangement.bass.notes.maxOfOrNull { it.startMs + it.durationMs } ?: 0,
-                arrangement.percussion.notes.maxOfOrNull { it.startMs + it.durationMs } ?: 0
+                arrangement.percussion.notes.maxOfOrNull { it.startMs + it.durationMs } ?: 0,
+                arrangement.auxiliary?.notes?.maxOfOrNull { it.startMs + it.durationMs } ?: 0
             ).maxOrNull()?.toLong() ?: 0L
 
             if (maxDurationMs <= 0L) return@Runnable
 
             sequencer.customLoopLength = msToSamples(maxDurationMs.toInt())
 
-            val minBufferSize = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_FLOAT)
-            val audioTrackBufferSize = maxOf(minBufferSize, chunkSize * 8 * 4 * 2)
+            val minBufferSize = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+            val audioTrackBufferSize = maxOf(minBufferSize, chunkSize * 8 * 2)
 
             val audioTrack = try {
                 val builder = AudioTrack.Builder()
@@ -409,9 +459,9 @@ object SoundPreviewPlayer {
                     )
                     .setAudioFormat(
                         AudioFormat.Builder()
-                            .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                             .setSampleRate(sampleRate)
-                            .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                             .build()
                     )
                     .setBufferSizeInBytes(audioTrackBufferSize)
@@ -442,24 +492,21 @@ object SoundPreviewPlayer {
                 return@Runnable
             }
 
-            val floatBuffer = FloatArray(chunkSize * 2)
+            val floatBuffer = FloatArray(chunkSize)
+            val shortBuffer = ShortArray(chunkSize)
             var currentSampleOffset = 0L
             val songLenSamples = sequencer.loopLengthSamples()
             var lastWrappedOffset = 0L
             var lastUnderrunCount = 0
 
             try {
-                while (isStreaming && !Thread.currentThread().isInterrupted) {
-                    if (stopAfterMs > 0L) {
-                        val elapsedGlobalMs = (currentSampleOffset * 1000L) / sampleRate
-                        if (elapsedGlobalMs >= stopAfterMs) {
-                            break
-                        }
-                    } else if (!shouldLoop) {
-                        val elapsedGlobalMs = (currentSampleOffset * 1000L) / sampleRate
-                        if (elapsedGlobalMs >= maxDurationMs) {
-                            break
-                        }
+                while (Thread.currentThread() == streamThread && !Thread.currentThread().isInterrupted) {
+                    val elapsedGlobalMs = (currentSampleOffset * 1000L) / sampleRate
+                    if (stopAfterMs > 0L && elapsedGlobalMs >= stopAfterMs) {
+                        break
+                    }
+                    if (!shouldLoop && elapsedGlobalMs >= maxDurationMs) {
+                        break
                     }
 
                     var renderOffset = currentSampleOffset
@@ -472,9 +519,17 @@ object SoundPreviewPlayer {
                         lastWrappedOffset = renderOffset
                     }
 
-                    synth.renderStereo(floatBuffer, chunkSize, sequencer, renderOffset)
+                    synth.render(floatBuffer, chunkSize, sequencer, renderOffset)
 
-                    val written = audioTrack.write(floatBuffer, 0, chunkSize * 2, AudioTrack.WRITE_BLOCKING)
+                    var k = 0
+                    val totalSamples = chunkSize
+                    while (k < totalSamples) {
+                        val f = floatBuffer[k]
+                        shortBuffer[k] = (f * 32767f).coerceIn(-32768f, 32767f).toInt().toShort()
+                        k++
+                    }
+
+                    val written = audioTrack.write(shortBuffer, 0, totalSamples, AudioTrack.WRITE_BLOCKING)
                     if (written < 0) {
                         break
                     }

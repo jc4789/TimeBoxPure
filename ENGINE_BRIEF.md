@@ -23,6 +23,41 @@
 - `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/core/PerlinNoise.kt`
 - `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/core/IkChain2D.kt`
 - `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/core/VisualsStateHolder.kt`
+- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/audio/opna/OpnaLikeSynthesizer.kt`
+- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/audio/opna/Fm4OpVoice.kt`
+- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/audio/opna/SsgVoice.kt`
+- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/audio/opna/ProceduralDrums.kt`
+- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/audio/opna/OpnaSequencer.kt`
+
+## Procedural OPNA Sound Engine
+
+- Core: pure `commonMain` Kotlin, 48 kHz, caller-provided PCM buffers, no sample assets or allocation in render loops.
+- Voices: 6 FM channels, 3 SSG channels, 4 operators per FM voice, plus procedural kick/snare/hat/tom.
+- FM: algorithms 0..7, feedback, multiplier/detune, legacy ADSR or OPN-rate envelopes, LUT sine, per-note gain, patch pan, optional 2x oversampling and low-pass downsampling.
+- SSG: square/pulse duty, PolyBLEP edge smoothing, optional LFSR noise, envelope and per-note gain.
+- Mixer/output: named lead/harmony/bass/percussion gains, output filter, peak tracking, soft clipping, mono and stereo render entry points.
+- Sequencing: `OpnaSequencer` owns a preallocated 4096-event array; FM/SSG notes emit paired ON/OFF events and drums emit one event. Events use absolute sample positions and deterministic sorting/loop reset.
+- Patches: native project patches plus Lotus Land Story `@54`, `@74`, `@99`, and `@181`. MML v1 exposes `@54`, `@74`, and `@99`.
+- Arrangement bridge: `ToneSpec` remains the note/event payload. `ArrangementLanes` contains lead, harmony, bass, optional auxiliary D, percussion, tempo, meter, and `ArrangementRouting`.
+- Routing: existing songs remain `LEGACY`. MML songs use `MML_LOGICAL_TRACKS`; A-D are assigned sequential free FM/SSG hardware channels by timbre and R schedules procedural drums.
+- Android host: `SoundPreviewPlayer` creates `AudioTrack`, converts compiled lanes into sequencer events before streaming, then renders fixed-size buffers. It never parses MML in the audio loop.
+
+## Minimal MML Authoring Layer
+
+- Files: `audio/mml/MmlParser.kt`, `MmlCompiler.kt`, and `MmlSongBank.kt` in `commonMain`.
+- Storage: songs are compact Kotlin raw strings; external `.mml` files and runtime file IO are forbidden.
+- Lifecycle: `MmlSongBank` compiles each source once during object initialization to `ArrangementLanes`/`List<ToneSpec>`. Per-play volume scaling may copy compiled notes, but parsing and musical compilation never occur during rendering.
+- Directives: `#BPM <positive decimal>` and `#BAR numerator/denominator`.
+- Tracks: A, B, C, D tonal tracks and R rhythm. A channel header may be followed by multiline continuation data; loops may span lines.
+- Instruments: `@54`, `@74`, `@99`, `@square`, and `@drum`. One timbre per track, declared before the first event; mid-track changes are rejected.
+- State commands: `v0..v15`, `o0..o8`, `l1|2|4|8|16`, and per-note lengths such as `c4` or `r16`.
+- Notes: `c d e f g a b`, accidentals `+`, `#`, `-`, rests `r`, and octave shifts `>`/`<`.
+- Rhythm: R uses `k` kick, `s` snare, `h` hat, and `r` rest.
+- Structure: one-level `[ ... ]N` loops, `|` bar validation, and `;` comments. Nested/unclosed loops and incomplete bars fail compilation.
+- Diagnostics: typed failures carry line, column, and reason. Compiler also rejects invalid channel/instrument combinations, more than 3 SSG tracks, unrepresentable meter ticks, out-of-range MIDI notes, parser expansion overflow, and `OpnaSequencer.MAX_EVENTS` overflow.
+- Timing: 480 ticks per quarter; milliseconds are derived from absolute ticks and decimal BPM, preventing cumulative per-note rounding drift.
+- Current demo: `synth-mml-senbonzakura-demo`, an 8-bar 160.73 BPM A/B/C/D/R arrangement compiled once and exposed in Settings, preview, reminder, and looping alarm paths.
+- Tests: `MmlCompilerTest` covers multiline parsing, directives, accidentals, loops, timing, volume, track/timbre mapping, drum sentinels, typed failures, SSG/event capacity, and deterministic non-silent PCM. Focused suite and OPNA hot-path audit pass.
 
 ## Demoscene Engine Upgrades (this pass)
 
@@ -77,6 +112,11 @@ Replaces the prior 16-layer overlapping layout. Rendered by `NestedTimeboxInstru
 - IMGUI rows overlap when label/control layout does not derive from `U` and measured label width.
 - Compose-style assumptions drift into engine code as hardcoded breakpoints or orientation hacks.
 - Render/input helper paths in scenes can still allocate strings in hot paths and need periodic audits.
+- Never call `MmlParser` or `MmlCompiler` from `render`, audio callbacks, or per-buffer streaming code.
+- `ArrangementLanes` cannot represent a mid-track timbre change; MML v1 intentionally rejects it.
+- Four `@square` tonal tracks exceed the 3-channel SSG hardware model and must fail compilation.
+- The legacy `oriental` sound still loads `sounds/oriental_alarm.mp3`; it is outside the procedural OPNA/MML path and conflicts with the current zero-asset law.
+- Full shared-engine tests currently have two unrelated Lotus Land Story duration failures; focused MML tests pass.
 
 ## Current Constants
 - `U = 16` (Int constant, layout refactored to discrete integer grid)
@@ -87,8 +127,14 @@ Replaces the prior 16-layer overlapping layout. Rendered by `NestedTimeboxInstru
 - `PerlinNoise.PERM_SIZE = 256` (permutation table, doubled to 512 in `GeneratedPermLut`)
 - `ORNAMENT_PHASE_PERIOD_FRAMES = 3600L` (60s at 60Hz)
 - `MagicCircleDemoscene.TRAIL_LINKS = 6` (FABRIK chain length)
+- `AudioLaws.SAMPLE_RATE = 48000`
+- `AudioLaws.FM_CHANNELS = 6`; `AudioLaws.SSG_CHANNELS = 3`; `AudioLaws.FM_OPERATORS = 4`
+- `OpnaSequencer.MAX_EVENTS = 4096`
+- `MmlCompiler.TICKS_PER_QUARTER = 480`
 
 ## Current Task Focus
+- Procedural OPNA engine is operational and unchanged by the MML work. Minimal MML authoring now compiles embedded multiline A/B/C/D/R songs into the existing arrangement path before playback.
+- Current MML demo is the revised 8-bar `synth-mml-senbonzakura-demo`; next music work should improve composition/content without altering DSP math.
 - Demoscene engine upgrades implemented (FrameClock, Wave, PerlinNoise, IkChain2D, MagicCircleDemoscene, VisualsStateHolder). Magic circle redesigned as 9-band layout with independent rotation, demoscene effects, FABRIK trail.
 - Visuals settings section in SettingsScene (Demoscene Effects, Background Nebula toggles).
 - Next: run oracle validation (`palette_verify.py`, `gen_lut.py --kind perm`, `affine_matrix_verify.py --cases`), then regression test the magic circle on device.

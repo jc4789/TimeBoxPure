@@ -202,10 +202,11 @@ class OpnaFmCoreTest {
     }
 
     @Test
-    fun adsrOverrideAppliesToAllOperators() {
+    fun adsrOverrideAppliesToCarrierOperators() {
         val sampleRate = AudioLaws.SAMPLE_RATE
         val synth = OpnaLikeSynthesizer(sampleRate)
-        synth.fm[0].applyPatch(Patches.ZunLead1)
+        val patch = Patches.ZunLead1
+        synth.fm[0].applyPatch(patch)
 
         val expectedAttack = 0.050f
         val expectedDecay = 0.100f
@@ -214,27 +215,24 @@ class OpnaFmCoreTest {
 
         synth.fm[0].noteOn(69, expectedAttack, expectedDecay, expectedSustain, expectedRelease)
 
-        var i = 0
-        while (i < 4) {
-            val env = synth.fm[0].getOperatorEnvelope(i)
-            assertTrue(
-                abs(env.attack - expectedAttack) < 0.001f,
-                "Operator $i attack mismatch: ${env.attack} != $expectedAttack"
-            )
-            assertTrue(
-                abs(env.decay - expectedDecay) < 0.001f,
-                "Operator $i decay mismatch: ${env.decay} != $expectedDecay"
-            )
-            assertTrue(
-                abs(env.sustain - expectedSustain) < 0.001f,
-                "Operator $i sustain mismatch: ${env.sustain} != $expectedSustain"
-            )
-            assertTrue(
-                abs(env.release - expectedRelease) < 0.001f,
-                "Operator $i release mismatch: ${env.release} != $expectedRelease"
-            )
-            i++
-        }
+        // Carrier operator (3) should use the overrides
+        val env3 = synth.fm[0].getOperatorEnvelope(3)
+        assertTrue(abs(env3.attack - expectedAttack) < 0.001f, "Carrier attack mismatch")
+        assertTrue(abs(env3.decay - expectedDecay) < 0.001f, "Carrier decay mismatch")
+        assertTrue(abs(env3.sustain - expectedSustain) < 0.001f, "Carrier sustain mismatch")
+        assertTrue(abs(env3.release - expectedRelease) < 0.001f, "Carrier release mismatch")
+
+        // Modulator operators (0, 1, 2) should use original patch values
+        val env0 = synth.fm[0].getOperatorEnvelope(0)
+        assertTrue(abs(env0.attack - patch.op0.attack) < 0.001f, "Modulator 0 attack mismatch")
+        assertTrue(abs(env0.decay - patch.op0.decay) < 0.001f, "Modulator 0 decay mismatch")
+        assertTrue(abs(env0.sustain - patch.op0.sustain) < 0.001f, "Modulator 0 sustain mismatch")
+        assertTrue(abs(env0.release - patch.op0.release) < 0.001f, "Modulator 0 release mismatch")
+
+        val env1 = synth.fm[0].getOperatorEnvelope(1)
+        assertTrue(abs(env1.attack - patch.op1.attack) < 0.001f, "Modulator 1 attack mismatch")
+        val env2 = synth.fm[0].getOperatorEnvelope(2)
+        assertTrue(abs(env2.attack - patch.op2.attack) < 0.001f, "Modulator 2 attack mismatch")
     }
 
     @Test

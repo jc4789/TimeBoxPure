@@ -78,3 +78,42 @@ fun compileNotes(spec: SongSpec, notes: List<NoteSpec>): List<ToneSpec> {
 fun midiNoteToFreq(midi: Int): Float {
     return 440f * 2.0.pow((midi - 69) / 12.0).toFloat()
 }
+
+fun compileLlsNotes(spec: SongSpec, notes: List<NoteSpec>, repeatCount: Int = 2): List<ToneSpec> {
+    val result = mutableListOf<ToneSpec>()
+    val originalDurationBeats = 40 * 4 
+    val durationMs = (originalDurationBeats * spec.msPerBeat).toInt()
+
+    var r = 0
+    while (r < repeatCount) {
+        val timeShiftMs = r * durationMs
+        var i = 0
+        while (i < notes.size) {
+            val n = notes[i]
+            val originalStartBeats = n.bar * 4.0 + n.beat + (n.tick / 480.0)
+            val startMs = timeShiftMs + (originalStartBeats * spec.msPerBeat).toInt()
+            
+            val durationMs = spec.noteLengthToMs(n.length)
+            val gateDurationMs = (durationMs * n.gate).toInt()
+            
+            val freq = if (n.midi <= 0) 0f else midiNoteToFreq(n.midi)
+            result.add(
+                ToneSpec(
+                    freq = freq,
+                    startMs = startMs,
+                    durationMs = gateDurationMs,
+                    volume = n.velocity,
+                    type = n.type,
+                    useADSR = true,
+                    attackMs = n.attackMs,
+                    decayMs = n.decayMs,
+                    sustainLevel = n.sustainLevel,
+                    releaseMs = n.releaseMs
+                )
+            )
+            i++
+        }
+        r++
+    }
+    return result
+}

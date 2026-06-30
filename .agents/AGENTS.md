@@ -329,9 +329,7 @@ Ask which existing engine primitive should be used.
 
 COMPLIANCE CHECKSUM
 
-Before generating code:
 
-Quote the relevant rule that authorizes the implementation.
 
 If no rule authorizes the implementation:
 

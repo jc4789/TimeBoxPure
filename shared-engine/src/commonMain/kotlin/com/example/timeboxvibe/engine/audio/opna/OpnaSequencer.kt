@@ -119,7 +119,11 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
         startSample: Long,
         durationSamples: Long,
         velocity: Float,
-        duty: Float
+        duty: Float,
+        attack: Float = -1f,
+        decay: Float = -1f,
+        sustain: Float = -1f,
+        release: Float = -1f
     ) {
         if (eventCount + 2 > MAX_EVENTS) return
         val noteId = nextNoteId()
@@ -133,10 +137,10 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
         onEv.midi = midi
         onEv.velocity = velocity
         onEv.noteId = noteId
-        onEv.attack = -1f
-        onEv.decay = -1f
-        onEv.sustain = -1f
-        onEv.release = -1f
+        onEv.attack = attack
+        onEv.decay = decay
+        onEv.sustain = sustain
+        onEv.release = release
         onEv.duty = duty
 
         // 2. SSG_OFF Event

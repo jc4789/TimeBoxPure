@@ -8,7 +8,8 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private val opState: Array<OperatorState> = Array(AudioLaws.FM_OPERATORS) { OperatorState() }
     private var patch: FmPatch? = null
     private var baseFrequency: Float = 0f
-    private var op0Feedback: Float = 0f
+    private var op0Feedback1: Float = 0f
+    private var op0Feedback2: Float = 0f
     var noteGain: Float = 1f
 
     var channelAms: Int = 0
@@ -24,9 +25,10 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         }
     private val oversampleBuffer = FloatArray(4096)
     private val oversampleRate = sampleRate * 2
-    private var lowPassPrev = 0f
 
     fun getPan(): Int = patch?.pan ?: 0
+
+    private var lowPassPrev = 0f
 
     fun applyPatch(p: FmPatch) {
         patch = p
@@ -121,18 +123,11 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         val p = patch
         if (p != null) {
             recalcPhaseSteps(p)
-            val hasOverrides = (attack != null || decay != null || sustain != null || release != null)
-            if (hasOverrides) {
-                setupOpStateWithAdsrOverride(0, p.op0, attack, decay, sustain, release)
-                setupOpStateWithAdsrOverride(1, p.op1, attack, decay, sustain, release)
-                setupOpStateWithAdsrOverride(2, p.op2, attack, decay, sustain, release)
-                setupOpStateWithAdsrOverride(3, p.op3, attack, decay, sustain, release)
-            } else {
-                setupOpState(0, p.op0)
-                setupOpState(1, p.op1)
-                setupOpState(2, p.op2)
-                setupOpState(3, p.op3)
-            }
+            val alg = p.algorithm
+            setupOpStateWithAdsrOverride(0, p.op0, if (isCarrier(0, alg)) attack else null, if (isCarrier(0, alg)) decay else null, if (isCarrier(0, alg)) sustain else null, if (isCarrier(0, alg)) release else null)
+            setupOpStateWithAdsrOverride(1, p.op1, if (isCarrier(1, alg)) attack else null, if (isCarrier(1, alg)) decay else null, if (isCarrier(1, alg)) sustain else null, if (isCarrier(1, alg)) release else null)
+            setupOpStateWithAdsrOverride(2, p.op2, if (isCarrier(2, alg)) attack else null, if (isCarrier(2, alg)) decay else null, if (isCarrier(2, alg)) sustain else null, if (isCarrier(2, alg)) release else null)
+            setupOpStateWithAdsrOverride(3, p.op3, if (isCarrier(3, alg)) attack else null, if (isCarrier(3, alg)) decay else null, if (isCarrier(3, alg)) sustain else null, if (isCarrier(3, alg)) release else null)
         }
         var i = 0
         while (i < AudioLaws.FM_OPERATORS) {
@@ -142,8 +137,19 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             opState[i].opnEnvelope.noteOn()
             i++
         }
-        op0Feedback = 0f
+        op0Feedback1 = 0f
+        op0Feedback2 = 0f
         lowPassPrev = 0f
+    }
+
+    private fun isCarrier(opIdx: Int, algorithm: Int): Boolean {
+        return when (algorithm) {
+            0, 1, 2, 3 -> opIdx == 3
+            4 -> opIdx == 1 || opIdx == 3
+            5, 6 -> opIdx >= 1
+            7 -> true
+            else -> false
+        }
     }
 
     fun noteOff() {
@@ -157,7 +163,8 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     fun reset() {
         baseFrequency = 0f
-        op0Feedback = 0f
+        op0Feedback1 = 0f
+        op0Feedback2 = 0f
         lowPassPrev = 0f
         noteGain = 1f
         channelAms = 0
@@ -209,7 +216,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     }
 
     private fun applyLowPassAndDownsample(input: FloatArray, inFrames: Int, output: FloatArray, startFrame: Int, outFrames: Int) {
-        val alpha = 0.15f
+        val alpha = 0.35f
         var prev = lowPassPrev
         var i = 0
         while (i < outFrames) {
@@ -258,30 +265,30 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             1 -> {
                 val s0 = computeOp0(ops, fbShift)
                 val s1 = computeOpFree(1)
-                val s2 = advanceOp(2, s0 * ops[0].modulationIndex)
-                val s3 = advanceOp(3, s1 * ops[1].modulationIndex)
-                (s2 + s3) * 0.5f * p.totalLevel
+                val s2 = advanceOp(2, s0 * ops[0].modulationIndex + s1 * ops[1].modulationIndex)
+                val s3 = advanceOp(3, s2 * ops[2].modulationIndex)
+                s3 * p.totalLevel
             }
             2 -> {
                 val s0 = computeOp0(ops, fbShift)
-                val s1 = advanceOp(1, s0 * ops[0].modulationIndex)
+                val s1 = computeOpFree(1)
                 val s2 = advanceOp(2, s1 * ops[1].modulationIndex)
-                val s3 = computeOpFree(3)
-                (s2 + s3) * 0.5f * p.totalLevel
+                val s3 = advanceOp(3, s0 * ops[0].modulationIndex + s2 * ops[2].modulationIndex)
+                s3 * p.totalLevel
             }
             3 -> {
                 val s0 = computeOp0(ops, fbShift)
                 val s1 = advanceOp(1, s0 * ops[0].modulationIndex)
                 val s2 = computeOpFree(2)
-                val s3 = advanceOp(3, s2 * ops[2].modulationIndex)
-                (s1 + s3) * 0.5f * p.totalLevel
+                val s3 = advanceOp(3, s1 * ops[1].modulationIndex + s2 * ops[2].modulationIndex)
+                s3 * p.totalLevel
             }
             4 -> {
                 val s0 = computeOp0(ops, fbShift)
                 val s1 = advanceOp(1, s0 * ops[0].modulationIndex)
                 val s2 = computeOpFree(2)
-                val s3 = advanceOp(3, s1 * ops[1].modulationIndex + s2 * ops[2].modulationIndex)
-                s3 * p.totalLevel
+                val s3 = advanceOp(3, s2 * ops[2].modulationIndex)
+                (s1 + s3) * 0.5f * p.totalLevel
             }
             5 -> {
                 val s0 = computeOp0(ops, fbShift)
@@ -313,8 +320,9 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     }
 
     private fun computeOp0(ops: Array<OperatorState>, fbShift: Int): Float {
+        val avgFeedback = (op0Feedback1 + op0Feedback2) * 0.5f
         val feedbackPhase = if (fbShift < 31) {
-            op0Feedback.toDouble() / (1 shl fbShift)
+            avgFeedback.toDouble() / (1 shl fbShift)
         } else {
             0.0
         }
@@ -326,7 +334,8 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         val raw = sinLutInterpolated(op0Phase)
         val out = raw * envNext(ops[0]) * ops[0].outputLevel
         ops[0].prevOutput = out
-        op0Feedback = out
+        op0Feedback2 = op0Feedback1
+        op0Feedback1 = out
         return out
     }
 

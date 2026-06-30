@@ -46,11 +46,13 @@ class SsgVoice(channelIndex: Int = 0) {
             } else {
                 var s = if (phase01 < duty) 1f else -1f
                 
-                if (phase01 < step) {
-                    s += polyBlep(phase01 / step, step)
-                } else if (phase01 >= duty && phase01 - step < duty) {
-                    s -= polyBlep((phase01 - duty) / step, step)
-                }
+                // PolyBLEP at 0.0 transition (step from -1 to +1)
+                s += polyBlep(phase01, step)
+                
+                // PolyBLEP at duty transition (step from +1 to -1)
+                var tDuty = phase01 - duty
+                if (tDuty < 0f) tDuty += 1f
+                s -= polyBlep(tDuty, step)
                 s
             }
 

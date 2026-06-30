@@ -4,6 +4,8 @@ import com.example.timeboxvibe.engine.audio.opna.NoteLength
 import com.example.timeboxvibe.engine.audio.opna.NoteSpec
 import com.example.timeboxvibe.engine.audio.opna.SongSpec
 import com.example.timeboxvibe.engine.audio.opna.compileNotes
+import com.example.timeboxvibe.engine.audio.opna.compileLlsNotes
+import com.example.timeboxvibe.engine.audio.mml.MmlSongBank
 
 enum class LaneMode {
     MONO_RETRIGGER,
@@ -33,13 +35,21 @@ enum class TimbreRef {
 
 data class Lane(val notes: List<ToneSpec>, val timbre: TimbreRef, val mode: LaneMode = LaneMode.MONO_RETRIGGER)
 
+enum class ArrangementRouting {
+    LEGACY,
+    MML_LOGICAL_TRACKS
+}
+
 data class ArrangementLanes(
     val lead: Lane,
     val harmony: Lane,
     val bass: Lane,
     val percussion: Lane,
     val tempoBpm: Float,
-    val keyRootMidi: Int
+    val keyRootMidi: Int,
+    val auxiliary: Lane? = null,
+    val routing: ArrangementRouting = ArrangementRouting.LEGACY,
+    val beatsPerBar: Int = 4
 )
 
 object SoundMelodies {
@@ -49,7 +59,8 @@ object SoundMelodies {
         "oriental",
         "synth-bad-apple",
         "synth-senbonzakura",
-        "synth-bad-apple-LotusLandStory"
+        "synth-bad-apple-LotusLandStory",
+        MmlSongBank.SENBONZAKURA_DEMO_KEY
     )
 
     fun getMelody(key: String, volume: Float, isBass: Boolean): List<ToneSpec> {
@@ -107,55 +118,63 @@ object SoundMelodies {
     fun getArrangement(key: String, volume: Float = 1f): ArrangementLanes? {
         return when (key) {
             "synth-chime" -> {
-                val e = 333
-                val q = 667
+                val e = 120
+                val q = 240
+                val h = 480
                 ArrangementLanes(
                     lead = Lane(listOf(
-                        ToneSpec(466f, 0, e, 0.7f * volume, "pulse25", true, 5, 30, 0.3f, 50),
-                        ToneSpec(554f, e, e, 0.7f * volume, "pulse25", true, 5, 30, 0.3f, 50),
-                        ToneSpec(698f, 2*e, q, 0.7f * volume, "pulse25", true, 5, 30, 0.3f, 50),
-                        ToneSpec(554f, 2*e+q, e, 0.7f * volume, "pulse25", true, 5, 30, 0.3f, 50),
-                        ToneSpec(466f, 2*e+q+e, e, 0.7f * volume, "pulse25", true, 5, 30, 0.3f, 50),
-                        ToneSpec(349f, 2*e+q+2*e, q, 0.7f * volume, "pulse25", true, 5, 30, 0.3f, 50)
+                        ToneSpec(523.25f, 0, e, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 80), // C5
+                        ToneSpec(659.25f, e, e, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 80), // E5
+                        ToneSpec(783.99f, 2*e, e, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 80), // G5
+                        ToneSpec(987.77f, 3*e, e, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 80), // B5
+                        ToneSpec(1174.66f, 4*e, q, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 150), // D6
+                        ToneSpec(987.77f, 4*e+q, e, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 80),
+                        ToneSpec(783.99f, 4*e+q+e, e, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 80),
+                        ToneSpec(659.25f, 4*e+q+2*e, h, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 150)
                     ), TimbreRef.FM_BELL_ZUN1),
                     harmony = Lane(emptyList(), TimbreRef.SSG_HARMONY_SQUARE),
                     bass = Lane(listOf(
-                        ToneSpec(116f, 0, q, 0.5f * volume, "pulse12", true, 5, 20, 0.3f, 30),
-                        ToneSpec(116f, q, q, 0.5f * volume, "pulse12", true, 5, 20, 0.3f, 30),
-                        ToneSpec(174f, 2*q, q, 0.5f * volume, "pulse12", true, 5, 20, 0.3f, 30)
+                        ToneSpec(130.81f, 0, 4*e+q+2*e+h, 0.6f * volume, "pulse12", true, 10, 40, 0.6f, 100) // C3 bass sustaining
                     ), TimbreRef.FM_BASS_ZUN1),
-                    percussion = Lane(listOf(
-                        ToneSpec(8000f, q, e, 0.3f * volume, "hat", false),
-                        ToneSpec(8000f, 2*q+q, e, 0.3f * volume, "hat", false)
-                    ), TimbreRef.DRUM_HAT),
-                    tempoBpm = 90f,
-                    keyRootMidi = 70
+                    percussion = Lane(emptyList(), TimbreRef.DRUM_HAT),
+                    tempoBpm = 120f,
+                    keyRootMidi = 60
                 )
             }
             "synth-victory" -> {
-                val e = 250
-                val q = 500
-                val h = 1000
+                val e = 150
+                val q = 300
+                val h = 600
                 ArrangementLanes(
-                    lead = Lane(
-                        listOf(
-                            ToneSpec(523f, 0, e, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 50),
-                            ToneSpec(659f, e, e, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 50),
-                            ToneSpec(784f, 2*e, q, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 50),
-                            ToneSpec(1046f, 2*e+q, h, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 100)
-                        ),
-                        TimbreRef.FM_LEAD_ZUN1
-                    ),
+                    lead = Lane(listOf(
+                        ToneSpec(523.25f, 0, e, 0.8f * volume, "pulse25", true, 5, 30, 0.6f, 80), // C5
+                        ToneSpec(523.25f, e, e, 0.8f * volume, "pulse25", true, 5, 30, 0.6f, 80), // C5
+                        ToneSpec(523.25f, 2*e, e, 0.8f * volume, "pulse25", true, 5, 30, 0.6f, 80), // C5
+                        ToneSpec(523.25f, 3*e, q, 0.8f * volume, "pulse25", true, 5, 30, 0.6f, 100), // C5
+                        
+                        ToneSpec(415.30f, 3*e+q, q, 0.8f * volume, "pulse25", true, 5, 30, 0.6f, 100), // Ab4
+                        ToneSpec(466.16f, 3*e+2*q, q, 0.8f * volume, "pulse25", true, 5, 30, 0.6f, 100), // Bb4
+                        
+                        ToneSpec(523.25f, 3*e+3*q, h, 0.8f * volume, "pulse25", true, 5, 30, 0.6f, 150) // C5
+                    ), TimbreRef.FM_LEAD_ZUN1),
                     harmony = Lane(emptyList(), TimbreRef.SSG_HARMONY_SQUARE),
                     bass = Lane(listOf(
-                        ToneSpec(130f, 0, q, 0.5f * volume, "pulse12", true, 5, 20, 0.5f, 30),
-                        ToneSpec(130f, q, q, 0.5f * volume, "pulse12", true, 5, 20, 0.5f, 30),
-                        ToneSpec(196f, 2*q, q, 0.5f * volume, "pulse12", true, 5, 20, 0.5f, 30),
-                        ToneSpec(261f, 2*q+q, q, 0.5f * volume, "pulse12", true, 5, 20, 0.5f, 30)
+                        ToneSpec(130.81f, 0, e, 0.6f * volume, "pulse12", true, 5, 20, 0.5f, 50), // C3
+                        ToneSpec(130.81f, e, e, 0.6f * volume, "pulse12", true, 5, 20, 0.5f, 50),
+                        ToneSpec(130.81f, 2*e, e, 0.6f * volume, "pulse12", true, 5, 20, 0.5f, 50),
+                        ToneSpec(130.81f, 3*e, q, 0.6f * volume, "pulse12", true, 5, 20, 0.5f, 50),
+                        
+                        ToneSpec(103.83f, 3*e+q, q, 0.6f * volume, "pulse12", true, 5, 20, 0.5f, 50), // Ab2
+                        ToneSpec(116.54f, 3*e+2*q, q, 0.6f * volume, "pulse12", true, 5, 20, 0.5f, 50), // Bb2
+                        
+                        ToneSpec(130.81f, 3*e+3*q, h, 0.6f * volume, "pulse12", true, 5, 20, 0.5f, 80) // C3
                     ), TimbreRef.FM_BASS_ZUN1),
                     percussion = Lane(listOf(
-                        ToneSpec(-1f, 0, q, 0.5f * volume, "kick", false),
-                        ToneSpec(3000f, 2*q, q, 0.4f * volume, "snare", false)
+                        ToneSpec(-1f, 0, e, 0.5f * volume, "kick", false),
+                        ToneSpec(-1f, 2*e, e, 0.5f * volume, "kick", false),
+                        ToneSpec(3000f, 3*e, q, 0.4f * volume, "snare", false),
+                        ToneSpec(-1f, 3*e+q, q, 0.5f * volume, "kick", false),
+                        ToneSpec(3000f, 3*e+2*q, q, 0.4f * volume, "snare", false)
                     ), TimbreRef.DRUM_HAT),
                     tempoBpm = 120f,
                     keyRootMidi = 60
@@ -200,6 +219,7 @@ object SoundMelodies {
                 )
             }
             "synth-bad-apple-LotusLandStory" -> buildBadAppleLotusLandStory(volume)
+            MmlSongBank.SENBONZAKURA_DEMO_KEY -> MmlSongBank.getArrangement(key, volume)
             else -> null
         }
     }
@@ -330,8 +350,8 @@ object SoundMelodies {
         return result
     }
 
-    private fun buildBadAppleLead(vol: Float, e: Int, q: Int, s: Int): Lane {
-        val notes = listOf(
+    private fun getBadAppleLeadNotes(e: Int): List<Pair<Float, Int>> {
+        return listOf(
             Bb4 to e, Bb4 to e, B4 to e, Bb4 to e,
             Ab4 to e, Gb4 to e, F4 to e, Eb4 to e,
             Eb4 to e, F4 to e, Gb4 to e, Ab4 to e,
@@ -368,36 +388,25 @@ object SoundMelodies {
             F4 to e, Gb4 to e, Ab4 to e, Gb4 to e,
             F4 to e, Eb4 to e, Db4 to e, Eb4 to e
         )
-        return Lane(
-            buildChannel(notes, 0.7f * vol, "pulse25",
-                attackMs = 10, decayMs = 50, sustainLevel = 0.7f, releaseMs = 80),
-            TimbreRef.FM_LEAD_ZUN1
-        )
     }
 
-    private fun buildBadAppleHarmony(vol: Float, e: Int, q: Int): Lane {
+    private fun getBadAppleHarmonyNotes(q: Int): List<Pair<Float, Int>> {
         val ebmArp = listOf(Eb3 to q, Gb3 to q, Bb3 to q, Gb3 to q)
         val cbArp  = listOf(B3 to q, Eb4 to q, Gb4 to q, Eb4 to q)
         val dbArp  = listOf(Db4 to q, F4 to q, Ab4 to q, F4 to q)
         val ebmArp2 = listOf(Eb3 to q, Bb3 to q, Gb3 to q, Bb3 to q)
 
-        val notes = repeatBar(ebmArp, 1) + repeatBar(cbArp, 1) +
-                    repeatBar(dbArp, 1) + repeatBar(ebmArp2, 1) +
-                    repeatBar(ebmArp, 1) + repeatBar(cbArp, 1) +
-                    repeatBar(dbArp, 1) + repeatBar(ebmArp2, 1) +
-                    repeatBar(ebmArp, 1) + repeatBar(cbArp, 1) +
-                    repeatBar(dbArp, 1) + repeatBar(ebmArp2, 1) +
-                    repeatBar(ebmArp, 1) + repeatBar(cbArp, 1) +
-                    repeatBar(dbArp, 1) + repeatBar(ebmArp2, 1)
-
-        return Lane(
-            buildChannel(notes, 0.35f * vol, "square",
-                attackMs = 15, decayMs = 30, sustainLevel = 0.5f, releaseMs = 60),
-            TimbreRef.SSG_HARMONY_SQUARE
-        )
+        return repeatBar(ebmArp, 1) + repeatBar(cbArp, 1) +
+               repeatBar(dbArp, 1) + repeatBar(ebmArp2, 1) +
+               repeatBar(ebmArp, 1) + repeatBar(cbArp, 1) +
+               repeatBar(dbArp, 1) + repeatBar(ebmArp2, 1) +
+               repeatBar(ebmArp, 1) + repeatBar(cbArp, 1) +
+               repeatBar(dbArp, 1) + repeatBar(ebmArp2, 1) +
+               repeatBar(ebmArp, 1) + repeatBar(cbArp, 1) +
+               repeatBar(dbArp, 1) + repeatBar(ebmArp2, 1)
     }
 
-    private fun buildBadAppleBass(vol: Float, e: Int): Lane {
+    private fun getBadAppleBassNotes(e: Int): List<Pair<Float, Int>> {
         val ebmBass = listOf(Eb2 to e, Eb2 to e, Eb2 to e, Eb2 to e,
                              Eb2 to e, Eb3 to e, Eb2 to e, Eb3 to e)
         val cbBass  = listOf(B2 to e, B2 to e, B2 to e, B2 to e,
@@ -408,8 +417,29 @@ object SoundMelodies {
                                Eb2 to e, Eb2 to e, Eb3 to e, Eb2 to e)
 
         val oneCycle = ebmBass + cbBass + dbBass + ebmBass2
-        val notes = repeatBar(oneCycle, 4)
+        return repeatBar(oneCycle, 4)
+    }
 
+    private fun buildBadAppleLead(vol: Float, e: Int, q: Int, s: Int): Lane {
+        val notes = getBadAppleLeadNotes(e)
+        return Lane(
+            buildChannel(notes, 0.7f * vol, "pulse25",
+                attackMs = 10, decayMs = 50, sustainLevel = 0.7f, releaseMs = 80),
+            TimbreRef.FM_LEAD_ZUN1
+        )
+    }
+
+    private fun buildBadAppleHarmony(vol: Float, e: Int, q: Int): Lane {
+        val notes = getBadAppleHarmonyNotes(q)
+        return Lane(
+            buildChannel(notes, 0.35f * vol, "square",
+                attackMs = 15, decayMs = 30, sustainLevel = 0.5f, releaseMs = 60),
+            TimbreRef.SSG_HARMONY_SQUARE
+        )
+    }
+
+    private fun buildBadAppleBass(vol: Float, e: Int): Lane {
+        val notes = getBadAppleBassNotes(e)
         return Lane(
             buildChannel(notes, 0.5f * vol, "triangle",
                 attackMs = 5, decayMs = 20, sustainLevel = 0.8f, releaseMs = 30),
@@ -551,24 +581,35 @@ object SoundMelodies {
     // ================================================================
 
     private const val BA_LLS_BPM = 160.73f
-    private const val BA_LLS_TOTAL_BARS = 40
-
     private fun buildBadAppleLotusLandStory(vol: Float): ArrangementLanes {
+        val e = 186
+        val q = 373
+        val s = 93
+
+        val leadNotes16 = getBadAppleLeadNotes(e)
+        val harmonyNotes16 = getBadAppleHarmonyNotes(q)
+        val bassNotes16 = getBadAppleBassNotes(e)
+
+        val leadNotes40 = leadNotes16 + leadNotes16 + leadNotes16.take(64)
+        val harmonyNotes40 = harmonyNotes16 + harmonyNotes16 + harmonyNotes16.take(32)
+        val bassNotes40 = bassNotes16 + bassNotes16 + bassNotes16.take(64)
+
+        val kickBeats = badAppleKickBeats(40)
+        val hiHat = 8000f
         val spec = SongSpec(bpm = BA_LLS_BPM, beatsPerBar = 4)
-        
         val introBars = 0
         val aBars = 8
         val bBars = 16
         val chorusBars = 16
-        
+
         val aStart = introBars
         val bStart = introBars + aBars
         val chorusStart = introBars + aBars + bBars
 
-        val leadNotes = buildLlsLead(spec, vol, aStart, bStart, chorusStart)
-        val harmonyNotes = buildLlsHarmony(spec, vol, aStart, bStart, chorusStart)
-        val bassNotes = buildLlsBass(spec, vol, aStart, bStart, chorusStart)
-        val drumNotes = buildLlsDrums(spec, vol)
+        val leadNotes = compileLlsNotes(spec, buildLlsLeadSpecs(vol, aStart, bStart, chorusStart))
+        val harmonyNotes = compileLlsNotes(spec, buildLlsHarmonySpecs(vol, aStart, bStart, chorusStart))
+        val bassNotes = compileLlsNotes(spec, buildLlsBassSpecs(vol, aStart, bStart, chorusStart))
+        val drumNotes = compileLlsNotes(spec, buildLlsDrumsSpecs(vol))
 
         return ArrangementLanes(
             lead = Lane(leadNotes, TimbreRef.FM_LLS_AT54, LaneMode.MONO_RETRIGGER),
@@ -580,319 +621,260 @@ object SoundMelodies {
         )
     }
 
-    private fun buildLlsLead(spec: SongSpec, vol: Float, aStart: Int, bStart: Int, chorusStart: Int): List<ToneSpec> {
-        val notes = mutableListOf<NoteSpec>()
-        
-        // A section (bars 0-7): E♭m melody
-        // Bar 0-1: E♭m phrase
-        notes.add(NoteSpec(aStart, 0, midi = 75, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25")) // Eb4
-        notes.add(NoteSpec(aStart, 1, midi = 75, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        notes.add(NoteSpec(aStart, 2, midi = 76, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25")) // B4 (not in scale, passing tone)
-        notes.add(NoteSpec(aStart, 3, midi = 75, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        
-        notes.add(NoteSpec(aStart + 1, 0, midi = 72, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25")) // Ab4
-        notes.add(NoteSpec(aStart + 1, 1, midi = 70, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25")) // Gb4
-        notes.add(NoteSpec(aStart + 1, 2, midi = 69, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25")) // F4
-        notes.add(NoteSpec(aStart + 1, 3, midi = 67, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25")) // Eb4
-        
-        // Bar 2-3: C♭ → D♭ Ddim
-        notes.add(NoteSpec(aStart + 2, 0, midi = 67, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        notes.add(NoteSpec(aStart + 2, 1, midi = 69, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        notes.add(NoteSpec(aStart + 2, 2, midi = 70, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        notes.add(NoteSpec(aStart + 2, 3, midi = 72, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        
-        notes.add(NoteSpec(aStart + 3, 0, midi = 70, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        notes.add(NoteSpec(aStart + 3, 1, midi = 69, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        notes.add(NoteSpec(aStart + 3, 2, midi = 67, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        notes.add(NoteSpec(aStart + 3, 3, midi = 65, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25")) // F4
-        
-        // Bar 4-5: E♭m → E♭m-D♭
-        notes.add(NoteSpec(aStart + 4, 0, midi = 70, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        notes.add(NoteSpec(aStart + 4, 1, midi = 70, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        notes.add(NoteSpec(aStart + 4, 2, midi = 72, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        notes.add(NoteSpec(aStart + 4, 3, midi = 70, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        
-        notes.add(NoteSpec(aStart + 5, 0, midi = 69, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        notes.add(NoteSpec(aStart + 5, 1, midi = 67, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        notes.add(NoteSpec(aStart + 5, 2, midi = 65, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        notes.add(NoteSpec(aStart + 5, 3, midi = 63, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25")) // Eb4
-        
-        // Bar 6-7: C♭ → D♭ Ddim
-        notes.add(NoteSpec(aStart + 6, 0, midi = 67, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        notes.add(NoteSpec(aStart + 6, 1, midi = 69, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        notes.add(NoteSpec(aStart + 6, 2, midi = 70, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        notes.add(NoteSpec(aStart + 6, 3, midi = 72, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        
-        notes.add(NoteSpec(aStart + 7, 0, midi = 70, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        notes.add(NoteSpec(aStart + 7, 1, midi = 69, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        notes.add(NoteSpec(aStart + 7, 2, midi = 67, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        notes.add(NoteSpec(aStart + 7, 3, midi = 65, length = NoteLength.EIGHTH, velocity = 0.7f * vol, type = "pulse25"))
-        
-        // B section (bars 8-23): Higher energy
-        // Bar 8-11: C♭ | D♭ | E♭m | E♭m
-        notes.add(NoteSpec(bStart, 0, midi = 75, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25")) // Eb4
-        notes.add(NoteSpec(bStart, 2, midi = 77, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25")) // Bb4
-        notes.add(NoteSpec(bStart + 1, 0, midi = 74, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25")) // Db4
-        notes.add(NoteSpec(bStart + 1, 2, midi = 79, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25")) // Gb4
-        notes.add(NoteSpec(bStart + 2, 0, midi = 75, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 2, 2, midi = 79, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 3, 0, midi = 75, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 3, 2, midi = 79, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        
-        // Bar 12-15: C♭ | D♭ | E♭m | E♭m-D♭
-        notes.add(NoteSpec(bStart + 4, 0, midi = 75, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 4, 2, midi = 77, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 5, 0, midi = 74, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 5, 2, midi = 79, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 6, 0, midi = 75, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 6, 2, midi = 79, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 7, 0, midi = 75, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 7, 2, midi = 74, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25")) // Db4
-        
-        // Bar 16-19: repeat
-        notes.add(NoteSpec(bStart + 8, 0, midi = 75, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 8, 2, midi = 77, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 9, 0, midi = 74, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 9, 2, midi = 79, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 10, 0, midi = 75, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 10, 2, midi = 79, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 11, 0, midi = 75, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 11, 2, midi = 79, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        
-        // Bar 20-23: repeat with variation
-        notes.add(NoteSpec(bStart + 12, 0, midi = 75, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 12, 2, midi = 77, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 13, 0, midi = 74, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 13, 2, midi = 79, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 14, 0, midi = 75, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 14, 2, midi = 79, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 15, 0, midi = 75, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        notes.add(NoteSpec(bStart + 15, 2, midi = 74, length = NoteLength.QUARTER, velocity = 0.75f * vol, type = "pulse25"))
-        
-        // Chorus (bars 24-39): Key change to Gm, higher energy
-        // "E♭ F | Gm - - F" pattern repeats 7 times, then "E♭ F | Gm"
-        val chorusPattern = listOf(
-            NoteSpec(0, 0, midi = 83, length = NoteLength.EIGHTH, velocity = 0.8f * vol, type = "pulse25"), // Eb5
-            NoteSpec(0, 1, midi = 84, length = NoteLength.EIGHTH, velocity = 0.8f * vol, type = "pulse25"), // F5
-            NoteSpec(0, 2, midi = 83, length = NoteLength.EIGHTH, velocity = 0.8f * vol, type = "pulse25"),
-            NoteSpec(0, 3, midi = 82, length = NoteLength.EIGHTH, velocity = 0.8f * vol, type = "pulse25"), // Db5
-            NoteSpec(1, 0, midi = 79, length = NoteLength.EIGHTH, velocity = 0.8f * vol, type = "pulse25"), // Gb4
-            NoteSpec(1, 1, midi = 77, length = NoteLength.EIGHTH, velocity = 0.8f * vol, type = "pulse25"), // Bb4
-            NoteSpec(1, 2, midi = 79, length = NoteLength.EIGHTH, velocity = 0.8f * vol, type = "pulse25"),
-            NoteSpec(1, 3, midi = 84, length = NoteLength.EIGHTH, velocity = 0.8f * vol, type = "pulse25")  // F5
-        )
-        
-        var chorusBar = 0
-        while (chorusBar < 14) {
-            for (patternNote in chorusPattern) {
-                notes.add(patternNote.copy(bar = chorusStart + chorusBar + patternNote.bar))
-            }
-            chorusBar += 2
+    private const val mEb2 = 39
+    private const val mG2 = 43
+    private const val mBb2 = 46
+    private const val mB2 = 47
+    private const val mDb3 = 49
+    private const val mD3 = 50
+    private const val mEb3 = 51
+    private const val mF3 = 53
+    private const val mGb3 = 54
+    private const val mG3 = 55
+    private const val mAb3 = 56
+    private const val mA3 = 57
+    private const val mBb3 = 58
+    private const val mB3 = 59
+    private const val mC4 = 60
+    private const val mDb4 = 61
+    private const val mD4 = 62
+    private const val mEb4 = 63
+    private const val mF4 = 65
+    private const val mGb4 = 66
+    private const val mG4 = 67
+    private const val mAb4 = 68
+    private const val mA4 = 69
+    private const val mBb4 = 70
+    private const val mB4 = 71
+    private const val mC5 = 72
+    private const val mDb5 = 73
+    private const val mD5 = 74
+    private const val mEb5 = 75
+    private const val mF5 = 77
+    private const val mGb5 = 78
+    private const val mG5 = 79
+    private const val mAb5 = 80
+    private const val mA5 = 81
+    private const val mBb5 = 82
+    private const val mB5 = 83
+    private const val mC6 = 84
+    private const val mDb6 = 85
+    private const val mD6 = 86
+    private const val mEb6 = 87
+
+    private fun MutableList<NoteSpec>.addEighths(bar: Int, notes: List<Int>, vol: Float) {
+        var i = 0
+        while (i < notes.size && i < 8) {
+            val beat = i / 2
+            val tick = if (i % 2 == 0) 0 else 240
+            val midi = notes[i]
+            this.add(
+                NoteSpec(
+                    bar = bar, beat = beat, tick = tick, midi = midi,
+                    length = NoteLength.EIGHTH, velocity = vol, releaseMs = 30
+                )
+            )
+            i++
         }
-        
-        // Final 2 bars: E♭ F | Gm
-        notes.add(NoteSpec(chorusStart + 14, 0, midi = 83, length = NoteLength.EIGHTH, velocity = 0.8f * vol, type = "pulse25"))
-        notes.add(NoteSpec(chorusStart + 14, 1, midi = 84, length = NoteLength.EIGHTH, velocity = 0.8f * vol, type = "pulse25"))
-        notes.add(NoteSpec(chorusStart + 14, 2, midi = 83, length = NoteLength.EIGHTH, velocity = 0.8f * vol, type = "pulse25"))
-        notes.add(NoteSpec(chorusStart + 14, 3, midi = 82, length = NoteLength.EIGHTH, velocity = 0.8f * vol, type = "pulse25"))
-        notes.add(NoteSpec(chorusStart + 15, 0, midi = 79, length = NoteLength.QUARTER, velocity = 0.8f * vol, type = "pulse25"))
-        notes.add(NoteSpec(chorusStart + 15, 2, midi = 77, length = NoteLength.QUARTER, velocity = 0.8f * vol, type = "pulse25"))
-        
-        return compileNotes(spec, notes)
     }
 
-    private fun buildLlsHarmony(spec: SongSpec, vol: Float, aStart: Int, bStart: Int, chorusStart: Int): List<ToneSpec> {
-        val notes = mutableListOf<NoteSpec>()
-        
-        // A section: SSG square arpeggios
-        // Bar 0-1: E♭m arp
-        notes.add(NoteSpec(aStart, 0, midi = 63, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square")) // Eb3
-        notes.add(NoteSpec(aStart, 1, midi = 67, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square")) // Gb3
-        notes.add(NoteSpec(aStart, 2, midi = 70, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square")) // Bb3
-        notes.add(NoteSpec(aStart, 3, midi = 75, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square")) // Eb4
-        
-        notes.add(NoteSpec(aStart + 1, 0, midi = 63, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-        notes.add(NoteSpec(aStart + 1, 1, midi = 67, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-        notes.add(NoteSpec(aStart + 1, 2, midi = 70, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-        notes.add(NoteSpec(aStart + 1, 3, midi = 75, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-        
-        // Bar 2: C♭ arp
-        notes.add(NoteSpec(aStart + 2, 0, midi = 71, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square")) // B3
-        notes.add(NoteSpec(aStart + 2, 1, midi = 74, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square")) // D4
-        notes.add(NoteSpec(aStart + 2, 2, midi = 77, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square")) // F4
-        notes.add(NoteSpec(aStart + 2, 3, midi = 83, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square")) // B4
-        
-        // Bar 3: D♭ Ddim
-        notes.add(NoteSpec(aStart + 3, 0, midi = 73, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square")) // Db4
-        notes.add(NoteSpec(aStart + 3, 1, midi = 77, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square")) // F4
-        notes.add(NoteSpec(aStart + 3, 2, midi = 80, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square")) // Ab4
-        notes.add(NoteSpec(aStart + 3, 3, midi = 85, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square")) // Db5
-        
-        // Continue pattern for remaining A section bars
-        notes.add(NoteSpec(aStart + 4, 0, midi = 63, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-        notes.add(NoteSpec(aStart + 4, 1, midi = 67, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-        notes.add(NoteSpec(aStart + 4, 2, midi = 70, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-        notes.add(NoteSpec(aStart + 4, 3, midi = 75, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-        
-        notes.add(NoteSpec(aStart + 5, 0, midi = 63, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-        notes.add(NoteSpec(aStart + 5, 1, midi = 67, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-        notes.add(NoteSpec(aStart + 5, 2, midi = 70, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-        notes.add(NoteSpec(aStart + 5, 3, midi = 73, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square")) // Db4
-        
-        notes.add(NoteSpec(aStart + 6, 0, midi = 71, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-        notes.add(NoteSpec(aStart + 6, 1, midi = 74, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-        notes.add(NoteSpec(aStart + 6, 2, midi = 77, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-        notes.add(NoteSpec(aStart + 6, 3, midi = 83, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-        
-        notes.add(NoteSpec(aStart + 7, 0, midi = 73, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-        notes.add(NoteSpec(aStart + 7, 1, midi = 77, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-        notes.add(NoteSpec(aStart + 7, 2, midi = 80, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-        notes.add(NoteSpec(aStart + 7, 3, midi = 85, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-        
-        // B section: Continue arpeggios
-        var bBar = 0
-        while (bBar < 16) {
-            val barChord = bBar % 4
-            val baseMidi = when (barChord) {
-                0 -> 71 // C♭
-                1 -> 73 // D♭
-                2 -> 63 // E♭m
-                else -> 63 // E♭m
-            }
-            notes.add(NoteSpec(bStart + bBar, 0, midi = baseMidi, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-            notes.add(NoteSpec(bStart + bBar, 1, midi = baseMidi + 4, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-            notes.add(NoteSpec(bStart + bBar, 2, midi = baseMidi + 7, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-            notes.add(NoteSpec(bStart + bBar, 3, midi = baseMidi + 12, length = NoteLength.EIGHTH, velocity = 0.35f * vol, type = "square"))
-            bBar++
+    private fun MutableList<NoteSpec>.addChord(bar: Int, beat: Int, notes: List<Int>, length: NoteLength, vol: Float) {
+        var i = 0
+        while (i < notes.size) {
+            this.add(
+                NoteSpec(
+                    bar = bar, beat = beat, tick = 0, midi = notes[i],
+                    length = length, velocity = vol, releaseMs = 40
+                )
+            )
+            i++
         }
-        
-        // Chorus: SSG harmony in Gm
-        val chorusArp = listOf(
-            NoteSpec(0, 0, midi = 67, length = NoteLength.EIGHTH, velocity = 0.4f * vol, type = "square"), // G3
-            NoteSpec(0, 1, midi = 70, length = NoteLength.EIGHTH, velocity = 0.4f * vol, type = "square"), // Bb3
-            NoteSpec(0, 2, midi = 74, length = NoteLength.EIGHTH, velocity = 0.4f * vol, type = "square"), // D4
-            NoteSpec(0, 3, midi = 79, length = NoteLength.EIGHTH, velocity = 0.4f * vol, type = "square")  // Gb4
-        )
-        
-        var chorusBar = 0
-        while (chorusBar < 16) {
-            for (patternNote in chorusArp) {
-                notes.add(patternNote.copy(bar = chorusStart + chorusBar + patternNote.bar))
-            }
-            chorusBar++
-        }
-        
-        return compileNotes(spec, notes)
     }
 
-    private fun buildLlsBass(spec: SongSpec, vol: Float, aStart: Int, bStart: Int, chorusStart: Int): List<ToneSpec> {
-        val notes = mutableListOf<NoteSpec>()
-        
-        // A section: FM bass
-        // Bar 0-1: E♭m bass
-        notes.add(NoteSpec(aStart, 0, midi = 51, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12")) // Eb2
-        notes.add(NoteSpec(aStart, 1, midi = 51, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        notes.add(NoteSpec(aStart, 2, midi = 58, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12")) // Bb2
-        notes.add(NoteSpec(aStart, 3, midi = 58, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        
-        notes.add(NoteSpec(aStart + 1, 0, midi = 51, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        notes.add(NoteSpec(aStart + 1, 1, midi = 51, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        notes.add(NoteSpec(aStart + 1, 2, midi = 58, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        notes.add(NoteSpec(aStart + 1, 3, midi = 56, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12")) // Gb2
-        
-        // Bar 2: C♭ bass
-        notes.add(NoteSpec(aStart + 2, 0, midi = 59, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12")) // B2
-        notes.add(NoteSpec(aStart + 2, 1, midi = 59, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        notes.add(NoteSpec(aStart + 2, 2, midi = 65, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12")) // F2
-        notes.add(NoteSpec(aStart + 2, 3, midi = 65, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        
-        // Bar 3: D♭ bass
-        notes.add(NoteSpec(aStart + 3, 0, midi = 49, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12")) // Db2
-        notes.add(NoteSpec(aStart + 3, 1, midi = 49, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        notes.add(NoteSpec(aStart + 3, 2, midi = 56, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12")) // Ab2
-        notes.add(NoteSpec(aStart + 3, 3, midi = 56, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        
-        // Continue for remaining A section
-        notes.add(NoteSpec(aStart + 4, 0, midi = 51, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        notes.add(NoteSpec(aStart + 4, 1, midi = 51, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        notes.add(NoteSpec(aStart + 4, 2, midi = 58, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        notes.add(NoteSpec(aStart + 4, 3, midi = 58, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        
-        notes.add(NoteSpec(aStart + 5, 0, midi = 51, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        notes.add(NoteSpec(aStart + 5, 1, midi = 51, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        notes.add(NoteSpec(aStart + 5, 2, midi = 58, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        notes.add(NoteSpec(aStart + 5, 3, midi = 49, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        
-        notes.add(NoteSpec(aStart + 6, 0, midi = 59, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        notes.add(NoteSpec(aStart + 6, 1, midi = 59, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        notes.add(NoteSpec(aStart + 6, 2, midi = 65, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        notes.add(NoteSpec(aStart + 6, 3, midi = 65, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        
-        notes.add(NoteSpec(aStart + 7, 0, midi = 49, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        notes.add(NoteSpec(aStart + 7, 1, midi = 49, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        notes.add(NoteSpec(aStart + 7, 2, midi = 56, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        notes.add(NoteSpec(aStart + 7, 3, midi = 56, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-        
-        // B section
-        var bBar = 0
-        while (bBar < 16) {
-            val barChord = bBar % 4
-            val rootMidi = when (barChord) {
-                0 -> 59 // C♭
-                1 -> 49 // D♭
-                2 -> 51 // E♭m
-                else -> 51 // E♭m
-            }
-            notes.add(NoteSpec(bStart + bBar, 0, midi = rootMidi, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-            notes.add(NoteSpec(bStart + bBar, 1, midi = rootMidi, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-            notes.add(NoteSpec(bStart + bBar, 2, midi = rootMidi + 7, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-            notes.add(NoteSpec(bStart + bBar, 3, midi = rootMidi + 7, length = NoteLength.EIGHTH, velocity = 0.5f * vol, type = "pulse12"))
-            bBar++
-        }
-        
-        // Chorus: Gm bass
-        val chorusBass = listOf(
-            NoteSpec(0, 0, midi = 55, length = NoteLength.EIGHTH, velocity = 0.55f * vol, type = "pulse12"), // G2
-            NoteSpec(0, 1, midi = 62, length = NoteLength.EIGHTH, velocity = 0.55f * vol, type = "pulse12"), // D3
-            NoteSpec(0, 2, midi = 55, length = NoteLength.EIGHTH, velocity = 0.55f * vol, type = "pulse12"),
-            NoteSpec(0, 3, midi = 62, length = NoteLength.EIGHTH, velocity = 0.55f * vol, type = "pulse12")
+    private fun MutableList<NoteSpec>.addNote(bar: Int, beat: Int, tick: Int, midi: Int, length: NoteLength, vol: Float) {
+        this.add(
+            NoteSpec(
+                bar = bar, beat = beat, tick = tick, midi = midi,
+                length = length, velocity = vol, releaseMs = 30
+            )
         )
-        
-        var chorusBar = 0
-        while (chorusBar < 16) {
-            for (patternNote in chorusBass) {
-                notes.add(patternNote.copy(bar = chorusStart + chorusBar + patternNote.bar))
-            }
-            chorusBar++
-        }
-        
-        return compileNotes(spec, notes)
     }
 
-    private fun buildLlsDrums(spec: SongSpec, vol: Float): List<ToneSpec> {
+    private fun buildLlsLeadSpecs(vol: Float, aStart: Int, bStart: Int, chorusStart: Int): List<NoteSpec> {
         val notes = mutableListOf<NoteSpec>()
-        
+
+        // A section (bars 0-7): E♭m melody (True Bad Apple Verse hook)
         var bar = 0
-        while (bar < BA_LLS_TOTAL_BARS) {
-            // Kick on beats 1 and 3
+        while (bar < 8) {
+            val start = aStart + bar
+            if (bar % 4 == 0 || bar % 4 == 1) {
+                notes.addEighths(start, listOf(mBb4, mBb4, mB4, mBb4, mAb4, mGb4, mF4, mEb4), 0.75f * vol)
+            } else if (bar % 4 == 2) {
+                notes.addEighths(start, listOf(mEb4, mF4, mGb4, mAb4, mBb4, mAb4, mGb4, mF4), 0.75f * vol)
+            } else {
+                notes.addEighths(start, listOf(mGb4, mGb4, mAb4, mGb4, mF4, mEb4, mDb4, mEb4), 0.75f * vol)
+            }
+            bar++
+        }
+
+        // B section (bars 8-23): Pre-chorus bridge
+        var b = 0
+        while (b < 16) {
+            val start = bStart + b
+            val phrase = b % 8
+            if (phrase == 0 || phrase == 4) {
+                notes.addNote(start, 0, 0, mEb5, NoteLength.HALF, 0.75f * vol)
+                notes.addNote(start, 2, 0, mF5,  NoteLength.HALF, 0.75f * vol)
+            } else if (phrase == 1 || phrase == 5) {
+                notes.addNote(start, 0, 0, mGb5, NoteLength.HALF, 0.75f * vol)
+                notes.addNote(start, 2, 0, mAb5, NoteLength.HALF, 0.75f * vol)
+            } else if (phrase == 2 || phrase == 6) {
+                notes.addNote(start, 0, 0, mBb5, NoteLength.WHOLE, 0.75f * vol)
+            } else if (phrase == 3) {
+                notes.addNote(start, 0, 0, mBb5, NoteLength.HALF, 0.75f * vol)
+                notes.addNote(start, 2, 0, mAb5, NoteLength.QUARTER, 0.75f * vol)
+                notes.addNote(start, 3, 0, mGb5, NoteLength.QUARTER, 0.75f * vol)
+            } else {
+                notes.addNote(start, 0, 0, mBb5, NoteLength.HALF, 0.75f * vol)
+                notes.addNote(start, 2, 0, mB5,  NoteLength.HALF, 0.75f * vol)
+            }
+            b++
+        }
+
+        // Chorus section (bars 24-39): Gm hook
+        var cBar = 0
+        while (cBar < 16) {
+            val start = chorusStart + cBar
+            val phrase = cBar % 4
+            if (phrase == 0 || phrase == 2) {
+                notes.addEighths(start, listOf(mD5, mD5, mEb5, mD5, mC5, mBb4, mA4, mG4), 0.8f * vol)
+            } else if (phrase == 1) {
+                notes.addEighths(start, listOf(mG4, mA4, mBb4, mC5, mD5, mC5, mBb4, mA4), 0.8f * vol)
+            } else {
+                notes.addEighths(start, listOf(mBb4, mBb4, mC5, mBb4, mA4, mG4, mF4, mG4), 0.8f * vol)
+            }
+            cBar++
+        }
+
+        return notes
+    }
+
+    private fun buildLlsHarmonySpecs(vol: Float, aStart: Int, bStart: Int, chorusStart: Int): List<NoteSpec> {
+        val notes = mutableListOf<NoteSpec>()
+
+        // A section (bars 0-7)
+        var bar = 0
+        while (bar < 8) {
+            val start = aStart + bar
+            if (bar % 4 == 0 || bar % 4 == 1) {
+                notes.addChord(start, 0, listOf(mEb3, mGb3, mBb3), NoteLength.HALF, 0.35f * vol)
+                notes.addChord(start, 2, listOf(mEb3, mGb3, mBb3), NoteLength.HALF, 0.35f * vol)
+            } else if (bar % 4 == 2) {
+                notes.addChord(start, 0, listOf(mB2, mEb3, mGb3), NoteLength.HALF, 0.35f * vol)
+                notes.addChord(start, 2, listOf(mB2, mEb3, mGb3), NoteLength.HALF, 0.35f * vol)
+            } else {
+                notes.addChord(start, 0, listOf(mDb3, mF3, mAb3), NoteLength.HALF, 0.35f * vol)
+                notes.addChord(start, 2, listOf(mDb3, mF3, mAb3), NoteLength.HALF, 0.35f * vol)
+            }
+            bar++
+        }
+
+        // B section (bars 8-23)
+        var b = 0
+        while (b < 16) {
+            val start = bStart + b
+            val chord = b % 4
+            val base1 = if (chord == 0) mB2 else if (chord == 1) mDb3 else mEb3
+            val base2 = if (chord == 0) mEb3 else if (chord == 1) mF3 else mGb3
+            val base3 = if (chord == 0) mGb3 else if (chord == 1) mAb3 else mBb3
+
+            notes.addChord(start, 0, listOf(base1, base2, base3), NoteLength.HALF, 0.35f * vol)
+            notes.addChord(start, 2, listOf(base1, base2, base3), NoteLength.HALF, 0.35f * vol)
+            b++
+        }
+
+        // Chorus section (bars 24-39) in Gm
+        var cBar = 0
+        while (cBar < 16) {
+            val start = chorusStart + cBar
+            val phrase = cBar % 4
+            if (phrase == 0 || phrase == 2) {
+                notes.addChord(start, 0, listOf(mEb3, mG3, mBb3), NoteLength.HALF, 0.35f * vol)
+                notes.addChord(start, 2, listOf(mF3, mA3, mC4), NoteLength.HALF, 0.35f * vol)
+            } else {
+                notes.addChord(start, 0, listOf(mG3, mBb3, mD4), NoteLength.HALF, 0.35f * vol)
+                notes.addChord(start, 2, listOf(mF3, mA3, mC4), NoteLength.HALF, 0.35f * vol)
+            }
+            cBar++
+        }
+
+        return notes
+    }
+
+    private fun buildLlsBassSpecs(vol: Float, aStart: Int, bStart: Int, chorusStart: Int): List<NoteSpec> {
+        val notes = mutableListOf<NoteSpec>()
+
+        // A section (bars 0-7)
+        var bar = 0
+        while (bar < 8) {
+            val start = aStart + bar
+            val chord = bar % 4
+            val midi = if (chord == 0 || chord == 1) mEb2 else if (chord == 2) mB2 else mDb3
+            val fifth = if (chord == 0 || chord == 1) mBb2 else if (chord == 2) mGb3 else mAb3
+
+            notes.addEighths(start, listOf(midi, midi, fifth, fifth, midi, midi, fifth, fifth), 0.55f * vol)
+            bar++
+        }
+
+        // B section (bars 8-23)
+        var b = 0
+        while (b < 16) {
+            val start = bStart + b
+            val chord = b % 4
+            val midi = if (chord == 0) mB2 else if (chord == 1) mDb3 else mEb2
+            val fifth = if (chord == 0) mGb3 else if (chord == 1) mAb3 else mBb2
+
+            notes.addEighths(start, listOf(midi, midi, fifth, fifth, midi, midi, fifth, fifth), 0.55f * vol)
+            b++
+        }
+
+        // Chorus section (bars 24-39)
+        var cBar = 0
+        while (cBar < 16) {
+            val start = chorusStart + cBar
+            val chord = cBar % 4
+            if (chord == 0 || chord == 2) {
+                notes.addEighths(start, listOf(mEb2, mEb2, mF3, mF3, mEb2, mEb2, mF3, mF3), 0.55f * vol)
+            } else {
+                notes.addEighths(start, listOf(mG2, mG2, mD3, mD3, mG2, mG2, mD3, mD3), 0.55f * vol)
+            }
+            cBar++
+        }
+
+        return notes
+    }
+
+    private fun buildLlsDrumsSpecs(vol: Float): List<NoteSpec> {
+        val notes = mutableListOf<NoteSpec>()
+
+        var bar = 0
+        while (bar < 40) {
             notes.add(NoteSpec(bar, 0, midi = -1, length = NoteLength.QUARTER, velocity = 0.5f * vol, type = "kick"))
             notes.add(NoteSpec(bar, 2, midi = -1, length = NoteLength.QUARTER, velocity = 0.5f * vol, type = "kick"))
-            
-            // Snare on beats 2 and 4
+
             notes.add(NoteSpec(bar, 1, midi = 72, length = NoteLength.QUARTER, velocity = 0.4f * vol, type = "snare"))
             notes.add(NoteSpec(bar, 3, midi = 72, length = NoteLength.QUARTER, velocity = 0.4f * vol, type = "snare"))
-            
-            // Hi-hat on every eighth
+
             var beat = 0
             while (beat < 4) {
                 notes.add(NoteSpec(bar, beat, midi = 8000, length = NoteLength.EIGHTH, velocity = 0.3f * vol, type = "hat"))
                 notes.add(NoteSpec(bar, beat, tick = 240, midi = 8000, length = NoteLength.EIGHTH, velocity = 0.3f * vol, type = "hat"))
                 beat++
             }
-            
+
             bar++
         }
-        
-        return compileNotes(spec, notes)
+
+        return notes
     }
 }

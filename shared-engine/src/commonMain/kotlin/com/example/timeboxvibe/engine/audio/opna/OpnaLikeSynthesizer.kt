@@ -18,8 +18,8 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     private var filterStateL: Float = 0f
     private var filterStateR: Float = 0f
-    private val filterAlpha: Float = 0.15f
-    var enableOutputFilter: Boolean = false
+    var filterAlpha: Float = 0.50f
+    var enableOutputFilter: Boolean = true
 
     fun noteOnSsg(channel: Int, midi: Int) {
         if (channel in ssg.indices) {
@@ -306,6 +306,10 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                     val ch = nextEvent.channel
                     if (ch in ssg.indices) {
                         ssg[ch].duty = nextEvent.duty
+                        if (nextEvent.attack >= 0f) ssg[ch].env.attack = nextEvent.attack
+                        if (nextEvent.decay >= 0f) ssg[ch].env.decay = nextEvent.decay
+                        if (nextEvent.sustain >= 0f) ssg[ch].env.sustain = nextEvent.sustain
+                        if (nextEvent.release >= 0f) ssg[ch].env.release = nextEvent.release
                         ssg[ch].noteOn(midiToFreq(nextEvent.midi))
                         ssg[ch].noteGain = nextEvent.velocity
                         ssgActiveNoteId[ch] = nextEvent.noteId
@@ -407,6 +411,20 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         }
     }
 
+    private fun softClip(x: Float): Float {
+        val limit = 0.70f
+        val excessScale = 1.0f - limit
+        return if (x > limit) {
+            val diff = x - limit
+            limit + excessScale * (diff / (diff + excessScale))
+        } else if (x < -limit) {
+            val diff = -x - limit
+            -(limit + excessScale * (diff / (diff + excessScale)))
+        } else {
+            x
+        }
+    }
+
     private fun applyGainAndClamp(buffer: FloatArray, frames: Int) {
         val outputGain = AudioLaws.OPNA_OUTPUT_GAIN * OpnaAudioConstants.MASTER_GAIN
         var peak = 0f
@@ -422,7 +440,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             }
             val absX = if (filtered < 0f) -filtered else filtered
             if (absX > peak) peak = absX
-            buffer[i] = filtered.coerceIn(-1f, 1f)
+            buffer[i] = softClip(filtered)
             i++
         }
         preClampPeak = peak
@@ -451,7 +469,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             }
             val absX = if (filtered < 0f) -filtered else filtered
             if (absX > peak) peak = absX
-            stereoBuffer[i] = filtered.coerceIn(-1f, 1f)
+            stereoBuffer[i] = softClip(filtered)
             i++
         }
         preClampPeak = peak

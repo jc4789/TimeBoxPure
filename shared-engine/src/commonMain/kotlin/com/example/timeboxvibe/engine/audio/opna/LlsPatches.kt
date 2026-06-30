@@ -15,7 +15,7 @@ object LlsPatches {
         algorithm = 2, feedback = 2,
         op0 = OperatorSpec(mul = 1, detune = 0, tl = 2,  modulationIndex = 2.0f, attack = 0.001f, decay = 0.040f, sustain = 0.0f, release = 0.040f),
         op1 = OperatorSpec(mul = 2, detune = 0, tl = 8,  modulationIndex = 1.4f, attack = 0.001f, decay = 0.060f, sustain = 0.1f, release = 0.060f),
-        op2 = OperatorSpec(mul = 1, detune = 0, tl = 14, modulationIndex = 0f,   attack = 0.001f, decay = 0.300f, sustain = 0.0f, release = 0.300f),
+        op2 = OperatorSpec(mul = 1, detune = 0, tl = 14, modulationIndex = 1.0f, attack = 0.001f, decay = 0.300f, sustain = 0.0f, release = 0.300f),
         op3 = OperatorSpec(mul = 1, detune = 2, tl = 10, modulationIndex = 0f,   attack = 0.002f, decay = 0.400f, sustain = 0.0f, release = 0.400f),
         totalLevel = 0.50f,
         pms = 1, pan = 0
@@ -23,10 +23,10 @@ object LlsPatches {
 
     val At99 = FmPatch(
         algorithm = 1, feedback = 2,
-        op0 = OperatorSpec(mul = 1, detune = 0, tl = 0,  modulationIndex = 1.8f, attack = 0.002f, decay = 0.025f, sustain = 0.0f, release = 0.020f),
-        op1 = OperatorSpec(mul = 1, detune = 3, tl = 14, modulationIndex = 1.2f, attack = 0.002f, decay = 0.035f, sustain = 0.0f, release = 0.025f),
-        op2 = OperatorSpec(mul = 1, detune = 0, tl = 10, modulationIndex = 0f,   attack = 0.002f, decay = 0.045f, sustain = 0.0f, release = 0.040f),
-        op3 = OperatorSpec(mul = 1, detune = 0, tl = 16, modulationIndex = 0f,   attack = 0.002f, decay = 0.055f, sustain = 0.0f, release = 0.045f),
+        op0 = OperatorSpec(mul = 1, detune = 0, tl = 0,  modulationIndex = 1.8f, attack = 0.002f, decay = 0.025f, sustain = 0.5f, release = 0.020f),
+        op1 = OperatorSpec(mul = 1, detune = 3, tl = 14, modulationIndex = 1.2f, attack = 0.002f, decay = 0.035f, sustain = 0.4f, release = 0.025f),
+        op2 = OperatorSpec(mul = 1, detune = 0, tl = 10, modulationIndex = 1.5f, attack = 0.002f, decay = 0.045f, sustain = 0.4f, release = 0.040f),
+        op3 = OperatorSpec(mul = 1, detune = 0, tl = 16, modulationIndex = 0f,   attack = 0.002f, decay = 0.055f, sustain = 0.75f, release = 0.080f),
         totalLevel = 0.45f,
         pms = 1, pan = 0
     )

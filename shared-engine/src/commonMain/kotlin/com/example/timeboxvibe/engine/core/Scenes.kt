@@ -2,6 +2,7 @@ package com.example.timeboxvibe.engine.core
 
 import com.example.timeboxvibe.engine.AppStrings
 import com.example.timeboxvibe.engine.getStrings
+import com.example.timeboxvibe.engine.audio.mml.MmlSongBank
 import kotlin.math.roundToInt
 import kotlin.math.abs
 
@@ -2092,8 +2093,8 @@ object SettingsScene : Scene {
 
     private val languages = arrayOf("en", "zh", "ja")
 
-    private val soundKeys = arrayOf("synth-chime", "synth-victory", "oriental", "synth-bad-apple", "synth-senbonzakura", "synth-bad-apple-LotusLandStory")
-    private val soundNames = arrayOf("ZEN CHIME", "VICTORY", "ORIENTAL", "BAD APPLE", "SENBONZAKURA", "Bad Apple!!(東方幻想郷)")
+    private val soundKeys = arrayOf("synth-chime", "synth-victory", "oriental", "synth-bad-apple", "synth-senbonzakura", "synth-bad-apple-LotusLandStory", MmlSongBank.SENBONZAKURA_DEMO_KEY)
+    private val soundNames = arrayOf("ZEN CHIME", "VICTORY", "ORIENTAL", "BAD APPLE", "SENBONZAKURA", "Bad Apple!!(東方幻想郷)", "SENBON MML DEMO")
 
     private val themes = arrayOf("reimu", "marisa", "alice", "kaguya")
 
