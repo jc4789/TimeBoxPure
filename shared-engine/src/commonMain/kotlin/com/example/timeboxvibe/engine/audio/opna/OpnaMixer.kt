@@ -5,8 +5,8 @@ import kotlin.math.pow
 
 internal class OpnaMixer(sampleRate: Int) {
     private val ssgGainLinear: Float = 10f.pow(AudioLaws.SSG_GAIN_DB / 20f)
-    private val fmGainLinear: Float = 1f
-    private val rhythmGainLinear: Float = 1f
+    private val fmGainLinear: Float = AudioLaws.FM_BUS_GAIN
+    private val rhythmGainLinear: Float = AudioLaws.RHYTHM_BUS_GAIN
 
     val ssgGain: Float get() = ssgGainLinear
     val fmGain: Float get() = fmGainLinear

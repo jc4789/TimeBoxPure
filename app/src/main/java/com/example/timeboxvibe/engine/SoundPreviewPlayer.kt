@@ -486,7 +486,6 @@ object SoundPreviewPlayer {
             val shortBuffer = ShortArray(chunkSize)
             var currentSampleOffset = 0L
             val songLenSamples = sequencer.loopLengthSamples()
-            var lastWrappedOffset = 0L
             var lastUnderrunCount = 0
 
             try {
@@ -499,24 +498,34 @@ object SoundPreviewPlayer {
                         break
                     }
 
-                    var renderOffset = currentSampleOffset
-                    if (shouldLoop && songLenSamples > 0L) {
-                        renderOffset = currentSampleOffset % songLenSamples
-                        if (renderOffset < lastWrappedOffset) {
-                            sequencer.nextEventIdx = 0
-                            synth.allNotesOff()
-                        }
-                        lastWrappedOffset = renderOffset
-                    }
-
-                    synth.render(floatBuffer, chunkSize, sequencer, renderOffset)
-
-                    var k = 0
+                    val looping = shouldLoop && songLenSamples > 0L
+                    var renderOffset = if (looping) currentSampleOffset % songLenSamples else currentSampleOffset
+                    var framesFilled = 0
                     val totalSamples = chunkSize
-                    while (k < totalSamples) {
-                        val f = floatBuffer[k]
-                        shortBuffer[k] = (f * 32767f).coerceIn(-32768f, 32767f).toInt().toShort()
-                        k++
+                    while (framesFilled < totalSamples) {
+                        val framesRemaining = totalSamples - framesFilled
+                        val framesToRender = if (looping) {
+                            minOf(framesRemaining.toLong(), songLenSamples - renderOffset).toInt()
+                        } else {
+                            framesRemaining
+                        }
+
+                        synth.render(floatBuffer, framesToRender, sequencer, renderOffset)
+
+                        var k = 0
+                        while (k < framesToRender) {
+                            val f = floatBuffer[k]
+                            shortBuffer[framesFilled + k] = (f * 32767f).coerceIn(-32768f, 32767f).toInt().toShort()
+                            k++
+                        }
+
+                        framesFilled += framesToRender
+                        renderOffset += framesToRender
+                        if (looping && renderOffset == songLenSamples) {
+                            sequencer.resetPlaybackCursor()
+                            synth.allNotesOff()
+                            renderOffset = 0L
+                        }
                     }
 
                     val written = audioTrack.write(shortBuffer, 0, totalSamples, AudioTrack.WRITE_BLOCKING)

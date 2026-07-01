@@ -10,6 +10,11 @@ class ProceduralDrums {
         const val OFF = 3
         const val KICK_GAIN = 0.7f
         const val SNARE_GAIN = 0.6f
+        const val SNARE_NOISE_GAIN = 0.5f
+        const val SNARE_PARTIAL_GAIN = 0.3f
+        const val HAT_PREVIOUS_NOISE_MIX = 0.6f
+        const val HAT_GAIN = 0.4f
+        const val TOM_GAIN = 1.0f
     }
 
     enum class DrumKind {
@@ -141,10 +146,10 @@ class ProceduralDrums {
                 snarePhase01_2 += 330f / sampleRate
                 if (snarePhase01_2 >= 1f) snarePhase01_2 -= 1f
 
-                val partials = 0.3f * AudioSinLut.sin01(snarePhase01_1.toDouble()) +
-                               0.3f * AudioSinLut.sin01(snarePhase01_2.toDouble())
+                val partials = SNARE_PARTIAL_GAIN * AudioSinLut.sin01(snarePhase01_1.toDouble()) +
+                               SNARE_PARTIAL_GAIN * AudioSinLut.sin01(snarePhase01_2.toDouble())
                 val noiseSig = snareNoise.next()
-                val signal = noiseSig * 0.5f + partials
+                val signal = noiseSig * SNARE_NOISE_GAIN + partials
                 val env = exp(-ageMs / 25f)
                 mixedSample += signal * env * snareLevel * SNARE_GAIN * snareGain
 
@@ -158,11 +163,11 @@ class ProceduralDrums {
             if (hatState == DECAY) {
                 val ageMs = (hatAgeSamples * 1000f) / sampleRate
                 val currentNoise = hatNoise.next()
-                val signal = currentNoise - 0.6f * hatLastNoise
+                val signal = currentNoise - HAT_PREVIOUS_NOISE_MIX * hatLastNoise
                 hatLastNoise = currentNoise
 
                 val env = exp(-ageMs / 10f)
-                mixedSample += signal * env * hatLevel * 0.4f * hatGain
+                mixedSample += signal * env * hatLevel * HAT_GAIN * hatGain
 
                 hatAgeSamples++
                 if (ageMs > 80f || env < 0.001f) {
@@ -179,7 +184,7 @@ class ProceduralDrums {
 
                 val sineValue = AudioSinLut.sin01(tomPhase01.toDouble())
                 val env = exp(-ageMs / 50f)
-                mixedSample += sineValue * env * tomLevel * tomGain
+                mixedSample += sineValue * env * tomLevel * TOM_GAIN * tomGain
 
                 tomAgeSamples++
                 if (ageMs > 200f || env < 0.001f) {

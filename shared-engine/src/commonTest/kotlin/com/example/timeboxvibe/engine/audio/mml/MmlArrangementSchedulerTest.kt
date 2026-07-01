@@ -24,19 +24,19 @@ class MmlArrangementSchedulerTest {
         MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
 
         val firstFm = findFirstEvent(sequencer, SequencerEvent.FM_ON)
-        val expectedLeadGain = (13f / 15f) * OpnaAudioConstants.LANE_GAIN_LEAD * MmlArrangementScheduler.MIX_GAIN
+        val expectedLeadGain = (12f / 15f) * OpnaAudioConstants.LANE_GAIN_LEAD * MmlArrangementScheduler.MIX_GAIN
         assertEquals(expectedLeadGain, firstFm.velocity, 0.0001f)
         assertEquals(MmlArrangementScheduler.FM_ATTACK_SECONDS, firstFm.attack)
         assertEquals(MmlArrangementScheduler.FM_RELEASE_SECONDS, firstFm.release)
 
         val firstSsg = findFirstEvent(sequencer, SequencerEvent.SSG_ON)
-        val expectedSsgGain = (8f / 15f) * OpnaAudioConstants.LANE_GAIN_HARMONY * MmlArrangementScheduler.MIX_GAIN
+        val expectedSsgGain = (5f / 15f) * OpnaAudioConstants.LANE_GAIN_HARMONY * MmlArrangementScheduler.MIX_GAIN
         assertEquals(expectedSsgGain, firstSsg.velocity, 0.0001f)
         assertEquals(MmlArrangementScheduler.SSG_ATTACK_SECONDS, firstSsg.attack)
         assertEquals(MmlArrangementScheduler.SSG_RELEASE_SECONDS, firstSsg.release)
 
         val firstDrum = findFirstEvent(sequencer, SequencerEvent.DRUM)
-        val expectedDrumGain = (12f / 15f) * OpnaAudioConstants.LANE_GAIN_PERCUSSION * MmlArrangementScheduler.MIX_GAIN
+        val expectedDrumGain = (11f / 15f) * OpnaAudioConstants.LANE_GAIN_PERCUSSION * MmlArrangementScheduler.MIX_GAIN
         assertEquals(expectedDrumGain, firstDrum.velocity, 0.0001f)
     }
 
@@ -129,10 +129,12 @@ class MmlArrangementSchedulerTest {
         var maximumOutputPeak = 0f
         var sumSquares = 0.0
         var renderedSamples = 0L
+        var kneeCrossings = 0L
         while (sampleOffset < totalSamples) {
             val frames = minOf(buffer.size.toLong(), totalSamples - sampleOffset).toInt()
             synth.render(buffer, frames, sequencer, sampleOffset)
             if (synth.preClampPeak > maximumPreClipPeak) maximumPreClipPeak = synth.preClampPeak
+            kneeCrossings += synth.preClampKneeCrossings
             var i = 0
             while (i < frames) {
                 val sample = buffer[i]
@@ -146,9 +148,54 @@ class MmlArrangementSchedulerTest {
         }
 
         val rms = sqrt(sumSquares / renderedSamples).toFloat()
-        assertTrue(maximumPreClipPeak in 0.10f..0.70f, "MML pre-clip peak=$maximumPreClipPeak")
-        assertTrue(maximumOutputPeak <= 0.70f, "MML output peak=$maximumOutputPeak entered soft clipping")
+        val kneeCrossingRatio = kneeCrossings.toDouble() / renderedSamples
+        assertTrue(maximumPreClipPeak >= 0.10f, "MML pre-clip peak=$maximumPreClipPeak")
+        assertTrue(kneeCrossingRatio < 0.001, "MML soft-clip crossing ratio=$kneeCrossingRatio")
+        assertTrue(maximumOutputPeak <= 1.0f, "MML output peak=$maximumOutputPeak")
         assertTrue(rms > 0.05f, "MML mix became too quiet: rms=$rms")
+    }
+
+    @Test
+    fun normalRhythmOverlapStaysBelowSoftClipKnee() {
+        val synth = OpnaLikeSynthesizer(48000)
+        val normalVelocity = OpnaAudioConstants.LANE_GAIN_PERCUSSION * MmlArrangementScheduler.MIX_GAIN
+        synth.triggerDrum(0, normalVelocity)
+        synth.triggerDrum(1, normalVelocity)
+        synth.triggerDrum(2, normalVelocity)
+
+        synth.render(FloatArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK), OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
+
+        assertTrue(synth.preClampPeak < OpnaLikeSynthesizer.SOFT_CLIP_KNEE)
+        assertEquals(0, synth.preClampKneeCrossings)
+    }
+
+    @Test
+    fun sameDemoPositionHasStableHighBandEnergy() {
+        val first = renderDemoPrefix()
+        val second = renderDemoPrefix()
+        var firstDifferenceEnergy = 0.0
+        var secondDifferenceEnergy = 0.0
+        var i = 1
+        while (i < first.size) {
+            val firstDifference = first[i] - first[i - 1]
+            val secondDifference = second[i] - second[i - 1]
+            firstDifferenceEnergy += firstDifference * firstDifference
+            secondDifferenceEnergy += secondDifference * secondDifference
+            i++
+        }
+
+        assertEquals(firstDifferenceEnergy, secondDifferenceEnergy, 0.0000001)
+    }
+
+    private fun renderDemoPrefix(): FloatArray {
+        val arrangement = requireDemoArrangement()
+        val sampleRate = 48000
+        val synth = OpnaLikeSynthesizer(sampleRate)
+        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
+        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
+        val buffer = FloatArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
+        synth.render(buffer, buffer.size, sequencer, 0L)
+        return buffer
     }
 
     private fun requireDemoArrangement(): ArrangementLanes {

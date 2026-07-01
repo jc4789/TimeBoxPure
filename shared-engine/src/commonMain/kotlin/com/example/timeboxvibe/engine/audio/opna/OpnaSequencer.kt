@@ -30,6 +30,7 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
     internal val events = Array(MAX_EVENTS) { SequencerEvent() }
     internal var eventCount = 0
     var nextEventIdx = 0
+        internal set
     var isSorted = false
 
     private var noteIdCounter = 1
@@ -185,10 +186,14 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
 
     fun clear() {
         eventCount = 0
-        nextEventIdx = 0
+        resetPlaybackCursor()
         noteIdCounter = 1
         customLoopLength = 0L
         isSorted = false
+    }
+
+    fun resetPlaybackCursor() {
+        nextEventIdx = 0
     }
 
     fun loopLengthSamples(): Long {

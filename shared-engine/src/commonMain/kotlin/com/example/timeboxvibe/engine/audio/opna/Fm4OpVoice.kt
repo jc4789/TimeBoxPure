@@ -119,8 +119,23 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         sustain: Float?,
         release: Float?
     ) {
-        baseFrequency = midiToFreq(midi)
         val p = patch
+        var isActiveRetrigger = false
+        if (p != null) {
+            var opIdx = 0
+            while (opIdx < AudioLaws.FM_OPERATORS) {
+                if (isCarrier(opIdx, p.algorithm)) {
+                    val op = opState[opIdx]
+                    val level = if (op.egMode == EgMode.OPN_RATE) op.opnEnvelope.level else op.envelope.level
+                    if (!isOpOff(opIdx) && level > 0f) {
+                        isActiveRetrigger = true
+                    }
+                }
+                opIdx++
+            }
+        }
+
+        baseFrequency = midiToFreq(midi)
         if (p != null) {
             recalcPhaseSteps(p)
             val alg = p.algorithm
@@ -131,15 +146,23 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         }
         var i = 0
         while (i < AudioLaws.FM_OPERATORS) {
-            opState[i].phase = 0.0
-            opState[i].prevOutput = 0f
-            opState[i].envelope.noteOn()
-            opState[i].opnEnvelope.noteOn()
+            val op = opState[i]
+            if (isActiveRetrigger) {
+                op.envelope.stage = Envelope.ATTACK
+                op.opnEnvelope.stage = OpnRateEnvelope.ATTACK
+            } else {
+                op.phase = 0.0
+                op.prevOutput = 0f
+                op.envelope.noteOn()
+                op.opnEnvelope.noteOn()
+            }
             i++
         }
-        op0Feedback1 = 0f
-        op0Feedback2 = 0f
-        lowPassPrev = 0f
+        if (!isActiveRetrigger) {
+            op0Feedback1 = 0f
+            op0Feedback2 = 0f
+            lowPassPrev = 0f
+        }
     }
 
     private fun isCarrier(opIdx: Int, algorithm: Int): Boolean {

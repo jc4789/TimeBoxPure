@@ -12,6 +12,8 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     val lfo = Lfo(sampleRate)
 
     var preClampPeak: Float = 0f
+    var preClampKneeCrossings: Int = 0
+        private set
 
     private val fmActiveNoteId = IntArray(AudioLaws.FM_CHANNELS) { -1 }
     private val ssgActiveNoteId = IntArray(AudioLaws.SSG_CHANNELS) { -1 }
@@ -423,7 +425,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     }
 
     private fun softClip(x: Float): Float {
-        val limit = 0.70f
+        val limit = SOFT_CLIP_KNEE
         val excessScale = 1.0f - limit
         return if (x > limit) {
             val diff = x - limit
@@ -437,8 +439,10 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     }
 
     private fun applyGainAndClamp(buffer: FloatArray, frames: Int) {
-        val outputGain = AudioLaws.OPNA_OUTPUT_GAIN * OpnaAudioConstants.MASTER_GAIN
+        val outputGain = AudioLaws.OPNA_OUTPUT_GAIN * AudioLaws.CHIP_MIX_HEADROOM *
+            OpnaAudioConstants.MASTER_GAIN
         var peak = 0f
+        var kneeCrossings = 0
         var i = 0
         while (i < frames) {
             val x = buffer[i] * outputGain
@@ -451,16 +455,20 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             }
             val absX = if (filtered < 0f) -filtered else filtered
             if (absX > peak) peak = absX
+            if (absX > SOFT_CLIP_KNEE) kneeCrossings++
             buffer[i] = softClip(filtered)
             i++
         }
         preClampPeak = peak
+        preClampKneeCrossings = kneeCrossings
     }
 
     private fun applyGainAndClampStereo(stereoBuffer: FloatArray, frames: Int) {
-        val outputGain = AudioLaws.OPNA_OUTPUT_GAIN * OpnaAudioConstants.MASTER_GAIN
+        val outputGain = AudioLaws.OPNA_OUTPUT_GAIN * AudioLaws.CHIP_MIX_HEADROOM *
+            OpnaAudioConstants.MASTER_GAIN
         val totalSamples = frames * 2
         var peak = 0f
+        var kneeCrossings = 0
         var i = 0
         while (i < totalSamples) {
             val x = stereoBuffer[i] * outputGain
@@ -480,13 +488,16 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             }
             val absX = if (filtered < 0f) -filtered else filtered
             if (absX > peak) peak = absX
+            if (absX > SOFT_CLIP_KNEE) kneeCrossings++
             stereoBuffer[i] = softClip(filtered)
             i++
         }
         preClampPeak = peak
+        preClampKneeCrossings = kneeCrossings
     }
 
     companion object {
         const val MAX_FRAMES_PER_CHUNK = 1024
+        const val SOFT_CLIP_KNEE = 0.70f
     }
 }
