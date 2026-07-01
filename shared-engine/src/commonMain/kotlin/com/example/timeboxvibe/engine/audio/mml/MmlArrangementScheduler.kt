@@ -13,10 +13,11 @@ import kotlin.math.roundToInt
 
 object MmlArrangementScheduler {
     const val MIX_GAIN: Float = 0.75f
-    const val GATE_RATIO: Float = 0.95f
     const val FM_ATTACK_SECONDS: Float = 0.008f
+    const val FM_RELEASE_MILLISECONDS: Int = 8
     const val FM_RELEASE_SECONDS: Float = 0.008f
     const val SSG_ATTACK_SECONDS: Float = 0.004f
+    const val SSG_RELEASE_MILLISECONDS: Int = 4
     const val SSG_RELEASE_SECONDS: Float = 0.004f
 
     private const val LANE_NONE = 0
@@ -118,7 +119,7 @@ object MmlArrangementScheduler {
                 val note = lane.notes[noteIndex]
                 if (note.freq > 10f) {
                     val midi = (12f * log2(note.freq / 440f) + 69f).roundToInt()
-                    val gateMs = (note.durationMs * GATE_RATIO).toInt()
+                    val gateMs = maxOf(0, note.durationMs - FM_RELEASE_MILLISECONDS)
                     sequencer.noteFmRaw(
                         fmChannel,
                         midi,
@@ -140,7 +141,7 @@ object MmlArrangementScheduler {
             val note = lane.notes[noteIndex]
             if (note.freq > 10f) {
                 val midi = (12f * log2(note.freq / 440f) + 69f).roundToInt()
-                val gateMs = (note.durationMs * GATE_RATIO).toInt()
+                val gateMs = maxOf(0, note.durationMs - SSG_RELEASE_MILLISECONDS)
                 sequencer.noteSsgRaw(
                     ssgChannel,
                     midi,

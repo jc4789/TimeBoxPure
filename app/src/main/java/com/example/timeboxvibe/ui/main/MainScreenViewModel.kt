@@ -18,7 +18,7 @@ import com.example.timeboxvibe.FocusService
 import com.example.timeboxvibe.TimerStateHolder
 import com.example.timeboxvibe.engine.core.TimerEngine
 import com.example.timeboxvibe.engine.core.TimerPreset
-import com.example.timeboxvibe.engine.SoundMelodies
+import com.example.timeboxvibe.engine.SongCatalog
 import com.example.timeboxvibe.engine.SoundPreviewPlayer
 import com.example.timeboxvibe.engine.getDefaultPresets
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -62,9 +62,9 @@ data class TimerUiState(
     val tickEnabled: Boolean = false,
     val vibeIntensity: Float = 0.8f,
     val volume: Float = 0.5f,
-    val selectedSound: String = "synth-chime",
-    val selectedFocusSound: String = "synth-chime",
-    val selectedRelaxSound: String = "oriental",
+    val selectedSound: String = SongCatalog.DEFAULT_FOCUS_ID,
+    val selectedFocusSound: String = SongCatalog.DEFAULT_FOCUS_ID,
+    val selectedRelaxSound: String = SongCatalog.DEFAULT_RELAX_ID,
     val appTheme: String = "reimu",
     val language: String = "en",
     val activeTab: String = "timer",
@@ -139,8 +139,10 @@ class MainScreenViewModel(
                 val customPresetsJson = prefs[stringPreferencesKey("custom_presets_json")] ?: "[]"
                 val lang = prefs[stringPreferencesKey("language")] ?: "en"
                 val savedTaskName = prefs[stringPreferencesKey("currentTaskName")] ?: ""
-                val focusSound = prefs[stringPreferencesKey("selectedFocusSound")] ?: prefs[stringPreferencesKey("selectedSound")] ?: "synth-chime"
-                val relaxSound = prefs[stringPreferencesKey("selectedRelaxSound")] ?: "oriental"
+                val storedFocusSound = prefs[stringPreferencesKey("selectedFocusSound")] ?: prefs[stringPreferencesKey("selectedSound")]
+                val storedRelaxSound = prefs[stringPreferencesKey("selectedRelaxSound")]
+                val focusSound = catalogSongIdOrDefault(storedFocusSound, SongCatalog.DEFAULT_FOCUS_ID)
+                val relaxSound = catalogSongIdOrDefault(storedRelaxSound, SongCatalog.DEFAULT_RELAX_ID)
 
                 val customPresets = parseCustomPresets(customPresetsJson)
                 val defaultPresets = getDefaultPresets(lang).map { it.normalized(logFailures = true) }
@@ -159,7 +161,7 @@ class MainScreenViewModel(
                 _uiState.value = _uiState.value.copy(
                     strictMode = prefs[booleanPreferencesKey("strictMode")] ?: false,
                     tickEnabled = prefs[booleanPreferencesKey("tickEnabled")] ?: false,
-                    selectedSound = prefs[stringPreferencesKey("selectedSound")] ?: "synth-chime",
+                    selectedSound = catalogSongIdOrDefault(prefs[stringPreferencesKey("selectedSound")], SongCatalog.DEFAULT_FOCUS_ID),
                     selectedFocusSound = focusSound,
                     selectedRelaxSound = relaxSound,
                     vibeIntensity = prefs[floatPreferencesKey("vibeIntensity")] ?: 0.8f,
@@ -438,6 +440,10 @@ class MainScreenViewModel(
             action = "STOP_SERVICE"
         }
         context.startService(intent)
+    }
+
+    private fun catalogSongIdOrDefault(id: String?, defaultId: String): String {
+        return if (id != null && SongCatalog.byId(id) != null) id else defaultId
     }
 
     // --- STATE SYNC HELPERS ---

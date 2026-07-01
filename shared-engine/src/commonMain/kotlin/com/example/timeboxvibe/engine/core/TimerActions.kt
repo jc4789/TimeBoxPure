@@ -1,5 +1,6 @@
 package com.example.timeboxvibe.engine.core
 
+import com.example.timeboxvibe.engine.SongCatalog
 
 data class EngineUiState(
     val timeRemaining: Int = 25 * 60,
@@ -23,8 +24,8 @@ data class EngineUiState(
     val tickEnabled: Boolean = false,
     val vibeIntensity: Float = 0.8f,
     val volume: Float = 0.5f,
-    val selectedFocusSound: String = "synth-chime",
-    val selectedRelaxSound: String = "oriental",
+    val selectedFocusSound: String = SongCatalog.DEFAULT_FOCUS_ID,
+    val selectedRelaxSound: String = SongCatalog.DEFAULT_RELAX_ID,
     val appTheme: String = "reimu",
     val language: String = "en",
     val isExactAlarmPermitted: Boolean = true,

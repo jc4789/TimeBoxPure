@@ -1,20 +1,18 @@
 package com.example.timeboxvibe.engine.audio.opna
 
 import com.example.timeboxvibe.engine.SoundMelodies
+import com.example.timeboxvibe.engine.SongCatalog
 import kotlin.test.Test
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class OpnaBadAppleLotusLandStoryTest {
 
-    private val key = "synth-bad-apple-LotusLandStory"
+    private val key = SongCatalog.BAD_APPLE_LLS_ID
 
     @Test
-    fun keyIsInSupportedKeys() {
-        assertTrue(
-            key in SoundMelodies.supportedKeys,
-            "Expected '$key' in SoundMelodies.supportedKeys, got: ${SoundMelodies.supportedKeys}"
-        )
+    fun keyIsInSongCatalog() {
+        assertNotNull(SongCatalog.byId(key))
     }
 
     @Test
@@ -66,11 +64,11 @@ class OpnaBadAppleLotusLandStoryTest {
 
     @Test
     fun existingFiveKeysStillWork() {
-        val existingKeys = listOf(
-            "synth-chime",
-            "synth-victory",
-            "synth-bad-apple",
-            "synth-senbonzakura"
+        val existingKeys = arrayOf(
+            SongCatalog.SYNTH_CHIME_ID,
+            SongCatalog.SYNTH_VICTORY_ID,
+            SongCatalog.SYNTH_BAD_APPLE_ID,
+            SongCatalog.SYNTH_SENBONZAKURA_ID
         )
         for (k in existingKeys) {
             val arr = SoundMelodies.getArrangement(k, 1f)

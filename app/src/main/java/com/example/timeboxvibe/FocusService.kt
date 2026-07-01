@@ -26,6 +26,7 @@ import android.util.Log
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import com.example.timeboxvibe.engine.SongCatalog
 import com.example.timeboxvibe.engine.SoundPreviewPlayer
 import com.example.timeboxvibe.engine.core.TimerEngine
 import com.example.timeboxvibe.engine.core.TimerPreset
@@ -48,9 +49,9 @@ class FocusService : Service() {
     private var isStrictMode = false
     private var tickEnabled = false
     private var tickTone: ToneGenerator? = null
-    private var selectedSound = "synth-chime"
-    private var selectedFocusSound = "synth-chime"
-    private var selectedRelaxSound = "oriental"
+    private var selectedSound = SongCatalog.DEFAULT_FOCUS_ID
+    private var selectedFocusSound = SongCatalog.DEFAULT_FOCUS_ID
+    private var selectedRelaxSound = SongCatalog.DEFAULT_RELAX_ID
     private var taskName = "Focus Time"
     private var engine: TimerEngine? = null
     private var lastTickTimestamp: Long = 0L
@@ -142,11 +143,11 @@ class FocusService : Service() {
             }
         }
         val snd = intent.getStringExtra("selectedSound")
-        if (snd != null) selectedSound = snd
+        if (snd != null && SongCatalog.byId(snd) != null) selectedSound = snd
         val fSnd = intent.getStringExtra("selectedFocusSound")
-        if (fSnd != null) selectedFocusSound = fSnd
+        if (fSnd != null && SongCatalog.byId(fSnd) != null) selectedFocusSound = fSnd
         val rSnd = intent.getStringExtra("selectedRelaxSound")
-        if (rSnd != null) selectedRelaxSound = rSnd
+        if (rSnd != null && SongCatalog.byId(rSnd) != null) selectedRelaxSound = rSnd
 
         val task = intent.getStringExtra("taskName")
         if (task != null) taskName = task

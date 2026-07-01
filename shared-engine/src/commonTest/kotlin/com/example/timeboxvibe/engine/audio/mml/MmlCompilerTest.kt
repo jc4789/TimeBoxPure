@@ -1,6 +1,7 @@
 package com.example.timeboxvibe.engine.audio.mml
 
 import com.example.timeboxvibe.engine.ArrangementRouting
+import com.example.timeboxvibe.engine.LaneMode
 import com.example.timeboxvibe.engine.TimbreRef
 import com.example.timeboxvibe.engine.audio.opna.LlsPatches
 import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
@@ -57,6 +58,33 @@ class MmlCompilerTest {
         val expectedEndMs = (32.0 * 60000.0 / 160.73).toInt()
         val last = arrangement.lead.notes.last()
         assertEquals(expectedEndMs, last.startMs + last.durationMs)
+    }
+
+    @Test
+    fun tonalMmlLanesCompileToMonophonicModes() {
+        val arrangement = assertIs<MmlCompileResult.Success>(MmlSongBank.senbonzakuraDemoResult).arrangement
+
+        assertEquals(LaneMode.MONO_RETRIGGER, arrangement.lead.mode)
+        assertEquals(LaneMode.MONO_RETRIGGER, arrangement.harmony.mode)
+        assertEquals(LaneMode.MONO_RETRIGGER, arrangement.bass.mode)
+        assertEquals(LaneMode.SSG_MONO, arrangement.auxiliary?.mode)
+    }
+
+    @Test
+    fun restAdvancesTrackTimeWithoutExtendingPreviousNote() {
+        val result = assertIs<MmlCompileResult.Success>(
+            MmlCompiler.compile(
+                "#BPM 120\n#BAR 4/4\nA @54 v15 o4 l4 c r d2 |"
+            )
+        )
+        val notes = result.arrangement.lead.notes
+
+        assertEquals(2, notes.size)
+        assertEquals(0, notes[0].startMs)
+        assertEquals(500, notes[0].durationMs)
+        assertEquals(1000, notes[1].startMs)
+        assertEquals(1000, notes[1].durationMs)
+        assertTrue(notes[0].startMs + notes[0].durationMs <= notes[1].startMs)
     }
 
     @Test

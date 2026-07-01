@@ -11,6 +11,9 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
+import com.example.timeboxvibe.engine.PlatformSongAsset
+import com.example.timeboxvibe.engine.SongCatalog
+import com.example.timeboxvibe.engine.SongPlayback
 import com.example.timeboxvibe.engine.audio.mml.MmlArrangementScheduler
 import com.example.timeboxvibe.engine.audio.opna.LlsPatches
 import com.example.timeboxvibe.engine.audio.opna.OpnaAudioConstants
@@ -25,6 +28,8 @@ import kotlin.math.sin
 object SoundPreviewPlayer {
     private const val GATE_RATIO = 0.95f
     private const val TAG = "SoundPreviewPlayer"
+
+    val availableSongs get() = SongCatalog.all
 
     @Volatile
     private var isStreaming = false
@@ -41,10 +46,22 @@ object SoundPreviewPlayer {
 
     fun playPreview(context: Context, soundKey: String, volume: Float) {
         stop()
-        when (soundKey) {
-            "oriental" -> playOrientalPreview(context, volume)
-            "synth-bad-apple-LotusLandStory" -> playSpecsStreaming(context, soundKey, volume, shouldLoop = false, stopAfterMs = 25000L)
-            else -> playSpecsStreaming(context, soundKey, volume, shouldLoop = false, stopAfterMs = 7000L)
+        val song = SongCatalog.byId(soundKey) ?: return
+        when (val playback = song.buildPlayback(volume)) {
+            is SongPlayback.Arrangement -> playArrangementStreaming(
+                context,
+                playback.lanes,
+                shouldLoop = false,
+                stopAfterMs = song.previewDurationMs
+            )
+            is SongPlayback.PlatformAsset -> playPlatformAsset(
+                context,
+                playback.asset,
+                volume,
+                isLooping = false,
+                stopAfterMs = song.previewDurationMs
+            )
+            null -> return
         }
     }
 
@@ -148,7 +165,13 @@ object SoundPreviewPlayer {
         wakeLock = null
     }
 
-    private fun playOrientalPreview(context: Context, volume: Float) {
+    private fun playPlatformAsset(
+        context: Context,
+        asset: PlatformSongAsset,
+        volume: Float,
+        isLooping: Boolean,
+        stopAfterMs: Long
+    ) {
         try {
             mediaPlayer = MediaPlayer().apply {
                 setAudioAttributes(
@@ -157,16 +180,22 @@ object SoundPreviewPlayer {
                         .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                         .build()
                 )
-                val afd = context.assets.openFd("sounds/oriental_alarm.mp3")
+                val assetPath = when (asset) {
+                    PlatformSongAsset.ORIENTAL_ALARM -> "sounds/oriental_alarm.mp3"
+                }
+                val afd = context.assets.openFd(assetPath)
                 setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
                 setVolume(volume, volume)
+                this.isLooping = isLooping
                 prepare()
                 start()
                 afd.close()
             }
-            val runnable = Runnable { stop() }
-            stopRunnable = runnable
-            handler.postDelayed(runnable, 3500)
+            if (!isLooping && stopAfterMs > 0L) {
+                val runnable = Runnable { stop() }
+                stopRunnable = runnable
+                handler.postDelayed(runnable, stopAfterMs)
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -174,65 +203,25 @@ object SoundPreviewPlayer {
 
     fun playGentleReminder(context: Context, soundKey: String, volume: Float) {
         stop()
-        when (soundKey) {
-            "oriental" -> {
-                try {
-                    mediaPlayer = MediaPlayer().apply {
-                        setAudioAttributes(
-                            AudioAttributes.Builder()
-                                .setUsage(AudioAttributes.USAGE_ALARM)
-                                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                                .build()
-                        )
-                        val afd = context.assets.openFd("sounds/oriental_alarm.mp3")
-                        setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-                        setVolume(volume, volume)
-                        prepare()
-                        start()
-                        afd.close()
-                    }
-                    val runnable = Runnable { stop() }
-                    stopRunnable = runnable
-                    handler.postDelayed(runnable, 1000)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-            else -> playSpecsStreaming(context, soundKey, volume, shouldLoop = false, stopAfterMs = 5000L)
+        val song = SongCatalog.byId(soundKey) ?: return
+        when (val playback = song.buildPlayback(volume)) {
+            is SongPlayback.Arrangement -> playArrangementStreaming(context, playback.lanes, shouldLoop = false, stopAfterMs = 5000L)
+            is SongPlayback.PlatformAsset -> playPlatformAsset(context, playback.asset, volume, isLooping = false, stopAfterMs = 1000L)
+            null -> return
         }
     }
 
     fun playAlarm(context: Context, soundKey: String, volume: Float) {
         stop()
-        when (soundKey) {
-            "oriental" -> {
-                try {
-                    mediaPlayer = MediaPlayer().apply {
-                        setAudioAttributes(
-                            AudioAttributes.Builder()
-                                .setUsage(AudioAttributes.USAGE_ALARM)
-                                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                                .build()
-                        )
-                        val afd = context.assets.openFd("sounds/oriental_alarm.mp3")
-                        setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-                        setVolume(volume, volume)
-                        isLooping = true
-                        prepare()
-                        start()
-                        afd.close()
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-            else -> playSpecsStreaming(context, soundKey, volume, shouldLoop = true)
+        val song = SongCatalog.byId(soundKey) ?: return
+        when (val playback = song.buildPlayback(volume)) {
+            is SongPlayback.Arrangement -> playArrangementStreaming(context, playback.lanes, shouldLoop = true)
+            is SongPlayback.PlatformAsset -> playPlatformAsset(context, playback.asset, volume, isLooping = true, stopAfterMs = -1L)
+            null -> return
         }
     }
 
-    private fun playSpecsStreaming(context: Context, soundKey: String, volume: Float, shouldLoop: Boolean, stopAfterMs: Long = -1L) {
-        val arrangement = SoundMelodies.getArrangement(soundKey, volume) ?: return
-
+    private fun playArrangementStreaming(context: Context, arrangement: ArrangementLanes, shouldLoop: Boolean, stopAfterMs: Long = -1L) {
         try {
             val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
             val wl = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TimeBox::SoundPreviewWakeLock")

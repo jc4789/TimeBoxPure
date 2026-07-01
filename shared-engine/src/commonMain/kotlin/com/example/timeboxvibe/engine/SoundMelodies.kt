@@ -5,7 +5,6 @@ import com.example.timeboxvibe.engine.audio.opna.NoteSpec
 import com.example.timeboxvibe.engine.audio.opna.SongSpec
 import com.example.timeboxvibe.engine.audio.opna.compileNotes
 import com.example.timeboxvibe.engine.audio.opna.compileLlsNotes
-import com.example.timeboxvibe.engine.audio.mml.MmlSongBank
 
 enum class LaneMode {
     MONO_RETRIGGER,
@@ -53,19 +52,9 @@ data class ArrangementLanes(
 )
 
 object SoundMelodies {
-    val supportedKeys = listOf(
-        "synth-chime",
-        "synth-victory",
-        "oriental",
-        "synth-bad-apple",
-        "synth-senbonzakura",
-        "synth-bad-apple-LotusLandStory",
-        MmlSongBank.SENBONZAKURA_DEMO_KEY
-    )
-
     fun getMelody(key: String, volume: Float, isBass: Boolean): List<ToneSpec> {
         return when (key) {
-            "synth-chime" -> {
+            SongCatalog.SYNTH_CHIME_ID -> {
                 val e = 333
                 val q = 667
                 if (isBass) {
@@ -85,7 +74,7 @@ object SoundMelodies {
                     )
                 }
             }
-            "synth-victory" -> {
+            SongCatalog.SYNTH_VICTORY_ID -> {
                 val e = 250
                 val q = 500
                 val h = 1000
@@ -105,10 +94,10 @@ object SoundMelodies {
                     )
                 }
             }
-            "synth-bad-apple" -> {
+            SongCatalog.SYNTH_BAD_APPLE_ID -> {
                 if (isBass) emptyList() else getBadAppleArrangement(volume)
             }
-            "synth-senbonzakura" -> {
+            SongCatalog.SYNTH_SENBONZAKURA_ID -> {
                 if (isBass) emptyList() else getSenbonzakuraArrangement(volume)
             }
             else -> emptyList()
@@ -116,12 +105,15 @@ object SoundMelodies {
     }
 
     fun getArrangement(key: String, volume: Float = 1f): ArrangementLanes? {
-        return when (key) {
-            "synth-chime" -> {
+        val playback = SongCatalog.byId(key)?.buildPlayback(volume)
+        return if (playback is SongPlayback.Arrangement) playback.lanes else null
+    }
+
+    internal fun buildChimeArrangement(volume: Float): ArrangementLanes {
                 val e = 120
                 val q = 240
                 val h = 480
-                ArrangementLanes(
+                return ArrangementLanes(
                     lead = Lane(listOf(
                         ToneSpec(523.25f, 0, e, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 80), // C5
                         ToneSpec(659.25f, e, e, 0.7f * volume, "pulse25", true, 5, 30, 0.5f, 80), // E5
@@ -140,12 +132,13 @@ object SoundMelodies {
                     tempoBpm = 120f,
                     keyRootMidi = 60
                 )
-            }
-            "synth-victory" -> {
+    }
+
+    internal fun buildVictoryArrangement(volume: Float): ArrangementLanes {
                 val e = 150
                 val q = 300
                 val h = 600
-                ArrangementLanes(
+                return ArrangementLanes(
                     lead = Lane(listOf(
                         ToneSpec(523.25f, 0, e, 0.8f * volume, "pulse25", true, 5, 30, 0.6f, 80), // C5
                         ToneSpec(523.25f, e, e, 0.8f * volume, "pulse25", true, 5, 30, 0.6f, 80), // C5
@@ -179,8 +172,9 @@ object SoundMelodies {
                     tempoBpm = 120f,
                     keyRootMidi = 60
                 )
-            }
-            "synth-bad-apple" -> {
+    }
+
+    internal fun buildBadAppleArrangementLanes(volume: Float): ArrangementLanes {
                 val e = 217
                 val q = 434
                 val s = 109
@@ -190,7 +184,7 @@ object SoundMelodies {
                              buildBadApplePercussion(volume, e).notes,
                     timbre = TimbreRef.DRUM_HAT
                 )
-                ArrangementLanes(
+                return ArrangementLanes(
                     lead = buildBadAppleLead(volume, e, q, s),
                     harmony = buildBadAppleHarmony(volume, e, q),
                     bass = buildBadAppleBass(volume, e),
@@ -198,8 +192,9 @@ object SoundMelodies {
                     tempoBpm = 138f,
                     keyRootMidi = 63
                 )
-            }
-            "synth-senbonzakura" -> {
+    }
+
+    internal fun buildSenbonzakuraArrangementLanes(volume: Float): ArrangementLanes {
                 val e = 195
                 val q = 390
                 val s = 97
@@ -209,7 +204,7 @@ object SoundMelodies {
                              buildSenbonzakuraPercussion(volume, e).notes,
                     timbre = TimbreRef.DRUM_HAT
                 )
-                ArrangementLanes(
+                return ArrangementLanes(
                     lead = buildSenbonzakuraLead(volume, e, q, s),
                     harmony = buildSenbonzakuraHarmony(volume, e, q),
                     bass = buildSenbonzakuraBass(volume, e),
@@ -217,11 +212,6 @@ object SoundMelodies {
                     tempoBpm = 154f,
                     keyRootMidi = 62
                 )
-            }
-            "synth-bad-apple-LotusLandStory" -> buildBadAppleLotusLandStory(volume)
-            MmlSongBank.SENBONZAKURA_DEMO_KEY -> MmlSongBank.getArrangement(key, volume)
-            else -> null
-        }
     }
 
     private fun getBadAppleArrangement(vol: Float): List<ToneSpec> {
@@ -581,7 +571,7 @@ object SoundMelodies {
     // ================================================================
 
     private const val BA_LLS_BPM = 160.73f
-    private fun buildBadAppleLotusLandStory(vol: Float): ArrangementLanes {
+    internal fun buildBadAppleLotusLandStory(vol: Float): ArrangementLanes {
         val e = 186
         val q = 373
         val s = 93

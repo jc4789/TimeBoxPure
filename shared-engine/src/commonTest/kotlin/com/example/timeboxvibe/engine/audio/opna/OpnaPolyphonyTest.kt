@@ -31,14 +31,15 @@ class OpnaPolyphonyTest {
     }
 
     @Test
-    fun overlappingNotesAllPlay() {
+    fun overlappingEventsRetriggerSingleVoice() {
         val sampleRate = 44100
         val synth = OpnaLikeSynthesizer(sampleRate)
         val seq = OpnaSequencer(sampleRate, 120f)
 
         synth.fm[0].applyPatch(Patches.ZunLead1)
 
-        // Queue 4 overlapping notes on channel 0
+        // Queue overlapping event lifetimes on one physical channel. Each ON retriggers
+        // the same voice; this is not four-voice polyphony.
         seq.noteFmRaw(0, 60, 0L, 44100L)
         seq.noteFmRaw(0, 64, 4410L, 44100L)
         seq.noteFmRaw(0, 67, 8820L, 44100L)
@@ -57,7 +58,7 @@ class OpnaPolyphonyTest {
     }
 
     @Test
-    fun staleNoteOffGuarded() {
+    fun olderNoteOffCannotStopNewerRetriggeredNote() {
         val sampleRate = 44100
         val synth = OpnaLikeSynthesizer(sampleRate)
         val seq = OpnaSequencer(sampleRate, 120f)

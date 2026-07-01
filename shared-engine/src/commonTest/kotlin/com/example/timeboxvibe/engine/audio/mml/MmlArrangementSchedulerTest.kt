@@ -10,6 +10,7 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class MmlArrangementSchedulerTest {
@@ -37,6 +38,74 @@ class MmlArrangementSchedulerTest {
         val firstDrum = findFirstEvent(sequencer, SequencerEvent.DRUM)
         val expectedDrumGain = (12f / 15f) * OpnaAudioConstants.LANE_GAIN_PERCUSSION * MmlArrangementScheduler.MIX_GAIN
         assertEquals(expectedDrumGain, firstDrum.velocity, 0.0001f)
+    }
+
+    @Test
+    fun eachMmlLaneUsesOnePhysicalChannel() {
+        val arrangement = requireDemoArrangement()
+        val sampleRate = 48000
+        val synth = OpnaLikeSynthesizer(sampleRate)
+        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
+
+        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
+
+        assertEquals(arrangement.lead.notes.size, countEvents(sequencer, SequencerEvent.FM_ON, 0))
+        assertEquals(arrangement.harmony.notes.size, countEvents(sequencer, SequencerEvent.FM_ON, 1))
+        assertEquals(arrangement.bass.notes.size, countEvents(sequencer, SequencerEvent.FM_ON, 2))
+        assertEquals(arrangement.auxiliary?.notes?.size, countEvents(sequencer, SequencerEvent.SSG_ON, 0))
+        assertEquals(0, countEvents(sequencer, SequencerEvent.SSG_ON, 1))
+        assertEquals(0, countEvents(sequencer, SequencerEvent.SSG_ON, 2))
+    }
+
+    @Test
+    fun releaseEndsAtCompiledNoteBoundary() {
+        val arrangement = requireDemoArrangement()
+        val sampleRate = 48000
+        val synth = OpnaLikeSynthesizer(sampleRate)
+        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
+
+        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
+
+        val firstFmOn = findFirstEvent(sequencer, SequencerEvent.FM_ON)
+        val firstFmOff = findEvent(sequencer, SequencerEvent.FM_OFF, firstFmOn.channel, firstFmOn.noteId)
+        val firstFmNote = arrangement.lead.notes[0]
+        val expectedFmGateMs = maxOf(0, firstFmNote.durationMs - MmlArrangementScheduler.FM_RELEASE_MILLISECONDS)
+        assertEquals(
+            firstFmOn.sampleTime + expectedFmGateMs.toLong() * sampleRate / 1000L,
+            firstFmOff.sampleTime
+        )
+
+        val firstSsgOn = findFirstEvent(sequencer, SequencerEvent.SSG_ON)
+        val firstSsgOff = findEvent(sequencer, SequencerEvent.SSG_OFF, firstSsgOn.channel, firstSsgOn.noteId)
+        val firstSsgNote = requireNotNull(arrangement.auxiliary).notes[0]
+        val expectedSsgGateMs = maxOf(0, firstSsgNote.durationMs - MmlArrangementScheduler.SSG_RELEASE_MILLISECONDS)
+        assertEquals(
+            firstSsgOn.sampleTime + expectedSsgGateMs.toLong() * sampleRate / 1000L,
+            firstSsgOff.sampleTime
+        )
+    }
+
+    @Test
+    fun restIsSilentAfterExpectedReleaseTail() {
+        val arrangement = assertIs<MmlCompileResult.Success>(
+            MmlCompiler.compile(
+                "#BPM 120\n#BAR 4/4\nA @54 v15 o4 l4 c r d2 |"
+            )
+        ).arrangement
+        val sampleRate = 48000
+        val synth = OpnaLikeSynthesizer(sampleRate)
+        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
+        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
+
+        val buffer = FloatArray(sampleRate * 3 / 2)
+        synth.render(buffer, buffer.size, sequencer, 0L)
+
+        val releaseTailRms = rms(buffer, sampleRate * 492 / 1000, sampleRate * 500 / 1000)
+        val silentRestRms = rms(buffer, sampleRate * 520 / 1000, sampleRate * 980 / 1000)
+        val nextNoteRms = rms(buffer, sampleRate * 1020 / 1000, sampleRate * 1200 / 1000)
+        assertTrue(releaseTailRms > silentRestRms, "Release tail should decay before the rest: tail=$releaseTailRms rest=$silentRestRms")
+        assertTrue(silentRestRms < 0.0001f, "Rest should be silent after release: rms=$silentRestRms")
+        assertTrue(nextNoteRms > 0.01f, "The note after the rest should retrigger: rms=$nextNoteRms")
     }
 
     @Test
@@ -96,6 +165,38 @@ class MmlArrangementSchedulerTest {
             i++
         }
         error("No sequencer event of type $type")
+    }
+
+    private fun findEvent(sequencer: OpnaSequencer, type: Int, channel: Int, noteId: Int): SequencerEvent {
+        var i = 0
+        while (i < sequencer.eventCount) {
+            val event = sequencer.events[i]
+            if (event.type == type && event.channel == channel && event.noteId == noteId) return event
+            i++
+        }
+        error("No sequencer event of type $type for channel $channel and note $noteId")
+    }
+
+    private fun countEvents(sequencer: OpnaSequencer, type: Int, channel: Int): Int {
+        var count = 0
+        var i = 0
+        while (i < sequencer.eventCount) {
+            val event = sequencer.events[i]
+            if (event.type == type && event.channel == channel) count++
+            i++
+        }
+        return count
+    }
+
+    private fun rms(buffer: FloatArray, start: Int, end: Int): Float {
+        var sumSquares = 0.0
+        var i = start
+        while (i < end) {
+            val sample = buffer[i].toDouble()
+            sumSquares += sample * sample
+            i++
+        }
+        return sqrt(sumSquares / (end - start)).toFloat()
     }
 
     private fun maximumEndMs(arrangement: ArrangementLanes): Int {

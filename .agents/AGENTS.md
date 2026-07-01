@@ -331,9 +331,9 @@ COMPLIANCE CHECKSUM
 
 
 
-If no rule authorizes the implementation:
+If no rule authorizes the implementation DO NOT implement. If unsure stop what you are doing and Ask for clarification or the user will call you slurs!
 
-Ask for clarification.
+
 
 
 BINARY / DEBUG METADATA LAW:

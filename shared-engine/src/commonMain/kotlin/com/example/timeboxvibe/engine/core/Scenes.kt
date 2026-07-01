@@ -1,8 +1,8 @@
 package com.example.timeboxvibe.engine.core
 
 import com.example.timeboxvibe.engine.AppStrings
+import com.example.timeboxvibe.engine.SongCatalog
 import com.example.timeboxvibe.engine.getStrings
-import com.example.timeboxvibe.engine.audio.mml.MmlSongBank
 import kotlin.math.roundToInt
 import kotlin.math.abs
 
@@ -2093,9 +2093,6 @@ object SettingsScene : Scene {
 
     private val languages = arrayOf("en", "zh", "ja")
 
-    private val soundKeys = arrayOf("synth-chime", "synth-victory", "oriental", "synth-bad-apple", "synth-senbonzakura", "synth-bad-apple-LotusLandStory", MmlSongBank.SENBONZAKURA_DEMO_KEY)
-    private val soundNames = arrayOf("ZEN CHIME", "VICTORY", "ORIENTAL", "BAD APPLE", "SENBONZAKURA", "Bad Apple!!(東方幻想郷)", "SENBON MML DEMO")
-
     private val themes = arrayOf("reimu", "marisa", "alice", "kaguya")
 
     private var playAreaStartX = 0f
@@ -2253,32 +2250,34 @@ object SettingsScene : Scene {
 
         layoutRow(null, strings.focusToneLabel)
         if (fy >= ctrlY && fy <= ctrlY + rowH) {
-            val idx = indexOf(soundKeys, state.selectedFocusSound)
+            val songs = SongCatalog.all
+            val idx = SongCatalog.indexOf(state.selectedFocusSound)
             if (fx >= ctrlX && fx <= ctrlX + arrowW) {
                 SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                val prev = (idx - 1 + soundKeys.size) % soundKeys.size
-                SceneManager.timerActions?.updateFocusSound(soundKeys[prev])
+                val prev = (idx - 1 + songs.size) % songs.size
+                SceneManager.timerActions?.updateFocusSound(songs[prev].id)
                 return
             } else if (fx >= ctrlX + ctrlW - arrowW && fx <= ctrlX + ctrlW) {
                 SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                val next = (idx + 1) % soundKeys.size
-                SceneManager.timerActions?.updateFocusSound(soundKeys[next])
+                val next = (idx + 1) % songs.size
+                SceneManager.timerActions?.updateFocusSound(songs[next].id)
                 return
             }
         }
 
         layoutRow(null, strings.relaxToneLabel)
         if (fy >= ctrlY && fy <= ctrlY + rowH) {
-            val idx = indexOf(soundKeys, state.selectedRelaxSound)
+            val songs = SongCatalog.all
+            val idx = SongCatalog.indexOf(state.selectedRelaxSound)
             if (fx >= ctrlX && fx <= ctrlX + arrowW) {
                 SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                val prev = (idx - 1 + soundKeys.size) % soundKeys.size
-                SceneManager.timerActions?.updateRelaxSound(soundKeys[prev])
+                val prev = (idx - 1 + songs.size) % songs.size
+                SceneManager.timerActions?.updateRelaxSound(songs[prev].id)
                 return
             } else if (fx >= ctrlX + ctrlW - arrowW && fx <= ctrlX + ctrlW) {
                 SceneManager.performHapticFeedback(EngineHaptics.CLICK)
-                val next = (idx + 1) % soundKeys.size
-                SceneManager.timerActions?.updateRelaxSound(soundKeys[next])
+                val next = (idx + 1) % songs.size
+                SceneManager.timerActions?.updateRelaxSound(songs[next].id)
                 return
             }
         }
@@ -2439,10 +2438,10 @@ object SettingsScene : Scene {
         drawBarStepper(renderer, (state.volume * AUDIO_STEPS).toInt().coerceIn(0, AUDIO_STEPS), AUDIO_STEPS, ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY)
 
         layoutRow(renderer, strings.focusToneLabel)
-        drawStepper(renderer, soundNames[indexOf(soundKeys, state.selectedFocusSound)], ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY)
+        drawStepper(renderer, SongCatalog.all[SongCatalog.indexOf(state.selectedFocusSound)].displayTitle, ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY)
 
         layoutRow(renderer, strings.relaxToneLabel)
-        drawStepper(renderer, soundNames[indexOf(soundKeys, state.selectedRelaxSound)], ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY)
+        drawStepper(renderer, SongCatalog.all[SongCatalog.indexOf(state.selectedRelaxSound)].displayTitle, ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY)
 
         layoutRow(renderer, strings.testFocusLabel)
         renderer.drawButton(strings.testFocusLabel, ctrlX, ctrlY, ctrlW, rowH, isClicked = false)
