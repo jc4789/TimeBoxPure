@@ -7,6 +7,7 @@ import com.example.timeboxvibe.engine.LaneMode
 import com.example.timeboxvibe.engine.TimbreRef
 import com.example.timeboxvibe.engine.ToneSpec
 import com.example.timeboxvibe.engine.audio.opna.OpnaSequencer
+import com.example.timeboxvibe.engine.audio.AudioLaws
 import com.example.timeboxvibe.engine.audio.opna.midiNoteToFreq
 
 sealed class MmlCompileResult {
@@ -31,6 +32,14 @@ object MmlCompiler {
 
     fun compile(document: MmlDocument): MmlCompileResult {
         val diagnostics = mutableListOf<MmlDiagnostic>()
+        var eqIndex = 0
+        while (eqIndex < document.eqBands.size) {
+            val directive = document.eqBands[eqIndex]
+            if (directive.band.frequencyHz >= AudioLaws.SAMPLE_RATE * 0.5f) {
+                diagnostics.add(MmlDiagnostic(directive.line, directive.column, "#eq frequencyHz must be below the Nyquist frequency"))
+            }
+            eqIndex++
+        }
         val scaledBarTicks = document.barNumerator.toLong() * WHOLE_NOTE_TICKS
         if (scaledBarTicks % document.barDenominator != 0L || scaledBarTicks > Int.MAX_VALUE) {
             diagnostics.add(MmlDiagnostic(1, 1, "#BAR cannot be represented by the compiler tick grid"))
@@ -76,7 +85,8 @@ object MmlCompiler {
                 keyRootMidi = DEFAULT_KEY_ROOT_MIDI,
                 auxiliary = lanes[3],
                 routing = ArrangementRouting.MML_LOGICAL_TRACKS,
-                beatsPerBar = document.barNumerator
+                beatsPerBar = document.barNumerator,
+                eqBands = document.eqBands.map { it.band }
             )
         )
     }

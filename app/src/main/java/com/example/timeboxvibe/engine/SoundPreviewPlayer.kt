@@ -243,6 +243,7 @@ object SoundPreviewPlayer {
             val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
 
             synth.enableOutputFilter = true
+            synth.configureMasterEq(arrangement.eqBands)
             var i = 0
             while (i < synth.fm.size) {
                 synth.fm[i].enableOversampling = true

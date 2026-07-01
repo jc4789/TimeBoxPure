@@ -56,7 +56,7 @@
 - Structure: one-level `[ ... ]N` loops, `|` bar validation, and `;` comments. Nested/unclosed loops and incomplete bars fail compilation.
 - Diagnostics: typed failures carry line, column, and reason. Compiler also rejects invalid channel/instrument combinations, more than 3 SSG tracks, unrepresentable meter ticks, out-of-range MIDI notes, parser expansion overflow, and `OpnaSequencer.MAX_EVENTS` overflow.
 - Timing: 480 ticks per quarter; milliseconds are derived from absolute ticks and decimal BPM, preventing cumulative per-note rounding drift.
-- Current demo: `synth-mml-senbonzakura-demo`, an 8-bar 160.73 BPM A/B/C/D/R arrangement compiled once and exposed in Settings, preview, reminder, and looping alarm paths.
+- Current demo: `synth-mml-senbonzakura-demo`, an 8-bar 160.73 BPM A/B/C/D/R arrangement compiled once 
 - Tests: `MmlCompilerTest` covers multiline parsing, directives, accidentals, loops, timing, volume, track/timbre mapping, drum sentinels, typed failures, SSG/event capacity, and deterministic non-silent PCM. Focused suite and OPNA hot-path audit pass.
 
 ## Demoscene Engine Upgrades (this pass)

@@ -2,6 +2,7 @@ package com.example.timeboxvibe.engine.audio.opna
 
 import com.example.timeboxvibe.engine.audio.AudioLaws
 import com.example.timeboxvibe.engine.audio.midiToFreq
+import com.example.timeboxvibe.engine.SongEqBand
 
 class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     internal val mixer = OpnaMixer(sampleRate)
@@ -18,6 +19,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     private var filterStateL: Float = 0f
     private var filterStateR: Float = 0f
+    private val masterEq = MasterPeakEq(sampleRate)
     var filterAlpha: Float = 0.50f
     var enableOutputFilter: Boolean = true
 
@@ -87,13 +89,13 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     fun allNotesOff() {
         var i = 0
         while (i < ssg.size) {
-            ssg[i].noteOff()
+            ssg[i].reset()
             ssgActiveNoteId[i] = -1
             i++
         }
         i = 0
         while (i < fm.size) {
-            fm[i].noteOff()
+            fm[i].clearActiveNote()
             fmActiveNoteId[i] = -1
             i++
         }
@@ -117,6 +119,11 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         lfo.reset()
         filterStateL = 0f
         filterStateR = 0f
+        masterEq.reset()
+    }
+
+    fun configureMasterEq(bands: List<SongEqBand>) {
+        masterEq.configure(bands)
     }
 
     fun render(buffer: FloatArray, frames: Int) {
@@ -130,6 +137,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             remaining -= chunkFrames
         }
         applyGainAndClamp(buffer, frames)
+        masterEq.processMono(buffer, frames)
     }
 
     fun render(buffer: FloatArray, frames: Int, sequencer: OpnaSequencer, currentSampleOffset: Long) {
@@ -148,6 +156,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             sampleOffset += chunkFrames
         }
         applyGainAndClamp(buffer, frames)
+        masterEq.processMono(buffer, frames)
     }
 
     fun renderStereo(stereoBuffer: FloatArray, frames: Int) {
@@ -161,6 +170,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             remaining -= chunkFrames
         }
         applyGainAndClampStereo(stereoBuffer, frames)
+        masterEq.processStereo(stereoBuffer, frames)
     }
 
     fun renderStereo(stereoBuffer: FloatArray, frames: Int, sequencer: OpnaSequencer, currentSampleOffset: Long) {
@@ -179,6 +189,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             sampleOffset += chunkFrames
         }
         applyGainAndClampStereo(stereoBuffer, frames)
+        masterEq.processStereo(stereoBuffer, frames)
     }
 
     private fun renderSegment(buffer: FloatArray, startFrame: Int, frames: Int) {

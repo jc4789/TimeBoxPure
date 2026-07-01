@@ -2,7 +2,7 @@ package com.example.timeboxvibe.engine.audio.opna
 
 object Patches {
     val ZunLead1 = FmPatch(
-        algorithm = 0, feedback = 3,
+        algorithm = 0, feedback = 2,
         op0 = OperatorSpec(mul = 1, detune = 0, tl = 0,  modulationIndex = 2.5f, attack = 0.001f, decay = 0.02f, sustain = 0.6f, release = 0.08f),
         op1 = OperatorSpec(mul = 1, detune = 1, tl = 8,  modulationIndex = 1.8f, attack = 0.003f, decay = 0.04f, sustain = 0.7f, release = 0.1f),
         op2 = OperatorSpec(mul = 1, detune = 0, tl = 14, modulationIndex = 1.2f, attack = 0.004f, decay = 0.05f, sustain = 0.7f, release = 0.12f),

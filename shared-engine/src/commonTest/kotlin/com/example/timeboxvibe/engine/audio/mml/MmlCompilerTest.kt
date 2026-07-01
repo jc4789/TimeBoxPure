@@ -1,6 +1,7 @@
 package com.example.timeboxvibe.engine.audio.mml
 
 import com.example.timeboxvibe.engine.ArrangementRouting
+import com.example.timeboxvibe.engine.EqType
 import com.example.timeboxvibe.engine.LaneMode
 import com.example.timeboxvibe.engine.TimbreRef
 import com.example.timeboxvibe.engine.audio.opna.LlsPatches
@@ -14,6 +15,56 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class MmlCompilerTest {
+    @Test
+    fun parserStoresPeakEqMetadata() {
+        val source = """
+            #BPM 160
+            #BAR 4/4
+            #eq peak 4700 -2.0 0.8
+            A @54 o4 l8 c d e f g a b >c |
+        """.trimIndent()
+
+        val document = assertIs<MmlParseResult.Success>(MmlParser.parse(source)).document
+        assertEquals(1, document.eqBands.size)
+        val band = document.eqBands[0].band
+        assertEquals(EqType.PEAK, band.type)
+        assertEquals(4700f, band.frequencyHz)
+        assertEquals(-2f, band.gainDb)
+        assertEquals(0.8f, band.q)
+    }
+
+    @Test
+    fun parserRejectsInvalidEqMetadataWithLocations() {
+        val directives = arrayOf(
+            "#eq shelf 4700 -2.0 0.8",
+            "#eq peak 4700 -2.0",
+            "#eq peak NaN -2.0 0.8",
+            "#eq peak Infinity -2.0 0.8",
+            "#eq peak 0 -2.0 0.8",
+            "#eq peak 4700 -2.0 0"
+        )
+        var i = 0
+        while (i < directives.size) {
+            val result = MmlParser.parse("#BPM 120\n#BAR 4/4\n${directives[i]}\nA @54 o4 l1 c")
+            val failure = assertIs<MmlParseResult.Failure>(result)
+            assertTrue(failure.diagnostics.any { it.line == 3 && it.column == 1 })
+            i++
+        }
+    }
+
+    @Test
+    fun compilerPropagatesEqAndRejectsNyquistFrequency() {
+        val compiled = assertIs<MmlCompileResult.Success>(
+            MmlCompiler.compile("#BPM 120\n#BAR 4/4\n#eq peak 4700 -2.0 0.8\nA @54 o4 l1 c")
+        )
+        assertEquals(4700f, compiled.arrangement.eqBands.single().frequencyHz)
+
+        val rejected = assertIs<MmlCompileResult.Failure>(
+            MmlCompiler.compile("#BPM 120\n#BAR 4/4\n#eq peak 24000 -2.0 0.8\nA @54 o4 l1 c")
+        )
+        assertTrue(rejected.diagnostics.any { it.line == 3 && it.reason.contains("Nyquist") })
+    }
+
     @Test
     fun parserSupportsDirectivesCommentsLoopsAndRepeatedChannelLines() {
         val source = """

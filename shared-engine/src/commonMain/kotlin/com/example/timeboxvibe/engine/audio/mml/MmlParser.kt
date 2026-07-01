@@ -1,6 +1,8 @@
 package com.example.timeboxvibe.engine.audio.mml
 
 import com.example.timeboxvibe.engine.audio.opna.OpnaSequencer
+import com.example.timeboxvibe.engine.EqType
+import com.example.timeboxvibe.engine.SongEqBand
 
 data class MmlDiagnostic(val line: Int, val column: Int, val reason: String)
 
@@ -20,11 +22,14 @@ sealed class MmlCommand(open val line: Int, open val column: Int) {
 
 data class MmlTrack(val channel: MmlChannelId, val commands: List<MmlCommand>)
 
+data class MmlEqDirective(val band: SongEqBand, val line: Int, val column: Int)
+
 data class MmlDocument(
     val bpm: Float,
     val barNumerator: Int,
     val barDenominator: Int,
-    val tracks: List<MmlTrack>
+    val tracks: List<MmlTrack>,
+    val eqBands: List<MmlEqDirective> = emptyList()
 )
 
 sealed class MmlParseResult {
@@ -78,6 +83,7 @@ object MmlParser {
         var barNumerator: Int? = null
         var barDenominator: Int? = null
         var currentChannel: MmlChannelId? = null
+        val eqBands = mutableListOf<MmlEqDirective>()
         val lines = source.lines()
         var lineIndex = 0
         while (lineIndex < lines.size) {
@@ -110,6 +116,8 @@ object MmlParser {
                             barNumerator = numerator
                             barDenominator = denominator
                         }
+                    } else if (directive.startsWith("#eq", ignoreCase = true)) {
+                        parseEqDirective(directive, lineIndex + 1, first + 1, eqBands, diagnostics)
                     } else {
                         diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "Unknown directive"))
                     }
@@ -142,7 +150,46 @@ object MmlParser {
             i++
         }
         if (diagnostics.isNotEmpty()) return MmlParseResult.Failure(diagnostics)
-        return MmlParseResult.Success(MmlDocument(bpm!!, barNumerator!!, barDenominator!!, resultTracks))
+        return MmlParseResult.Success(MmlDocument(bpm!!, barNumerator!!, barDenominator!!, resultTracks, eqBands))
+    }
+
+    private fun parseEqDirective(
+        directive: String,
+        line: Int,
+        column: Int,
+        output: MutableList<MmlEqDirective>,
+        diagnostics: MutableList<MmlDiagnostic>
+    ) {
+        val tokens = directive.split(Regex("\\s+"))
+        if (tokens.size != 5) {
+            diagnostics.add(MmlDiagnostic(line, column, "#eq requires: #eq peak <frequencyHz> <gainDb> <q>"))
+            return
+        }
+        val type = when (tokens[1].lowercase()) {
+            "peak" -> EqType.PEAK
+            else -> {
+                diagnostics.add(MmlDiagnostic(line, column, "Unknown EQ type '${tokens[1]}'"))
+                return
+            }
+        }
+        val frequencyHz = tokens[2].toFloatOrNull()
+        val gainDb = tokens[3].toFloatOrNull()
+        val q = tokens[4].toFloatOrNull()
+        if (frequencyHz == null || gainDb == null || q == null ||
+            !frequencyHz.isFinite() || !gainDb.isFinite() || !q.isFinite()
+        ) {
+            diagnostics.add(MmlDiagnostic(line, column, "#eq values must be finite numbers"))
+            return
+        }
+        if (frequencyHz <= 0f) {
+            diagnostics.add(MmlDiagnostic(line, column, "#eq frequencyHz must be greater than zero"))
+            return
+        }
+        if (q <= 0f) {
+            diagnostics.add(MmlDiagnostic(line, column, "#eq q must be greater than zero"))
+            return
+        }
+        output.add(MmlEqDirective(SongEqBand(type, frequencyHz, gainDb, q), line, column))
     }
 
     private fun parseCommands(

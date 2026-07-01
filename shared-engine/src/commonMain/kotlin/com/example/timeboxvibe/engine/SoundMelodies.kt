@@ -39,6 +39,17 @@ enum class ArrangementRouting {
     MML_LOGICAL_TRACKS
 }
 
+enum class EqType {
+    PEAK
+}
+
+data class SongEqBand(
+    val type: EqType,
+    val frequencyHz: Float,
+    val gainDb: Float,
+    val q: Float
+)
+
 data class ArrangementLanes(
     val lead: Lane,
     val harmony: Lane,
@@ -48,7 +59,8 @@ data class ArrangementLanes(
     val keyRootMidi: Int,
     val auxiliary: Lane? = null,
     val routing: ArrangementRouting = ArrangementRouting.LEGACY,
-    val beatsPerBar: Int = 4
+    val beatsPerBar: Int = 4,
+    val eqBands: List<SongEqBand> = emptyList()
 )
 
 object SoundMelodies {

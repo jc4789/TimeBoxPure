@@ -161,6 +161,22 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         }
     }
 
+    internal fun clearActiveNote() {
+        baseFrequency = 0f
+        op0Feedback1 = 0f
+        op0Feedback2 = 0f
+        lowPassPrev = 0f
+        var i = 0
+        while (i < AudioLaws.FM_OPERATORS) {
+            opState[i].phase = 0.0
+            opState[i].phaseStep = 0.0
+            opState[i].prevOutput = 0f
+            opState[i].envelope.reset()
+            opState[i].opnEnvelope.reset()
+            i++
+        }
+    }
+
     fun reset() {
         baseFrequency = 0f
         op0Feedback1 = 0f
@@ -320,7 +336,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     }
 
     private fun computeOp0(ops: Array<OperatorState>, fbShift: Int): Float {
-        val avgFeedback = (op0Feedback1 + op0Feedback2) * 0.5f
+        val avgFeedback = (op0Feedback1 + op0Feedback2) * 0.3f
         val feedbackPhase = if (fbShift < 31) {
             avgFeedback.toDouble() / (1 shl fbShift)
         } else {

@@ -2,7 +2,7 @@ package com.example.timeboxvibe.engine.audio.opna
 
 object LlsPatches {
     val At54 = FmPatch(
-        algorithm = 0, feedback = 4,
+        algorithm = 0, feedback = 3,
         op0 = OperatorSpec(mul = 1, detune = 0, tl = 0,  modulationIndex = 2.2f, attack = 0.002f, decay = 0.030f, sustain = 0.65f, release = 0.06f),
         op1 = OperatorSpec(mul = 1, detune = 1, tl = 6,  modulationIndex = 1.6f, attack = 0.003f, decay = 0.050f, sustain = 0.70f, release = 0.08f),
         op2 = OperatorSpec(mul = 1, detune = 0, tl = 12, modulationIndex = 1.0f, attack = 0.004f, decay = 0.060f, sustain = 0.70f, release = 0.10f),
