@@ -14,7 +14,7 @@ object MmlSongBank {
 A @54 v12 o5 l8
 [e- f g- b- >e-< b- g- f |
  e- f g- b- >d-< b- g- f |
- e- f g- b- >e- f e- d- |
+ e- f g- b- >e- f e- d-|
  c- d- e- g- b- g- f e- |
  e- f g- b- >e-< b- g- f |
  e- f g- b- >d-< b- g- f |
@@ -83,6 +83,24 @@ D @square v5 o3 l16
  e- b- >e-< b- f c >f< c g d >g< d f c >f< c |
  g d >g< d r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16]2
 
+E @181 v10 o4 l8
+[r b- r g- r e- r g- |
+ r b- r g- r d- r f |
+ r e- r g- r b- r d- |
+ r c- r e- r g- r f |
+ r b- r g- r e- r g- |
+ r b- r g- r d- r f |
+ r c- r e- r g- r d- |
+ r d- r f r a- r c |
+ r b- r g- r f r e- |
+ r d- r f r a- r c |
+ r b- r g- r e- r g- |
+ r b- r g- r d- r f |
+ r e- r f r g r f |
+ r g r b- r d r f |
+ r e- r f r g r f |
+ r g r b- r d r r]2
+
 R @drum v11 l8
 [k h s h k h s h |
  k h s h k h s h |
@@ -120,7 +138,8 @@ R @drum v11 l8
             harmony = scaleLane(arrangement.harmony, volume),
             bass = scaleLane(arrangement.bass, volume),
             percussion = scaleLane(arrangement.percussion, volume),
-            auxiliary = arrangement.auxiliary?.let { scaleLane(it, volume) }
+            auxiliary = arrangement.auxiliary?.let { scaleLane(it, volume) },
+            additional = arrangement.additional?.let { scaleLane(it, volume) }
         )
     }
     private fun scaleLane(lane: Lane, volume: Float): Lane {

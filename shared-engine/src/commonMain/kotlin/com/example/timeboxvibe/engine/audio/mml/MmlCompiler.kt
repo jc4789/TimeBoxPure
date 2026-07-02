@@ -46,7 +46,7 @@ object MmlCompiler {
             return MmlCompileResult.Failure(diagnostics)
         }
         val barTicks = (scaledBarTicks / document.barDenominator).toInt()
-        val lanes = arrayOfNulls<Lane>(4)
+        val lanes = arrayOfNulls<Lane>(MmlChannelId.R.ordinal)
         var percussion: Lane? = null
         var ssgTracks = 0
         var sequencerEvents = 0
@@ -86,7 +86,8 @@ object MmlCompiler {
                 auxiliary = lanes[3],
                 routing = ArrangementRouting.MML_LOGICAL_TRACKS,
                 beatsPerBar = document.barNumerator,
-                eqBands = document.eqBands.map { it.band }
+                eqBands = document.eqBands.map { it.band },
+                additional = lanes[4]
             )
         )
     }
@@ -236,6 +237,7 @@ object MmlCompiler {
             "54" -> TimbreRef.FM_LLS_AT54
             "74" -> TimbreRef.FM_LLS_AT74
             "99" -> TimbreRef.FM_LLS_AT99
+            "181" -> TimbreRef.FM_LLS_AT181
             "square" -> TimbreRef.SSG_HARMONY_SQUARE
             else -> null
         }

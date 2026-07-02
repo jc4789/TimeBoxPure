@@ -60,7 +60,8 @@ data class ArrangementLanes(
     val auxiliary: Lane? = null,
     val routing: ArrangementRouting = ArrangementRouting.LEGACY,
     val beatsPerBar: Int = 4,
-    val eqBands: List<SongEqBand> = emptyList()
+    val eqBands: List<SongEqBand> = emptyList(),
+    val additional: Lane? = null
 )
 
 object SoundMelodies {

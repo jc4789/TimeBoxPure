@@ -6,7 +6,7 @@ import com.example.timeboxvibe.engine.SongEqBand
 
 data class MmlDiagnostic(val line: Int, val column: Int, val reason: String)
 
-enum class MmlChannelId { A, B, C, D, R }
+enum class MmlChannelId { A, B, C, D, E, R }
 
 sealed class MmlCommand(open val line: Int, open val column: Int) {
     data class Instrument(val value: String, override val line: Int, override val column: Int) : MmlCommand(line, column)
@@ -129,7 +129,7 @@ object MmlParser {
                     } else if (currentChannel != null) {
                         sources[currentChannel.ordinal].append(line, first, lineIndex + 1)
                     } else {
-                        diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "Music data requires a preceding channel A, B, C, D, or R"))
+                        diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "Music data requires a preceding channel A, B, C, D, E, or R"))
                     }
                 }
             }
@@ -315,6 +315,7 @@ object MmlParser {
         'B' -> MmlChannelId.B
         'C' -> MmlChannelId.C
         'D' -> MmlChannelId.D
+        'E' -> MmlChannelId.E
         'R' -> MmlChannelId.R
         else -> null
     }

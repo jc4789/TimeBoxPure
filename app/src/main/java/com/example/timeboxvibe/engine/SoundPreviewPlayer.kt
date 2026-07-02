@@ -429,7 +429,8 @@ object SoundPreviewPlayer {
                 arrangement.harmony.notes.maxOfOrNull { it.startMs + it.durationMs } ?: 0,
                 arrangement.bass.notes.maxOfOrNull { it.startMs + it.durationMs } ?: 0,
                 arrangement.percussion.notes.maxOfOrNull { it.startMs + it.durationMs } ?: 0,
-                arrangement.auxiliary?.notes?.maxOfOrNull { it.startMs + it.durationMs } ?: 0
+                arrangement.auxiliary?.notes?.maxOfOrNull { it.startMs + it.durationMs } ?: 0,
+                arrangement.additional?.notes?.maxOfOrNull { it.startMs + it.durationMs } ?: 0
             ).maxOrNull()?.toLong() ?: 0L
 
             if (maxDurationMs <= 0L) return@Runnable

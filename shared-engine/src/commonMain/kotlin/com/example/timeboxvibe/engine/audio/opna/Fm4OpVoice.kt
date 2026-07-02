@@ -291,60 +291,60 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private fun renderOne(): Float {
         val p = patch ?: return 0f
         val ops = opState
-        val fbShift = AudioLaws.feedbackShift(p.feedback)
+        val feedback = p.feedback.coerceIn(0, 7)
 
         return when (p.algorithm) {
             0 -> {
-                val s0 = computeOp0(ops, fbShift)
+                val s0 = computeOp0(ops, feedback)
                 val s1 = advanceOp(1, s0 * ops[0].modulationIndex)
                 val s2 = advanceOp(2, s1 * ops[1].modulationIndex)
                 val s3 = advanceOp(3, s2 * ops[2].modulationIndex)
                 s3 * p.totalLevel
             }
             1 -> {
-                val s0 = computeOp0(ops, fbShift)
+                val s0 = computeOp0(ops, feedback)
                 val s1 = computeOpFree(1)
                 val s2 = advanceOp(2, s0 * ops[0].modulationIndex + s1 * ops[1].modulationIndex)
                 val s3 = advanceOp(3, s2 * ops[2].modulationIndex)
                 s3 * p.totalLevel
             }
             2 -> {
-                val s0 = computeOp0(ops, fbShift)
+                val s0 = computeOp0(ops, feedback)
                 val s1 = computeOpFree(1)
                 val s2 = advanceOp(2, s1 * ops[1].modulationIndex)
                 val s3 = advanceOp(3, s0 * ops[0].modulationIndex + s2 * ops[2].modulationIndex)
                 s3 * p.totalLevel
             }
             3 -> {
-                val s0 = computeOp0(ops, fbShift)
+                val s0 = computeOp0(ops, feedback)
                 val s1 = advanceOp(1, s0 * ops[0].modulationIndex)
                 val s2 = computeOpFree(2)
                 val s3 = advanceOp(3, s1 * ops[1].modulationIndex + s2 * ops[2].modulationIndex)
                 s3 * p.totalLevel
             }
             4 -> {
-                val s0 = computeOp0(ops, fbShift)
+                val s0 = computeOp0(ops, feedback)
                 val s1 = advanceOp(1, s0 * ops[0].modulationIndex)
                 val s2 = computeOpFree(2)
                 val s3 = advanceOp(3, s2 * ops[2].modulationIndex)
                 (s1 + s3) * 0.5f * p.totalLevel
             }
             5 -> {
-                val s0 = computeOp0(ops, fbShift)
+                val s0 = computeOp0(ops, feedback)
                 val s1 = advanceOp(1, s0 * ops[0].modulationIndex)
                 val s2 = advanceOp(2, s0 * ops[0].modulationIndex)
                 val s3 = advanceOp(3, s0 * ops[0].modulationIndex)
                 (s1 + s2 + s3) * (1f / 3f) * p.totalLevel
             }
             6 -> {
-                val s0 = computeOp0(ops, fbShift)
+                val s0 = computeOp0(ops, feedback)
                 val s1 = advanceOp(1, s0 * ops[0].modulationIndex)
                 val s2 = computeOpFree(2)
                 val s3 = computeOpFree(3)
                 (s1 + s2 + s3) * (1f / 3f) * p.totalLevel
             }
             7 -> {
-                val s0 = computeOp0(ops, fbShift)
+                val s0 = computeOp0(ops, feedback)
                 val s1 = computeOpFree(1)
                 val s2 = computeOpFree(2)
                 val s3 = computeOpFree(3)
@@ -354,24 +354,37 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         }
     }
 
-    private fun sinLutInterpolated(phaseCycles: Double): Float {
-        return AudioSinLut.sin01(phaseCycles)
+    private fun opnSine(phaseCycles: Double, modulationCycles: Double = 0.0): Float {
+        var wrapped = phaseCycles - kotlin.math.floor(phaseCycles)
+        if (wrapped < 0.0) wrapped += 1.0
+        val phaseWord = (wrapped * OPN_PHASE_CYCLE_UNITS).toLong()
+        val modulationWord = (modulationCycles * OPN_PHASE_CYCLE_UNITS).toLong()
+        val theta = phaseWord + modulationWord
+        val phaseIndex = ((theta shr OPN_SINE_ADDRESS_SHIFT) and OPN_PHASE_ADDRESS_MASK).toInt()
+        return AudioSinLut.sample10Bit(phaseIndex)
     }
 
-    private fun computeOp0(ops: Array<OperatorState>, fbShift: Int): Float {
-        val avgFeedback = (op0Feedback1 + op0Feedback2) * 0.3f
-        val feedbackPhase = if (fbShift < 31) {
-            avgFeedback.toDouble() / (1 shl fbShift)
+    private fun quantizeOpnOutput(value: Float): Float {
+        val scaled = value * OPN_OUTPUT_STEPS
+        val truncated = scaled.toInt()
+        val quantized = if (scaled < truncated.toFloat()) truncated - 1 else truncated
+        return quantized.toFloat() / OPN_OUTPUT_STEPS
+    }
+
+    private fun computeOp0(ops: Array<OperatorState>, feedback: Int): Float {
+        val feedbackCycles = if (feedback > 0) {
+            (op0Feedback1 + op0Feedback2).toDouble() /
+                (1 shl (OPN_FEEDBACK_BASE_SHIFT - feedback))
         } else {
             0.0
         }
-        val op0Phase = ops[0].phase + feedbackPhase
+        val phase = ops[0].phase
         ops[0].phase += ops[0].phaseStep
         if (ops[0].phase >= 1.0) {
             ops[0].phase -= 1.0
         }
-        val raw = sinLutInterpolated(op0Phase)
-        val out = raw * envNext(ops[0]) * ops[0].outputLevel
+        val raw = opnSine(phase, feedbackCycles)
+        val out = quantizeOpnOutput(raw * envNext(ops[0]) * ops[0].outputLevel)
         ops[0].prevOutput = out
         op0Feedback2 = op0Feedback1
         op0Feedback1 = out
@@ -380,26 +393,36 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     private fun computeOpFree(opIdx: Int): Float {
         val op = opState[opIdx]
-        val raw = sinLutInterpolated(op.phase)
+        val raw = opnSine(op.phase)
         op.phase += op.phaseStep
         if (op.phase >= 1.0) {
             op.phase -= 1.0
         }
-        val out = raw * envNext(op) * op.outputLevel
+        val out = quantizeOpnOutput(raw * envNext(op) * op.outputLevel)
         op.prevOutput = out
         return op.prevOutput
     }
 
     private fun advanceOp(opIdx: Int, phaseMod: Float): Float {
         val op = opState[opIdx]
-        val phase = op.phase + phaseMod.toDouble() * 0.15915494
+        val modulationCycles = phaseMod.toDouble() * RADIANS_TO_CYCLES
+        val phase = op.phase
         op.phase += op.phaseStep
         if (op.phase >= 1.0) {
             op.phase -= 1.0
         }
-        val raw = sinLutInterpolated(phase)
-        val out = raw * envNext(op) * op.outputLevel
+        val raw = opnSine(phase, modulationCycles)
+        val out = quantizeOpnOutput(raw * envNext(op) * op.outputLevel)
         op.prevOutput = out
         return op.prevOutput
+    }
+
+    private companion object {
+        const val OPN_PHASE_CYCLE_UNITS = 536870912.0
+        const val OPN_SINE_ADDRESS_SHIFT = 19
+        const val OPN_PHASE_ADDRESS_MASK = 1023L
+        const val OPN_OUTPUT_STEPS = 65536f
+        const val OPN_FEEDBACK_BASE_SHIFT = 10
+        const val RADIANS_TO_CYCLES = 0.15915494309189535
     }
 }

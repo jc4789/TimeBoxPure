@@ -89,6 +89,26 @@ class MmlCompilerTest {
     }
 
     @Test
+    fun fifthMelodicChannelCompilesAt181() {
+        val source = """
+            #BPM 120
+            #BAR 4/4
+            A @54 o4 l1 c |
+            B @74 o4 l1 d |
+            C @99 o4 l1 e |
+            D @square o4 l1 f |
+            E @181 o3 l1 g |
+        """.trimIndent()
+
+        val parsed = assertIs<MmlParseResult.Success>(MmlParser.parse(source)).document
+        assertTrue(parsed.tracks[MmlChannelId.E.ordinal].commands.isNotEmpty())
+
+        val arrangement = assertIs<MmlCompileResult.Success>(MmlCompiler.compile(parsed)).arrangement
+        assertEquals(TimbreRef.FM_LLS_AT181, arrangement.additional?.timbre)
+        assertEquals(1, arrangement.additional?.notes?.size)
+    }
+
+    @Test
     fun multilineDemoCompilesToFiveTracksAtAbsoluteTickTiming() {
         val result = assertIs<MmlCompileResult.Success>(MmlSongBank.senbonzakuraDemoResult)
         val arrangement = result.arrangement

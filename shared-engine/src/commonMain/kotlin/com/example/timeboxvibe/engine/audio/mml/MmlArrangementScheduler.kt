@@ -66,8 +66,19 @@ object MmlArrangementScheduler {
         )
         if (scheduledType == LANE_FM) fmChannel++ else if (scheduledType == LANE_SSG) ssgChannel++
 
-        scheduleLane(
+        scheduledType = scheduleLane(
             arrangement.auxiliary,
+            OpnaAudioConstants.LANE_GAIN_HARMONY,
+            synth,
+            sequencer,
+            sampleRate,
+            fmChannel,
+            ssgChannel
+        )
+        if (scheduledType == LANE_FM) fmChannel++ else if (scheduledType == LANE_SSG) ssgChannel++
+
+        scheduleLane(
+            arrangement.additional,
             OpnaAudioConstants.LANE_GAIN_HARMONY,
             synth,
             sequencer,

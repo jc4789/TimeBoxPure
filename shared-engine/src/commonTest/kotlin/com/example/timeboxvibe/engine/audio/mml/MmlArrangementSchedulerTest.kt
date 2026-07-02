@@ -58,6 +58,31 @@ class MmlArrangementSchedulerTest {
     }
 
     @Test
+    fun fifthMelodicLaneUsesNextAvailableFmChannel() {
+        val arrangement = assertIs<MmlCompileResult.Success>(
+            MmlCompiler.compile(
+                """
+                    #BPM 120
+                    #BAR 4/4
+                    A @54 o4 l1 c |
+                    B @74 o4 l1 d |
+                    C @99 o4 l1 e |
+                    D @square o4 l1 f |
+                    E @181 o3 l1 g |
+                """.trimIndent()
+            )
+        ).arrangement
+        val sampleRate = 48000
+        val synth = OpnaLikeSynthesizer(sampleRate)
+        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
+
+        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
+
+        assertEquals(1, countEvents(sequencer, SequencerEvent.FM_ON, 3))
+        assertEquals(1, countEvents(sequencer, SequencerEvent.SSG_ON, 0))
+    }
+
+    @Test
     fun releaseEndsAtCompiledNoteBoundary() {
         val arrangement = requireDemoArrangement()
         val sampleRate = 48000
@@ -253,6 +278,8 @@ class MmlArrangementSchedulerTest {
         maximum = maxOf(maximum, maximumEndMs(arrangement.percussion))
         val auxiliary = arrangement.auxiliary
         if (auxiliary != null) maximum = maxOf(maximum, maximumEndMs(auxiliary))
+        val additional = arrangement.additional
+        if (additional != null) maximum = maxOf(maximum, maximumEndMs(additional))
         return maximum
     }
 
