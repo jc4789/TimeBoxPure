@@ -138,17 +138,23 @@ class MmlArrangementSchedulerTest {
         val arrangement = requireDemoArrangement()
         val sampleRate = 48000
         val synth = OpnaLikeSynthesizer(sampleRate)
+        val deterministicSynth = OpnaLikeSynthesizer(sampleRate)
         synth.enableOutputFilter = true
+        deterministicSynth.enableOutputFilter = true
         var voiceIndex = 0
         while (voiceIndex < synth.fm.size) {
             synth.fm[voiceIndex].enableOversampling = true
+            deterministicSynth.fm[voiceIndex].enableOversampling = true
             voiceIndex++
         }
         val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
+        val deterministicSequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
         MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
+        MmlArrangementScheduler.schedule(arrangement, deterministicSynth, deterministicSequencer, sampleRate)
 
         val totalSamples = maximumEndMs(arrangement).toLong() * sampleRate / 1000L
         val buffer = FloatArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
+        val deterministicBuffer = FloatArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
         var sampleOffset = 0L
         var maximumPreClipPeak = 0f
         var maximumOutputPeak = 0f
@@ -158,11 +164,14 @@ class MmlArrangementSchedulerTest {
         while (sampleOffset < totalSamples) {
             val frames = minOf(buffer.size.toLong(), totalSamples - sampleOffset).toInt()
             synth.render(buffer, frames, sequencer, sampleOffset)
+            deterministicSynth.render(deterministicBuffer, frames, deterministicSequencer, sampleOffset)
             if (synth.preClampPeak > maximumPreClipPeak) maximumPreClipPeak = synth.preClampPeak
             kneeCrossings += synth.preClampKneeCrossings
             var i = 0
             while (i < frames) {
                 val sample = buffer[i]
+                if (!sample.isFinite()) error("MML output became non-finite at sample ${sampleOffset + i}")
+                if (sample != deterministicBuffer[i]) error("MML output is nondeterministic at sample ${sampleOffset + i}")
                 val magnitude = abs(sample)
                 if (magnitude > maximumOutputPeak) maximumOutputPeak = magnitude
                 sumSquares += sample * sample
@@ -178,6 +187,26 @@ class MmlArrangementSchedulerTest {
         assertTrue(kneeCrossingRatio < 0.001, "MML soft-clip crossing ratio=$kneeCrossingRatio")
         assertTrue(maximumOutputPeak <= 1.0f, "MML output peak=$maximumOutputPeak")
         assertTrue(rms > 0.025f, "MML mix became too quiet: rms=$rms")
+    }
+
+    @Test
+    fun richPatchesReduceHighBandAndRestoreLowBody() {
+        val arrangement = requireDemoArrangement()
+        val sampleRate = 48000
+        val tuned = renderComparisonPrefix(arrangement, sampleRate, richPatches = true)
+        val hollowReference = renderComparisonPrefix(arrangement, sampleRate, richPatches = false)
+        val tunedRatio = highBandEnergyRatio(tuned, sampleRate)
+        val hollowRatio = highBandEnergyRatio(hollowReference, sampleRate)
+        val tunedBody = lowBandEnergyRatio(tuned, sampleRate)
+        val hollowBody = lowBandEnergyRatio(hollowReference, sampleRate)
+        assertTrue(
+            tunedRatio < hollowRatio * 0.95,
+            "Rich patches did not reduce >5 kHz energy: tuned=$tunedRatio hollow=$hollowRatio"
+        )
+        assertTrue(
+            tunedBody > hollowBody * 1.01,
+            "Rich patches did not restore low-frequency body: tuned=$tunedBody hollow=$hollowBody"
+        )
     }
 
     @Test
@@ -221,6 +250,81 @@ class MmlArrangementSchedulerTest {
         val buffer = FloatArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
         synth.render(buffer, buffer.size, sequencer, 0L)
         return buffer
+    }
+
+    private fun renderComparisonPrefix(arrangement: ArrangementLanes, sampleRate: Int, richPatches: Boolean): FloatArray {
+        val synth = OpnaLikeSynthesizer(sampleRate)
+        synth.enableOutputFilter = true
+        var voiceIndex = 0
+        while (voiceIndex < synth.fm.size) {
+            synth.fm[voiceIndex].enableOversampling = true
+            voiceIndex++
+        }
+        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
+        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
+        if (!richPatches) {
+            synth.fm[0].applyPatch(com.example.timeboxvibe.engine.audio.opna.LlsPatches.At54.copy(
+                algorithm = 0,
+                feedback = 3,
+                op0 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At54.op0.copy(mul = 1, tl = 24),
+                op1 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At54.op1.copy(mul = 1, tl = 30),
+                op2 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At54.op2.copy(tl = 36)
+            ))
+            synth.fm[1].applyPatch(com.example.timeboxvibe.engine.audio.opna.LlsPatches.At74.copy(
+                algorithm = 2,
+                feedback = 2,
+                op0 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At74.op0.copy(tl = 26),
+                op1 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At74.op1.copy(mul = 2, tl = 32),
+                op2 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At74.op2.copy(tl = 38)
+            ))
+            synth.fm[2].applyPatch(com.example.timeboxvibe.engine.audio.opna.LlsPatches.At99.copy(
+                feedback = 2,
+                op0 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At99.op0.copy(tl = 24),
+                op1 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At99.op1.copy(tl = 38),
+                op2 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At99.op2.copy(tl = 34)
+            ))
+            synth.fm[3].applyPatch(com.example.timeboxvibe.engine.audio.opna.LlsPatches.At181.copy(
+                feedback = 1,
+                op0 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At181.op0.copy(tl = 32),
+                op2 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At181.op2.copy(tl = 34)
+            ))
+        }
+        val buffer = FloatArray(sampleRate * 2)
+        synth.render(buffer, buffer.size, sequencer, 0L)
+        return buffer
+    }
+
+    private fun highBandEnergyRatio(buffer: FloatArray, sampleRate: Int): Double {
+        val decay = kotlin.math.exp(-2.0 * kotlin.math.PI * 5000.0 / sampleRate.toDouble())
+        var lowPass = 0.0
+        var highEnergy = 0.0
+        var totalEnergy = 0.0
+        var i = 0
+        while (i < buffer.size) {
+            val sample = buffer[i].toDouble()
+            lowPass = (1.0 - decay) * sample + decay * lowPass
+            val high = sample - lowPass
+            highEnergy += high * high
+            totalEnergy += sample * sample
+            i++
+        }
+        return if (totalEnergy > 0.0) highEnergy / totalEnergy else 0.0
+    }
+
+    private fun lowBandEnergyRatio(buffer: FloatArray, sampleRate: Int): Double {
+        val decay = kotlin.math.exp(-2.0 * kotlin.math.PI * 500.0 / sampleRate.toDouble())
+        var lowPass = 0.0
+        var lowEnergy = 0.0
+        var totalEnergy = 0.0
+        var i = 0
+        while (i < buffer.size) {
+            val sample = buffer[i].toDouble()
+            lowPass = (1.0 - decay) * sample + decay * lowPass
+            lowEnergy += lowPass * lowPass
+            totalEnergy += sample * sample
+            i++
+        }
+        return if (totalEnergy > 0.0) lowEnergy / totalEnergy else 0.0
     }
 
     private fun requireDemoArrangement(): ArrangementLanes {

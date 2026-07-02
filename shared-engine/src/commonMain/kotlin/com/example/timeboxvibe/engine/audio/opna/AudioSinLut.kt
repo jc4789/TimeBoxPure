@@ -12,19 +12,26 @@ internal object AudioSinLut {
     private val tableInt = IntArray(SIZE) { i ->
         val phase = (i.toDouble() + 0.5) / SIZE.toDouble()
         val scaled = kotlin.math.sin(phase * TWO_PI).toFloat() * SINE_AMPLITUDE_STEPS
-        
-        var v = if (scaled >= 0f) (scaled + 0.5f).toInt() else (scaled - 0.5f).toInt()
-        
-        if (i == 511) v = 0     // Zero-crossing endpoint anomaly
-        if (i == 1023) v = -1   // Wrap-around endpoint anomaly
-        
-        if (v < 0 && v % 2 == 0) {
-            v -= 2 // NEGATIVE_EVEN_ROM_BIAS
+
+        val rounded = if (scaled >= 0f) (scaled + 0.5f).toInt() else (scaled - 0.5f).toInt()
+        val biased = if (rounded < 0 && (rounded and 1) == 0) rounded - NEGATIVE_EVEN_ROM_BIAS else rounded
+        when (i) {
+            POSITIVE_TAIL_ROM_ADDRESS -> POSITIVE_TAIL_ROM_SAMPLE
+            POSITIVE_ZERO_CROSSING_ROM_ADDRESS -> POSITIVE_ZERO_CROSSING_ROM_SAMPLE
+            NEGATIVE_TAIL_ROM_ADDRESS -> NEGATIVE_TAIL_ROM_SAMPLE
+            else -> biased
         }
-        v
     }
 
     fun sample10BitInt(phaseIndex: Int): Int = tableInt[phaseIndex and INDEX_MASK]
+
+    private const val NEGATIVE_EVEN_ROM_BIAS = 2
+    private const val POSITIVE_TAIL_ROM_ADDRESS = 508
+    private const val POSITIVE_TAIL_ROM_SAMPLE = 6
+    private const val POSITIVE_ZERO_CROSSING_ROM_ADDRESS = 511
+    private const val POSITIVE_ZERO_CROSSING_ROM_SAMPLE = 1
+    private const val NEGATIVE_TAIL_ROM_ADDRESS = 1020
+    private const val NEGATIVE_TAIL_ROM_SAMPLE = -8
 }
 
 internal object DrumSinLut {

@@ -16,6 +16,18 @@ import kotlin.test.assertTrue
 
 class MmlCompilerTest {
     @Test
+    fun mmlPatchesCompensateOnlyModulatorTotalLevels() {
+        assertPatch(LlsPatches.At54, 0, 30, 24, 34, 8)
+        assertPatch(LlsPatches.At74, 0, 32, 22, 34, 10)
+        assertPatch(LlsPatches.At99, 0, 20, 34, 30, 16)
+        assertPatch(LlsPatches.At181, 0, 28, 12, 30, 12)
+        assertEquals(4, LlsPatches.At54.algorithm)
+        assertEquals(0, LlsPatches.At54.op1.mul)
+        assertEquals(4, LlsPatches.At74.algorithm)
+        assertEquals(1, LlsPatches.At74.op1.mul)
+    }
+
+    @Test
     fun parserStoresPeakEqMetadata() {
         val source = """
             #BPM 160
@@ -247,5 +259,20 @@ class MmlCompilerTest {
             )
             i++
         }
+    }
+
+    private fun assertPatch(
+        patch: com.example.timeboxvibe.engine.audio.opna.FmPatch,
+        feedback: Int,
+        op0Tl: Int,
+        op1Tl: Int,
+        op2Tl: Int,
+        op3Tl: Int
+    ) {
+        assertEquals(feedback, patch.feedback)
+        assertEquals(op0Tl, patch.op0.tl)
+        assertEquals(op1Tl, patch.op1.tl)
+        assertEquals(op2Tl, patch.op2.tl)
+        assertEquals(op3Tl, patch.op3.tl)
     }
 }

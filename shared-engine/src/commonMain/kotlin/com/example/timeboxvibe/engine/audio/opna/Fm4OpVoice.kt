@@ -101,12 +101,12 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         opState[3].phaseStep = calcPhaseStep(p.op3)
     }
 
-    private fun calcPhaseStep(spec: OperatorSpec): Int {
+    private fun calcPhaseStep(spec: OperatorSpec): UInt {
         val mul = if (spec.mul == 0) 0.5 else spec.mul.toDouble()
         val freq = baseFrequency * mul
         val effectiveSampleRate = if (enableOversampling) oversampleRate else sampleRate
         // VHDL phase generator uses a 29-bit cycle (bits 28..19 for 10-bit sine index)
-        return ((freq / effectiveSampleRate) * 536870912.0 * AudioLaws.detunePhaseMultiplierD(spec.detune)).toLong().toInt()
+        return ((freq / effectiveSampleRate) * PHASE_CYCLE_UNITS * AudioLaws.detunePhaseMultiplierD(spec.detune)).toLong().toUInt()
     }
 
     fun noteOn(midi: Int) {
@@ -152,7 +152,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                 op.envelope.stage = Envelope.ATTACK
                 op.opnEnvelope.noteOn()
             } else {
-                op.phase = 0
+                op.phase = 0u
                 op.prevOutput = 0
                 op.envelope.noteOn()
                 op.opnEnvelope.noteOn()
@@ -192,8 +192,8 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         lowPassPrev = 0f
         var i = 0
         while (i < AudioLaws.FM_OPERATORS) {
-            opState[i].phase = 0
-            opState[i].phaseStep = 0
+            opState[i].phase = 0u
+            opState[i].phaseStep = 0u
             opState[i].prevOutput = 0
             opState[i].envelope.reset()
             opState[i].opnEnvelope.reset()
@@ -348,12 +348,12 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         val op = ops[0]
         val modulation = if (feedback > 0) {
             val fbOut = op0Feedback1 + op0Feedback2
-            val inputS = fbOut shl 13
+            val inputS = fbOut shl FEEDBACK_INPUT_SHIFT
             inputS shr (fbtab[feedback] - 1)
         } else {
             0
         }
-        val phaseAddr = ((op.phase + modulation) ushr 19) and 1023
+        val phaseAddr = (((op.phase + modulation.toUInt()) shr PHASE_ADDRESS_SHIFT) and PHASE_ADDRESS_MASK).toInt()
         op.phase += op.phaseStep
 
         val envRaw = envNextRaw(op)
@@ -368,7 +368,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     private fun computeOpFree(opIdx: Int): Int {
         val op = opState[opIdx]
-        val phaseAddr = (op.phase ushr 19) and 1023
+        val phaseAddr = ((op.phase shr PHASE_ADDRESS_SHIFT) and PHASE_ADDRESS_MASK).toInt()
         op.phase += op.phaseStep
 
         val envRaw = envNextRaw(op)
@@ -381,8 +381,8 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     private fun advanceOp(opIdx: Int, phaseMod: Int): Int {
         val op = opState[opIdx]
-        val modulation = phaseMod shl 15
-        val phaseAddr = ((op.phase + modulation) ushr 19) and 1023
+        val modulation = phaseMod shl OPERATOR_INPUT_SHIFT
+        val phaseAddr = (((op.phase + modulation.toUInt()) shr PHASE_ADDRESS_SHIFT) and PHASE_ADDRESS_MASK).toInt()
         op.phase += op.phaseStep
 
         val envRaw = envNextRaw(op)
@@ -394,5 +394,10 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     }
 
     private companion object {
+        const val PHASE_CYCLE_UNITS = 536870912.0
+        const val PHASE_ADDRESS_SHIFT = 19
+        const val OPERATOR_INPUT_SHIFT = 15
+        const val FEEDBACK_INPUT_SHIFT = 13
+        const val PHASE_ADDRESS_MASK = 1023u
     }
 }

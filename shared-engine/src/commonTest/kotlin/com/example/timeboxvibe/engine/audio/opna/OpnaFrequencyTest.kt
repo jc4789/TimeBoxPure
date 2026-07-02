@@ -2,6 +2,7 @@ package com.example.timeboxvibe.engine.audio.opna
 
 import com.example.timeboxvibe.engine.audio.AudioLaws
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class OpnaFrequencyTest {
@@ -32,6 +33,27 @@ class OpnaFrequencyTest {
         val buffer = FloatArray(sampleRate)
         synth.noteOnSsg(0, midi)
         synth.render(buffer, sampleRate)
+        return buffer
+    }
+
+    private fun renderSingleFmOperatorOneSecond(opIndex: Int): FloatArray {
+        val sampleRate = AudioLaws.SAMPLE_RATE
+        val audible = OperatorSpec(mul = 1, detune = 0, tl = 0, attack = 0.001f, decay = 0.01f, sustain = 1f, release = 0.01f)
+        val muted = audible.copy(tl = 127)
+        val patch = FmPatch(
+            algorithm = 7,
+            feedback = 0,
+            op0 = if (opIndex == 0) audible else muted,
+            op1 = if (opIndex == 1) audible else muted,
+            op2 = if (opIndex == 2) audible else muted,
+            op3 = if (opIndex == 3) audible else muted,
+            totalLevel = 1f
+        )
+        val synth = OpnaLikeSynthesizer(sampleRate)
+        synth.fm[0].applyPatch(patch)
+        synth.fm[0].noteOn(69)
+        val buffer = FloatArray(sampleRate)
+        synth.render(buffer, buffer.size)
         return buffer
     }
 
@@ -89,6 +111,40 @@ class OpnaFrequencyTest {
             kotlin.math.abs(measured - 220.0) < 4.0,
             "FM A3 frequency out of range: measured=$measured Hz, expected 220 Hz"
         )
+    }
+
+    @Test
+    fun everyOperatorPathKeepsA4PitchAcrossUIntWraps() {
+        var opIndex = 0
+        while (opIndex < 4) {
+            val buffer = renderSingleFmOperatorOneSecond(opIndex)
+            val measured = expectedCrossingsHz(buffer, AudioLaws.SAMPLE_RATE)
+            assertTrue(
+                kotlin.math.abs(measured - 440.0) < 5.0,
+                "FM operator $opIndex measured=$measured Hz after repeated 32-bit phase wraps"
+            )
+            opIndex++
+        }
+    }
+
+    @Test
+    fun sineLutMatchesAllReferenceRomEntries() {
+        val twoPi = 6.283185307179586
+        var index = 0
+        while (index < AudioSinLut.SIZE) {
+            val phase = (index.toDouble() + 0.5) / AudioSinLut.SIZE.toDouble()
+            val scaled = kotlin.math.sin(phase * twoPi).toFloat() * 256f
+            val rounded = if (scaled >= 0f) (scaled + 0.5f).toInt() else (scaled - 0.5f).toInt()
+            val biased = if (rounded < 0 && (rounded and 1) == 0) rounded - 2 else rounded
+            val expected = when (index) {
+                508 -> 6
+                511 -> 1
+                1020 -> -8
+                else -> biased
+            }
+            assertEquals(expected, AudioSinLut.sample10BitInt(index), "sinetab mismatch at address $index")
+            index++
+        }
     }
 
     @Test

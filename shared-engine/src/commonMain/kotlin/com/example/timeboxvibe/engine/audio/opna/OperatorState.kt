@@ -1,8 +1,8 @@
 package com.example.timeboxvibe.engine.audio.opna
 
 internal class OperatorState {
-    var phase: Int = 0
-    var phaseStep: Int = 0
+    var phase: UInt = 0u
+    var phaseStep: UInt = 0u
     var tl: Int = 127
     var outputLevel: Float = 1f
     var prevOutput: Int = 0
@@ -11,8 +11,8 @@ internal class OperatorState {
     var egMode: EgMode = EgMode.LEGACY_ADSR
 
     fun reset() {
-        phase = 0
-        phaseStep = 0
+        phase = 0u
+        phaseStep = 0u
         outputLevel = 1f
         prevOutput = 0
         envelope.reset()
