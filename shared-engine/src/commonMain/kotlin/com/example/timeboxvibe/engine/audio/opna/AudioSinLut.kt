@@ -17,7 +17,7 @@ internal object OpnLogTables {
     }
 
     private val powerFraction = IntArray(QUARTER_SIZE) { i ->
-        val amplitude = 8191.0 * kotlin.math.exp(2.0, -i.toDouble() / LOG_UNITS_PER_OCTAVE)
+        val amplitude = 8191.0 * kotlin.math.exp((-LN_2 * i.toDouble()) / LOG_UNITS_PER_OCTAVE)
         (amplitude + 0.5).toInt()
     }
 
