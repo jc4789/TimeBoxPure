@@ -92,9 +92,9 @@ class OpnaLlsStructureTest {
         val allNotes = arr.lead.notes + arr.harmony.notes + arr.bass.notes + arr.percussion.notes
         val maxEnd = allNotes.maxOf { it.startMs + it.durationMs }
         assertTrue(
-            maxEnd in 55000..65000,
-            "Total duration $maxEnd ms is outside [55000, 65000]. " +
-            "Expected ~60000 ms for 40 bars at 160.73 BPM."
+            maxEnd in 110000..125000,
+            "Total duration $maxEnd ms is outside [110000, 125000]. " +
+            "Expected ~119000 ms for 40 bars * 2 loops at 160.73 BPM."
         )
     }
 

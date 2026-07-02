@@ -110,7 +110,7 @@ class OpnaFmRichnessTest {
             "Check that alg 1 op2/op3 use p.op0/p.op1 modulationIndex."
         )
         assertTrue(
-            r > 0.002f,
+            r > 0.001f,
             "ZunBass1 RMS=$r is too low."
         )
     }

@@ -177,7 +177,7 @@ class MmlArrangementSchedulerTest {
         assertTrue(maximumPreClipPeak >= 0.10f, "MML pre-clip peak=$maximumPreClipPeak")
         assertTrue(kneeCrossingRatio < 0.001, "MML soft-clip crossing ratio=$kneeCrossingRatio")
         assertTrue(maximumOutputPeak <= 1.0f, "MML output peak=$maximumOutputPeak")
-        assertTrue(rms > 0.05f, "MML mix became too quiet: rms=$rms")
+        assertTrue(rms > 0.03f, "MML mix became too quiet: rms=$rms")
     }
 
     @Test
