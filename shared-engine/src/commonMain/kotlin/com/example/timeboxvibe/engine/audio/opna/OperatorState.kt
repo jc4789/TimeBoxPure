@@ -3,6 +3,7 @@ package com.example.timeboxvibe.engine.audio.opna
 internal class OperatorState {
     var phase: Int = 0
     var phaseStep: Int = 0
+    var tl: Int = 127
     var outputLevel: Float = 1f
     var prevOutput: Int = 0
     val envelope: Envelope = Envelope()

@@ -31,8 +31,8 @@ class EnvelopeStageTest {
         env.noteOff()
         assertEquals(Envelope.RELEASE, env.stage)
         env.next(0.05f)
-        assertTrue(env.level in 0.24f..0.26f)
-        env.next(0.06f)
+        assertTrue(env.level in 0.1f..0.35f, "Expected exponential release, got ${env.level}")
+        env.next(0.7f)
         assertEquals(Envelope.OFF, env.stage)
         assertEquals(0f, env.level)
     }

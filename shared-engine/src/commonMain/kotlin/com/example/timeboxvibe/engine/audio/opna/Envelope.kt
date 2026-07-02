@@ -56,8 +56,8 @@ class Envelope {
                     level = sustain
                     stage = SUSTAIN
                 } else {
-                    level -= (dt / decay) * (1f - sustain)
-                    if (level <= sustain) {
+                    level -= (dt / decay) * (level - sustain).coerceAtLeast(0.001f)
+                    if (level <= sustain + 0.001f) {
                         level = sustain
                         stage = SUSTAIN
                     }
@@ -71,9 +71,8 @@ class Envelope {
                     level = 0f
                     stage = OFF
                 } else {
-                    // fall from whatever level we were at when noteOff was called
-                    level -= (dt / release) * releaseStartLevel
-                    if (level <= 0f) {
+                    level -= (dt / release) * level.coerceAtLeast(0.001f)
+                    if (level <= 0.001f) {
                         level = 0f
                         stage = OFF
                     }

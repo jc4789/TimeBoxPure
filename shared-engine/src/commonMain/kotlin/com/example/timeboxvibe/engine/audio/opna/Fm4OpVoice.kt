@@ -53,6 +53,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     private fun setupOpState(opIdx: Int, spec: OperatorSpec) {
         val state = opState[opIdx]
+        state.tl = spec.tl
         state.outputLevel = AudioLaws.tlToAmplitude(spec.tl)
         state.egMode = spec.egMode
         state.envelope.attack = spec.attack
@@ -75,6 +76,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     ) {
         val state = opState[opIdx]
         
+        state.tl = spec.tl
         state.outputLevel = AudioLaws.tlToAmplitude(spec.tl)
         state.egMode = spec.egMode
         state.opnEnvelope.attackRate = spec.ar
@@ -103,7 +105,8 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         val mul = if (spec.mul == 0) 0.5 else spec.mul.toDouble()
         val freq = baseFrequency * mul
         val effectiveSampleRate = if (enableOversampling) oversampleRate else sampleRate
-        return ((freq / effectiveSampleRate) * 4294967296.0 * AudioLaws.detunePhaseMultiplierD(spec.detune)).toLong().toInt()
+        // VHDL phase generator uses a 29-bit cycle (bits 28..19 for 10-bit sine index)
+        return ((freq / effectiveSampleRate) * 536870912.0 * AudioLaws.detunePhaseMultiplierD(spec.detune)).toLong().toInt()
     }
 
     fun noteOn(midi: Int) {
@@ -124,8 +127,8 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             while (opIdx < AudioLaws.FM_OPERATORS) {
                 if (isCarrier(opIdx, p.algorithm)) {
                     val op = opState[opIdx]
-                    val level = if (op.egMode == EgMode.OPN_RATE) op.opnEnvelope.level else op.envelope.level
-                    if (!isOpOff(opIdx) && level > 0f) {
+                    val levelIsActive = if (op.egMode == EgMode.OPN_RATE) op.opnEnvelope.level > 0f else op.envelope.level > 0f
+                    if (!isOpOff(opIdx) && levelIsActive) {
                         isActiveRetrigger = true
                     }
                 }
@@ -147,7 +150,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             val op = opState[i]
             if (isActiveRetrigger) {
                 op.envelope.stage = Envelope.ATTACK
-                op.opnEnvelope.stage = OpnRateEnvelope.ATTACK
+                op.opnEnvelope.noteOn()
             } else {
                 op.phase = 0
                 op.prevOutput = 0
@@ -217,19 +220,6 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     fun render(buffer: FloatArray, frames: Int, sampleRate: Int, gainScale: Float, startFrame: Int = 0) {
         val p = patch ?: return
 
-        val carriersOff = when (p.algorithm) {
-            0 -> isOpOff(3)
-            1 -> isOpOff(2) && isOpOff(3)
-            2 -> isOpOff(2) && isOpOff(3)
-            3 -> isOpOff(1) && isOpOff(3)
-            4 -> isOpOff(1) && isOpOff(3)
-            5 -> isOpOff(3)
-            6 -> isOpOff(1) && isOpOff(2) && isOpOff(3)
-            7 -> isOpOff(0) && isOpOff(1) && isOpOff(2) && isOpOff(3)
-            else -> true
-        }
-        if (carriersOff) return
-
         val combinedGain = gainScale * noteGain
 
         if (enableOversampling) {
@@ -277,12 +267,15 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         return if (op.egMode == EgMode.OPN_RATE) opnOff else legacyOff
     }
 
-    private fun envNext(op: OperatorState): Float {
+    private fun envNextRaw(op: OperatorState): Int {
         return if (op.egMode == EgMode.OPN_RATE) {
-            op.opnEnvelope.next()
+            val envFloat = op.opnEnvelope.next()
+            val eglevel = ((1f - envFloat) * 1023f).toInt().coerceIn(0, 1023)
+            AudioEnvLut.cltab[eglevel] * AudioEnvLut.gaintab[op.tl.coerceIn(0, 127)]
         } else {
             val effectiveSampleRate = if (enableOversampling) oversampleRate else sampleRate
-            op.envelope.next(1f / effectiveSampleRate)
+            val envFloat = op.envelope.next(1f / effectiveSampleRate)
+            (envFloat * op.outputLevel * 65535f).toInt().coerceIn(0, 65535)
         }
     }
 
@@ -349,17 +342,21 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         return (sum.toFloat() * p.totalLevel) / 131072f
     }
 
+    private val fbtab = intArrayOf(31, 7, 6, 5, 4, 3, 2, 1)
+
     private fun computeOp0(ops: Array<OperatorState>, feedback: Int): Int {
         val op = ops[0]
         val modulation = if (feedback > 0) {
-            (op0Feedback1 + op0Feedback2) shl (feedback + 6)
+            val fbOut = op0Feedback1 + op0Feedback2
+            val inputS = fbOut shl 13
+            inputS shr (fbtab[feedback] - 1)
         } else {
             0
         }
-        val phaseAddr = ((op.phase + modulation) ushr 22) and 1023
+        val phaseAddr = ((op.phase + modulation) ushr 19) and 1023
         op.phase += op.phaseStep
 
-        val envRaw = (envNext(op) * op.outputLevel * 65535f).toInt().coerceIn(0, 65535)
+        val envRaw = envNextRaw(op)
         val sineRaw = AudioSinLut.sample10BitInt(phaseAddr)
         val out = (sineRaw * envRaw) shr 8
 
@@ -371,10 +368,10 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     private fun computeOpFree(opIdx: Int): Int {
         val op = opState[opIdx]
-        val phaseAddr = (op.phase ushr 22) and 1023
+        val phaseAddr = (op.phase ushr 19) and 1023
         op.phase += op.phaseStep
 
-        val envRaw = (envNext(op) * op.outputLevel * 65535f).toInt().coerceIn(0, 65535)
+        val envRaw = envNextRaw(op)
         val sineRaw = AudioSinLut.sample10BitInt(phaseAddr)
         val out = (sineRaw * envRaw) shr 8
 
@@ -385,10 +382,10 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private fun advanceOp(opIdx: Int, phaseMod: Int): Int {
         val op = opState[opIdx]
         val modulation = phaseMod shl 15
-        val phaseAddr = ((op.phase + modulation) ushr 22) and 1023
+        val phaseAddr = ((op.phase + modulation) ushr 19) and 1023
         op.phase += op.phaseStep
 
-        val envRaw = (envNext(op) * op.outputLevel * 65535f).toInt().coerceIn(0, 65535)
+        val envRaw = envNextRaw(op)
         val sineRaw = AudioSinLut.sample10BitInt(phaseAddr)
         val out = (sineRaw * envRaw) shr 8
 

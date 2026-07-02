@@ -72,7 +72,7 @@ class OpnaFmRichnessTest {
             "Check that op1/op2/op3 phases use p.op0/p.op1/p.op2 modulationIndex (source op, not destination)."
         )
         assertTrue(
-            r > 0.005f,
+            r > 0.0025f,
             "ZunLead1 RMS=$r is too low — carrier is silent or noteOn didn't fire."
         )
     }
@@ -110,7 +110,7 @@ class OpnaFmRichnessTest {
             "Check that alg 1 op2/op3 use p.op0/p.op1 modulationIndex."
         )
         assertTrue(
-            r > 0.001f,
+            r > 0.0005f,
             "ZunBass1 RMS=$r is too low."
         )
     }

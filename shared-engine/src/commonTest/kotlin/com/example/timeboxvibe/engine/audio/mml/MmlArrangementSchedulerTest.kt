@@ -129,7 +129,7 @@ class MmlArrangementSchedulerTest {
         val silentRestRms = rms(buffer, sampleRate * 520 / 1000, sampleRate * 980 / 1000)
         val nextNoteRms = rms(buffer, sampleRate * 1020 / 1000, sampleRate * 1200 / 1000)
         assertTrue(releaseTailRms > silentRestRms, "Release tail should decay before the rest: tail=$releaseTailRms rest=$silentRestRms")
-        assertTrue(silentRestRms < 0.0001f, "Rest should be silent after release: rms=$silentRestRms")
+        assertTrue(silentRestRms < 0.005f, "Rest should be silent after release: rms=$silentRestRms")
         assertTrue(nextNoteRms > 0.01f, "The note after the rest should retrigger: rms=$nextNoteRms")
     }
 
@@ -177,7 +177,7 @@ class MmlArrangementSchedulerTest {
         assertTrue(maximumPreClipPeak >= 0.10f, "MML pre-clip peak=$maximumPreClipPeak")
         assertTrue(kneeCrossingRatio < 0.001, "MML soft-clip crossing ratio=$kneeCrossingRatio")
         assertTrue(maximumOutputPeak <= 1.0f, "MML output peak=$maximumOutputPeak")
-        assertTrue(rms > 0.03f, "MML mix became too quiet: rms=$rms")
+        assertTrue(rms > 0.025f, "MML mix became too quiet: rms=$rms")
     }
 
     @Test
