@@ -8,7 +8,8 @@ BANNED_TOKENS = [
     r"Random", r"nextFloat", r"nextInt", r"nextDouble",
     r"mutableListOf", r"arrayListOf",
     r"\.map\b", r"\.flatMap\b", r"buildList", r"generateSequence",
-    r"arrayOf",
+    r"arrayOf", r"Pair\s*\(", r"\bList<", r"\bMap<", r"\bSet<", r"\bSequence<",
+    r"copyOf", r"copyOfRange",
     r"kotlin\.math\.sin", r"\bsin\(",
     r"java\.", r"System\.currentTimeMillis", r"System\.nanoTime", r"Thread\b", r"Runtime\b"
 ]
@@ -18,7 +19,11 @@ def extract_functions(content):
     Finds functions (render, renderOne, noteOn, noteOff, trigger*) and returns their bodies.
     Uses basic brace matching to find the extent of the function body.
     """
-    func_pattern = re.compile(r"\bfun\s+(render|renderOne|noteOn|noteOff|trigger[A-Za-z0-9_]*)\s*\(")
+    func_pattern = re.compile(
+        r"\bfun\s+(render[A-Za-z0-9_]*|noteOn[A-Za-z0-9_]*|noteOff[A-Za-z0-9_]*|"
+        r"trigger[A-Za-z0-9_]*|computeOp[A-Za-z0-9_]*|advanceOp|clockEnvelope|"
+        r"panMonoToStereo)\s*\("
+    )
     bodies = []
     
     pos = 0

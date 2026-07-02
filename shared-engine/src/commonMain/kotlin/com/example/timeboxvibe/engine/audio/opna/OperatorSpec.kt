@@ -12,6 +12,7 @@ data class OperatorSpec(
     val rr: Int = 12,
     val ar: Int = 12,
     val dr: Int = 10,
+    val sr: Int = 0,
     val ks: Int = 0,
     val ams: Int = 0,
     val egMode: EgMode = EgMode.LEGACY_ADSR

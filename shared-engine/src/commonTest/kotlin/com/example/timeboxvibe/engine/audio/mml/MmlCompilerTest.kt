@@ -4,6 +4,7 @@ import com.example.timeboxvibe.engine.ArrangementRouting
 import com.example.timeboxvibe.engine.EqType
 import com.example.timeboxvibe.engine.LaneMode
 import com.example.timeboxvibe.engine.TimbreRef
+import com.example.timeboxvibe.engine.audio.opna.EgMode
 import com.example.timeboxvibe.engine.audio.opna.LlsPatches
 import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
 import com.example.timeboxvibe.engine.audio.opna.OpnaSequencer
@@ -16,7 +17,7 @@ import kotlin.test.assertTrue
 
 class MmlCompilerTest {
     @Test
-    fun mmlPatchesCompensateOnlyModulatorTotalLevels() {
+    fun mmlPatchesUseExplicitOpnEnvelopesWithoutChangingCarrierLevels() {
         assertPatch(LlsPatches.At54, 0, 30, 24, 34, 8)
         assertPatch(LlsPatches.At74, 0, 32, 22, 34, 10)
         assertPatch(LlsPatches.At99, 0, 20, 34, 30, 16)
@@ -25,6 +26,13 @@ class MmlCompilerTest {
         assertEquals(0, LlsPatches.At54.op1.mul)
         assertEquals(4, LlsPatches.At74.algorithm)
         assertEquals(1, LlsPatches.At74.op1.mul)
+        assertEquals(EgMode.OPN_RATE, LlsPatches.At54.op0.egMode)
+        assertEquals(EgMode.OPN_RATE, LlsPatches.At74.op0.egMode)
+        assertEquals(EgMode.OPN_RATE, LlsPatches.At99.op0.egMode)
+        assertEquals(EgMode.OPN_RATE, LlsPatches.At181.op0.egMode)
+        assertTrue(LlsPatches.At54.op0.sr > 0)
+        assertTrue(LlsPatches.At99.op1.sr > 0)
+        assertTrue(LlsPatches.At181.op2.sr > 0)
     }
 
     @Test

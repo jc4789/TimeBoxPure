@@ -25,6 +25,12 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     var filterAlpha: Float = 0.50f
     var enableOutputFilter: Boolean = true
 
+    init {
+        OpnLogTables.warmUp()
+        DrumSinLut.warmUp()
+        OpnEnvelopeCompatibility.warmUp()
+    }
+
     fun noteOnSsg(channel: Int, midi: Int) {
         if (channel in ssg.indices) {
             ssg[channel].noteOn(midiToFreq(midi))
@@ -249,7 +255,22 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         startFrame: Int,
         pan: Int
     ) {
-        val (leftGain, rightGain) = AudioLaws.panToGains(pan)
+        val leftGain: Float
+        val rightGain: Float
+        when (pan) {
+            1 -> {
+                leftGain = 1f
+                rightGain = 0f
+            }
+            2 -> {
+                leftGain = 0f
+                rightGain = 1f
+            }
+            else -> {
+                leftGain = 0.707f
+                rightGain = 0.707f
+            }
+        }
         var i = 0
         while (i < frames) {
             val sample = mono[i]
@@ -298,26 +319,28 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             when (nextEvent.type) {
                 SequencerEvent.FM_ON -> {
                     val ch = nextEvent.channel
-                    if (ch in fm.indices) {
-                        val a = if (nextEvent.attack >= 0f) nextEvent.attack else null
-                        val d = if (nextEvent.decay >= 0f) nextEvent.decay else null
-                        val s = if (nextEvent.sustain >= 0f) nextEvent.sustain else null
-                        val r = if (nextEvent.release >= 0f) nextEvent.release else null
-                        fm[ch].noteOn(nextEvent.midi, a, d, s, r)
+                    if (ch >= 0 && ch < fm.size) {
+                        fm[ch].noteOnScheduled(
+                            nextEvent.midi,
+                            nextEvent.attack,
+                            nextEvent.decay,
+                            nextEvent.sustain,
+                            nextEvent.release
+                        )
                         fm[ch].noteGain = nextEvent.velocity
                         fmActiveNoteId[ch] = nextEvent.noteId
                     }
                 }
                 SequencerEvent.FM_OFF -> {
                     val ch = nextEvent.channel
-                    if (ch in fm.indices && fmActiveNoteId[ch] == nextEvent.noteId) {
+                    if (ch >= 0 && ch < fm.size && fmActiveNoteId[ch] == nextEvent.noteId) {
                         fm[ch].noteOff()
                         fmActiveNoteId[ch] = -1
                     }
                 }
                 SequencerEvent.SSG_ON -> {
                     val ch = nextEvent.channel
-                    if (ch in ssg.indices) {
+                    if (ch >= 0 && ch < ssg.size) {
                         ssg[ch].duty = nextEvent.duty
                         if (nextEvent.attack >= 0f) ssg[ch].env.attack = nextEvent.attack
                         if (nextEvent.decay >= 0f) ssg[ch].env.decay = nextEvent.decay
@@ -330,7 +353,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                 }
                 SequencerEvent.SSG_OFF -> {
                     val ch = nextEvent.channel
-                    if (ch in ssg.indices && ssgActiveNoteId[ch] == nextEvent.noteId) {
+                    if (ch >= 0 && ch < ssg.size && ssgActiveNoteId[ch] == nextEvent.noteId) {
                         ssg[ch].noteOff()
                         ssgActiveNoteId[ch] = -1
                     }
@@ -382,26 +405,28 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             when (nextEvent.type) {
                 SequencerEvent.FM_ON -> {
                     val ch = nextEvent.channel
-                    if (ch in fm.indices) {
-                        val a = if (nextEvent.attack >= 0f) nextEvent.attack else null
-                        val d = if (nextEvent.decay >= 0f) nextEvent.decay else null
-                        val s = if (nextEvent.sustain >= 0f) nextEvent.sustain else null
-                        val r = if (nextEvent.release >= 0f) nextEvent.release else null
-                        fm[ch].noteOn(nextEvent.midi, a, d, s, r)
+                    if (ch >= 0 && ch < fm.size) {
+                        fm[ch].noteOnScheduled(
+                            nextEvent.midi,
+                            nextEvent.attack,
+                            nextEvent.decay,
+                            nextEvent.sustain,
+                            nextEvent.release
+                        )
                         fm[ch].noteGain = nextEvent.velocity
                         fmActiveNoteId[ch] = nextEvent.noteId
                     }
                 }
                 SequencerEvent.FM_OFF -> {
                     val ch = nextEvent.channel
-                    if (ch in fm.indices && fmActiveNoteId[ch] == nextEvent.noteId) {
+                    if (ch >= 0 && ch < fm.size && fmActiveNoteId[ch] == nextEvent.noteId) {
                         fm[ch].noteOff()
                         fmActiveNoteId[ch] = -1
                     }
                 }
                 SequencerEvent.SSG_ON -> {
                     val ch = nextEvent.channel
-                    if (ch in ssg.indices) {
+                    if (ch >= 0 && ch < ssg.size) {
                         ssg[ch].duty = nextEvent.duty
                         ssg[ch].noteOn(midiToFreq(nextEvent.midi))
                         ssg[ch].noteGain = nextEvent.velocity
@@ -410,7 +435,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                 }
                 SequencerEvent.SSG_OFF -> {
                     val ch = nextEvent.channel
-                    if (ch in ssg.indices && ssgActiveNoteId[ch] == nextEvent.noteId) {
+                    if (ch >= 0 && ch < ssg.size && ssgActiveNoteId[ch] == nextEvent.noteId) {
                         ssg[ch].noteOff()
                         ssgActiveNoteId[ch] = -1
                     }

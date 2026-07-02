@@ -11,13 +11,16 @@ class OpnaNoAllocHotPathTest {
         val synth = OpnaLikeSynthesizer(44100)
         val seq = OpnaSequencer(44100, testBpm)
         OpnaPatterns.focusMotif(seq)
+        synth.fm[0].applyPatch(Patches.ZunLead1)
+        synth.fm[1].applyPatch(Patches.ZunBass1)
 
         val buffer = FloatArray(1024)
 
         // Warmup to let JIT compile
         var i = 0
         while (i < 500) {
-            synth.render(buffer, 1024, seq, i * 1024L)
+            seq.resetPlaybackCursor()
+            synth.render(buffer, 1024, seq, 0L)
             i++
         }
 
@@ -30,7 +33,8 @@ class OpnaNoAllocHotPathTest {
 
         i = 0
         while (i < 1000) {
-            synth.render(buffer, 1024, seq, i * 1024L)
+            seq.resetPlaybackCursor()
+            synth.render(buffer, 1024, seq, 0L)
             i++
         }
 

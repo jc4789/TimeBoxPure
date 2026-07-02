@@ -1,37 +1,48 @@
 package com.example.timeboxvibe.engine.audio.opna
 
-internal object AudioSinLut {
-    private const val TWO_PI = 6.283185307179586
-    private const val PHASE_BITS = 10
-    const val SIZE = 1 shl PHASE_BITS
-    private const val INDEX_MASK = SIZE - 1
-    private const val SINE_AMPLITUDE_STEPS = 256f
+internal object OpnLogTables {
+    const val PHASE_SIZE: Int = 1024
+    const val QUARTER_SIZE: Int = 256
+    private const val PHASE_MASK = PHASE_SIZE - 1
+    private const val FRACTION_MASK = QUARTER_SIZE - 1
+    private const val LOG_UNITS_PER_OCTAVE = 256.0
+    private const val MAX_OUTPUT_SHIFT = 13
+    private const val LN_2 = 0.6931471805599453
 
-    // Procedurally reproduces every signed 10-bit entry in the reference sinetab.coe.
-    // Its negative half has an even-value encoding asymmetry and two endpoint entries.
-    private val tableInt = IntArray(SIZE) { i ->
-        val phase = (i.toDouble() + 0.5) / SIZE.toDouble()
-        val scaled = kotlin.math.sin(phase * TWO_PI).toFloat() * SINE_AMPLITUDE_STEPS
-
-        val rounded = if (scaled >= 0f) (scaled + 0.5f).toInt() else (scaled - 0.5f).toInt()
-        val biased = if (rounded < 0 && (rounded and 1) == 0) rounded - NEGATIVE_EVEN_ROM_BIAS else rounded
-        when (i) {
-            POSITIVE_TAIL_ROM_ADDRESS -> POSITIVE_TAIL_ROM_SAMPLE
-            POSITIVE_ZERO_CROSSING_ROM_ADDRESS -> POSITIVE_ZERO_CROSSING_ROM_SAMPLE
-            NEGATIVE_TAIL_ROM_ADDRESS -> NEGATIVE_TAIL_ROM_SAMPLE
-            else -> biased
-        }
+    // Generated from the documented ideal OPN curves. These are rules, not copied ROM data.
+    private val logSineQuarter = IntArray(QUARTER_SIZE) { i ->
+        val angle = (i.toDouble() + 0.5) * kotlin.math.PI / 512.0
+        val attenuation = -kotlin.math.ln(kotlin.math.sin(angle)) / LN_2 * LOG_UNITS_PER_OCTAVE
+        (attenuation + 0.5).toInt()
     }
 
-    fun sample10BitInt(phaseIndex: Int): Int = tableInt[phaseIndex and INDEX_MASK]
+    private val powerFraction = IntArray(QUARTER_SIZE) { i ->
+        val amplitude = 8191.0 * kotlin.math.exp(2.0, -i.toDouble() / LOG_UNITS_PER_OCTAVE)
+        (amplitude + 0.5).toInt()
+    }
 
-    private const val NEGATIVE_EVEN_ROM_BIAS = 2
-    private const val POSITIVE_TAIL_ROM_ADDRESS = 508
-    private const val POSITIVE_TAIL_ROM_SAMPLE = 6
-    private const val POSITIVE_ZERO_CROSSING_ROM_ADDRESS = 511
-    private const val POSITIVE_ZERO_CROSSING_ROM_SAMPLE = 1
-    private const val NEGATIVE_TAIL_ROM_ADDRESS = 1020
-    private const val NEGATIVE_TAIL_ROM_SAMPLE = -8
+    fun logSineAttenuation(phaseIndex: Int): Int {
+        val phase = phaseIndex and PHASE_MASK
+        var quarterIndex = phase and FRACTION_MASK
+        if ((phase and QUARTER_SIZE) != 0) quarterIndex = FRACTION_MASK - quarterIndex
+        return logSineQuarter[quarterIndex]
+    }
+
+    fun output(phaseIndex: Int, envelopeAttenuation: Int, totalLevel: Int): Int {
+        val phase = phaseIndex and PHASE_MASK
+        val envelopeAndTl = envelopeAttenuation.coerceIn(0, 1023) + totalLevel.coerceIn(0, 127) * 8
+        val totalAttenuation = logSineAttenuation(phase) + (envelopeAndTl shl 2)
+        val wholeShift = totalAttenuation ushr 8
+        if (wholeShift >= MAX_OUTPUT_SHIFT) return 0
+        val amplitude = powerFraction[totalAttenuation and FRACTION_MASK] ushr wholeShift
+        return if ((phase and 512) != 0) -amplitude else amplitude
+    }
+
+    internal fun quarterLogValue(index: Int): Int = logSineQuarter[index.coerceIn(0, FRACTION_MASK)]
+
+    internal fun powerValue(index: Int): Int = powerFraction[index.coerceIn(0, FRACTION_MASK)]
+
+    fun warmUp() = Unit
 }
 
 internal object DrumSinLut {
@@ -53,4 +64,6 @@ internal object DrumSinLut {
         val first = table[i]
         return first + (table[i + 1] - first) * fraction
     }
+
+    fun warmUp() = Unit
 }

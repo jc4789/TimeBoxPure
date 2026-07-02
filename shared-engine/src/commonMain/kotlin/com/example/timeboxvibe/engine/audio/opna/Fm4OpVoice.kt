@@ -1,13 +1,18 @@
 package com.example.timeboxvibe.engine.audio.opna
 
 import com.example.timeboxvibe.engine.audio.AudioLaws
-import com.example.timeboxvibe.engine.audio.midiToFreq
 
+/**
+ * Four-operator OPN voice accuracy profile.
+ * Implements logarithmic operators, 8 algorithms, feedback, FNUM/block/DT/MUL and the normal EG.
+ * LFO AM/PM, SSG-EG, CH3 special mode, CSM and chip timers remain intentionally out of scope.
+ */
 class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     private val opState: Array<OperatorState> = Array(AudioLaws.FM_OPERATORS) { OperatorState() }
     private var patch: FmPatch? = null
-    private var baseFrequency: Float = 0f
+    private var hasPitch: Boolean = false
+    private var packedPitch: Int = 0
     private var op0Feedback1: Int = 0
     private var op0Feedback2: Int = 0
     var noteGain: Float = 1f
@@ -18,8 +23,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     var enableOversampling: Boolean = false
         set(value) {
             field = value
-            updateEnvelopeSampleRates()
-            if (baseFrequency > 0f && patch != null) {
+            if (hasPitch && patch != null) {
                 recalcPhaseSteps(patch!!)
             }
         }
@@ -31,22 +35,24 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private var lowPassPrev = 0f
 
     fun applyPatch(p: FmPatch) {
+        OpnLogTables.warmUp()
+        OpnEnvelopeCompatibility.warmUp()
         patch = p
         setupOpState(0, p.op0)
         setupOpState(1, p.op1)
         setupOpState(2, p.op2)
         setupOpState(3, p.op3)
-        if (baseFrequency > 0f) {
+        if (hasPitch) {
             recalcPhaseSteps(p)
         }
         updateEnvelopeSampleRates()
     }
 
     private fun updateEnvelopeSampleRates() {
-        val effectiveRate = if (enableOversampling) oversampleRate else sampleRate
         var i = 0
         while (i < AudioLaws.FM_OPERATORS) {
-            opState[i].opnEnvelope.setSampleRate(effectiveRate)
+            // The EG is clocked once per output frame and held across both oversampled subsamples.
+            opState[i].opnEnvelope.setSampleRate(sampleRate)
             i++
         }
     }
@@ -54,44 +60,65 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private fun setupOpState(opIdx: Int, spec: OperatorSpec) {
         val state = opState[opIdx]
         state.tl = spec.tl
-        state.outputLevel = AudioLaws.tlToAmplitude(spec.tl)
-        state.egMode = spec.egMode
         state.envelope.attack = spec.attack
         state.envelope.decay = spec.decay
         state.envelope.sustain = spec.sustain
         state.envelope.release = spec.release
-        state.opnEnvelope.attackRate = spec.ar
-        state.opnEnvelope.decayRate = spec.dr
-        state.opnEnvelope.sustainLevel = spec.sl
-        state.opnEnvelope.releaseRate = spec.rr
     }
 
     private fun setupOpStateWithAdsrOverride(
         opIdx: Int,
         spec: OperatorSpec,
-        attackOverride: Float?,
-        decayOverride: Float?,
-        sustainOverride: Float?,
-        releaseOverride: Float?
+        attackOverride: Float,
+        decayOverride: Float,
+        sustainOverride: Float,
+        releaseOverride: Float
     ) {
         val state = opState[opIdx]
-        
         state.tl = spec.tl
-        state.outputLevel = AudioLaws.tlToAmplitude(spec.tl)
-        state.egMode = spec.egMode
-        state.opnEnvelope.attackRate = spec.ar
-        state.opnEnvelope.decayRate = spec.dr
-        state.opnEnvelope.sustainLevel = spec.sl
-        state.opnEnvelope.releaseRate = spec.rr
-        
-        state.envelope.attack = attackOverride ?: spec.attack
-        state.envelope.decay = decayOverride ?: spec.decay
-        state.envelope.sustain = sustainOverride ?: spec.sustain
-        state.envelope.release = releaseOverride ?: spec.release
+        state.envelope.attack = if (attackOverride >= 0f) attackOverride else spec.attack
+        state.envelope.decay = if (decayOverride >= 0f) decayOverride else spec.decay
+        state.envelope.sustain = if (sustainOverride >= 0f) sustainOverride else spec.sustain
+        state.envelope.release = if (releaseOverride >= 0f) releaseOverride else spec.release
+        OpnEnvelopeCompatibility.configure(
+            state.opnEnvelope,
+            spec,
+            OpnPitch.block(packedPitch),
+            OpnPitch.fnum(packedPitch),
+            attackOverride,
+            decayOverride,
+            sustainOverride,
+            releaseOverride
+        )
+    }
+
+    private fun setupOperatorForNote(
+        opIdx: Int,
+        spec: OperatorSpec,
+        algorithm: Int,
+        attack: Float,
+        decay: Float,
+        sustain: Float,
+        release: Float
+    ) {
+        val carrier = isCarrier(opIdx, algorithm)
+        setupOpStateWithAdsrOverride(
+            opIdx,
+            spec,
+            if (carrier) attack else NO_ADSR_OVERRIDE,
+            if (carrier) decay else NO_ADSR_OVERRIDE,
+            if (carrier) sustain else NO_ADSR_OVERRIDE,
+            if (carrier) release else NO_ADSR_OVERRIDE
+        )
     }
 
     fun getOperatorEnvelope(opIdx: Int): Envelope {
         return opState[opIdx].envelope
+    }
+
+    internal fun operatorEnvelopeSnapshot(opIdx: Int): Int {
+        val envelope = opState[opIdx.coerceIn(0, AudioLaws.FM_OPERATORS - 1)].opnEnvelope
+        return (envelope.stage shl 10) or envelope.attenuation
     }
 
     private fun recalcPhaseSteps(p: FmPatch) {
@@ -102,15 +129,12 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     }
 
     private fun calcPhaseStep(spec: OperatorSpec): UInt {
-        val mul = if (spec.mul == 0) 0.5 else spec.mul.toDouble()
-        val freq = baseFrequency * mul
         val effectiveSampleRate = if (enableOversampling) oversampleRate else sampleRate
-        // VHDL phase generator uses a 29-bit cycle (bits 28..19 for 10-bit sine index)
-        return ((freq / effectiveSampleRate) * PHASE_CYCLE_UNITS * AudioLaws.detunePhaseMultiplierD(spec.detune)).toLong().toUInt()
+        return OpnPitch.phaseStep29(packedPitch, spec, effectiveSampleRate)
     }
 
     fun noteOn(midi: Int) {
-        noteOn(midi, null, null, null, null)
+        noteOnInternal(midi, NO_ADSR_OVERRIDE, NO_ADSR_OVERRIDE, NO_ADSR_OVERRIDE, NO_ADSR_OVERRIDE)
     }
 
     fun noteOn(
@@ -120,6 +144,32 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         sustain: Float?,
         release: Float?
     ) {
+        noteOnInternal(
+            midi,
+            attack ?: NO_ADSR_OVERRIDE,
+            decay ?: NO_ADSR_OVERRIDE,
+            sustain ?: NO_ADSR_OVERRIDE,
+            release ?: NO_ADSR_OVERRIDE
+        )
+    }
+
+    internal fun noteOnScheduled(
+        midi: Int,
+        attack: Float,
+        decay: Float,
+        sustain: Float,
+        release: Float
+    ) {
+        noteOnInternal(midi, attack, decay, sustain, release)
+    }
+
+    private fun noteOnInternal(
+        midi: Int,
+        attack: Float,
+        decay: Float,
+        sustain: Float,
+        release: Float
+    ) {
         val p = patch
         var isActiveRetrigger = false
         if (p != null) {
@@ -127,8 +177,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             while (opIdx < AudioLaws.FM_OPERATORS) {
                 if (isCarrier(opIdx, p.algorithm)) {
                     val op = opState[opIdx]
-                    val levelIsActive = if (op.egMode == EgMode.OPN_RATE) op.opnEnvelope.level > 0f else op.envelope.level > 0f
-                    if (!isOpOff(opIdx) && levelIsActive) {
+                    if (!isOpOff(opIdx) && op.opnEnvelope.attenuation < OpnRateEnvelope.MAX_ATTENUATION) {
                         isActiveRetrigger = true
                     }
                 }
@@ -136,26 +185,25 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             }
         }
 
-        baseFrequency = midiToFreq(midi)
+        packedPitch = OpnPitch.nearestBlockFnumForMidi(midi)
+        hasPitch = true
         if (p != null) {
             recalcPhaseSteps(p)
             val alg = p.algorithm
-            setupOpStateWithAdsrOverride(0, p.op0, if (isCarrier(0, alg)) attack else null, if (isCarrier(0, alg)) decay else null, if (isCarrier(0, alg)) sustain else null, if (isCarrier(0, alg)) release else null)
-            setupOpStateWithAdsrOverride(1, p.op1, if (isCarrier(1, alg)) attack else null, if (isCarrier(1, alg)) decay else null, if (isCarrier(1, alg)) sustain else null, if (isCarrier(1, alg)) release else null)
-            setupOpStateWithAdsrOverride(2, p.op2, if (isCarrier(2, alg)) attack else null, if (isCarrier(2, alg)) decay else null, if (isCarrier(2, alg)) sustain else null, if (isCarrier(2, alg)) release else null)
-            setupOpStateWithAdsrOverride(3, p.op3, if (isCarrier(3, alg)) attack else null, if (isCarrier(3, alg)) decay else null, if (isCarrier(3, alg)) sustain else null, if (isCarrier(3, alg)) release else null)
+            setupOperatorForNote(0, p.op0, alg, attack, decay, sustain, release)
+            setupOperatorForNote(1, p.op1, alg, attack, decay, sustain, release)
+            setupOperatorForNote(2, p.op2, alg, attack, decay, sustain, release)
+            setupOperatorForNote(3, p.op3, alg, attack, decay, sustain, release)
         }
         var i = 0
         while (i < AudioLaws.FM_OPERATORS) {
             val op = opState[i]
             if (isActiveRetrigger) {
-                op.envelope.stage = Envelope.ATTACK
-                op.opnEnvelope.noteOn()
+                op.opnEnvelope.noteOn(retrigger = true)
             } else {
                 op.phase = 0u
                 op.prevOutput = 0
-                op.envelope.noteOn()
-                op.opnEnvelope.noteOn()
+                op.opnEnvelope.noteOn(retrigger = false)
             }
             i++
         }
@@ -179,14 +227,14 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     fun noteOff() {
         var i = 0
         while (i < AudioLaws.FM_OPERATORS) {
-            opState[i].envelope.noteOff()
             opState[i].opnEnvelope.noteOff()
             i++
         }
     }
 
     internal fun clearActiveNote() {
-        baseFrequency = 0f
+        hasPitch = false
+        packedPitch = 0
         op0Feedback1 = 0
         op0Feedback2 = 0
         lowPassPrev = 0f
@@ -202,7 +250,8 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     }
 
     fun reset() {
-        baseFrequency = 0f
+        hasPitch = false
+        packedPitch = 0
         op0Feedback1 = 0
         op0Feedback2 = 0
         lowPassPrev = 0f
@@ -218,7 +267,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     }
 
     fun render(buffer: FloatArray, frames: Int, sampleRate: Int, gainScale: Float, startFrame: Int = 0) {
-        val p = patch ?: return
+        if (patch == null) return
 
         val combinedGain = gainScale * noteGain
 
@@ -226,16 +275,18 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             val osFrames = frames * 2
             if (oversampleBuffer.size < osFrames) return
             oversampleBuffer.fill(0f, 0, osFrames)
-            var i = 0
-            while (i < osFrames) {
-                oversampleBuffer[i] = renderOne() * combinedGain
-                i++
+            var frame = 0
+            while (frame < frames) {
+                val first = frame * 2
+                oversampleBuffer[first] = renderOne(clockEnvelope = true) * combinedGain
+                oversampleBuffer[first + 1] = renderOne(clockEnvelope = false) * combinedGain
+                frame++
             }
             applyLowPassAndDownsample(oversampleBuffer, osFrames, buffer, startFrame, frames)
         } else {
             var i = 0
             while (i < frames) {
-                val sample = renderOne()
+                val sample = renderOne(clockEnvelope = true)
                 buffer[startFrame + i] += sample * combinedGain
                 i++
             }
@@ -261,104 +312,84 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     }
 
     private fun isOpOff(opIdx: Int): Boolean {
-        val op = opState[opIdx]
-        val legacyOff = op.envelope.stage == Envelope.OFF
-        val opnOff = op.opnEnvelope.stage == OpnRateEnvelope.OFF
-        return if (op.egMode == EgMode.OPN_RATE) opnOff else legacyOff
+        return opState[opIdx].opnEnvelope.stage == OpnRateEnvelope.OFF
     }
 
-    private fun envNextRaw(op: OperatorState): Int {
-        return if (op.egMode == EgMode.OPN_RATE) {
-            val envFloat = op.opnEnvelope.next()
-            val eglevel = ((1f - envFloat) * 1023f).toInt().coerceIn(0, 1023)
-            AudioEnvLut.cltab[eglevel] * AudioEnvLut.gaintab[op.tl.coerceIn(0, 127)]
-        } else {
-            val effectiveSampleRate = if (enableOversampling) oversampleRate else sampleRate
-            val envFloat = op.envelope.next(1f / effectiveSampleRate)
-            (envFloat * op.outputLevel * 65535f).toInt().coerceIn(0, 65535)
-        }
-    }
-
-    private fun renderOne(): Float {
+    private fun renderOne(clockEnvelope: Boolean): Float {
         val p = patch ?: return 0f
         val ops = opState
         val feedback = p.feedback.coerceIn(0, 7)
 
         val sum = when (p.algorithm) {
             0 -> {
-                val s0 = computeOp0(ops, feedback)
-                val s1 = advanceOp(1, s0)
-                val s2 = advanceOp(2, s1)
-                advanceOp(3, s2)
+                val s0 = computeOp0(ops, feedback, clockEnvelope)
+                val s1 = advanceOp(1, s0, clockEnvelope)
+                val s2 = advanceOp(2, s1, clockEnvelope)
+                advanceOp(3, s2, clockEnvelope)
             }
             1 -> {
-                val s0 = computeOp0(ops, feedback)
-                val s1 = computeOpFree(1)
-                val s2 = advanceOp(2, s0 + s1)
-                advanceOp(3, s2)
+                val s0 = computeOp0(ops, feedback, clockEnvelope)
+                val s1 = computeOpFree(1, clockEnvelope)
+                val s2 = advanceOp(2, s0 + s1, clockEnvelope)
+                advanceOp(3, s2, clockEnvelope)
             }
             2 -> {
-                val s0 = computeOp0(ops, feedback)
-                val s1 = computeOpFree(1)
-                val s2 = advanceOp(2, s1)
-                advanceOp(3, s0 + s2)
+                val s0 = computeOp0(ops, feedback, clockEnvelope)
+                val s1 = computeOpFree(1, clockEnvelope)
+                val s2 = advanceOp(2, s1, clockEnvelope)
+                advanceOp(3, s0 + s2, clockEnvelope)
             }
             3 -> {
-                val s0 = computeOp0(ops, feedback)
-                val s1 = advanceOp(1, s0)
-                val s2 = computeOpFree(2)
-                advanceOp(3, s1 + s2)
+                val s0 = computeOp0(ops, feedback, clockEnvelope)
+                val s1 = advanceOp(1, s0, clockEnvelope)
+                val s2 = computeOpFree(2, clockEnvelope)
+                advanceOp(3, s1 + s2, clockEnvelope)
             }
             4 -> {
-                val s0 = computeOp0(ops, feedback)
-                val s1 = advanceOp(1, s0)
-                val s2 = computeOpFree(2)
-                val s3 = advanceOp(3, s2)
+                val s0 = computeOp0(ops, feedback, clockEnvelope)
+                val s1 = advanceOp(1, s0, clockEnvelope)
+                val s2 = computeOpFree(2, clockEnvelope)
+                val s3 = advanceOp(3, s2, clockEnvelope)
                 s1 + s3
             }
             5 -> {
-                val s0 = computeOp0(ops, feedback)
-                val s1 = advanceOp(1, s0)
-                val s2 = advanceOp(2, s0)
-                val s3 = advanceOp(3, s0)
+                val s0 = computeOp0(ops, feedback, clockEnvelope)
+                val s1 = advanceOp(1, s0, clockEnvelope)
+                val s2 = advanceOp(2, s0, clockEnvelope)
+                val s3 = advanceOp(3, s0, clockEnvelope)
                 s1 + s2 + s3
             }
             6 -> {
-                val s0 = computeOp0(ops, feedback)
-                val s1 = advanceOp(1, s0)
-                val s2 = computeOpFree(2)
-                val s3 = computeOpFree(3)
+                val s0 = computeOp0(ops, feedback, clockEnvelope)
+                val s1 = advanceOp(1, s0, clockEnvelope)
+                val s2 = computeOpFree(2, clockEnvelope)
+                val s3 = computeOpFree(3, clockEnvelope)
                 s1 + s2 + s3
             }
             7 -> {
-                val s0 = computeOp0(ops, feedback)
-                val s1 = computeOpFree(1)
-                val s2 = computeOpFree(2)
-                val s3 = computeOpFree(3)
+                val s0 = computeOp0(ops, feedback, clockEnvelope)
+                val s1 = computeOpFree(1, clockEnvelope)
+                val s2 = computeOpFree(2, clockEnvelope)
+                val s3 = computeOpFree(3, clockEnvelope)
                 s0 + s1 + s2 + s3
             }
             else -> 0
         }
-        return (sum.toFloat() * p.totalLevel) / 131072f
+        return (sum.toFloat() * p.totalLevel) / 16384f
     }
 
-    private val fbtab = intArrayOf(31, 7, 6, 5, 4, 3, 2, 1)
-
-    private fun computeOp0(ops: Array<OperatorState>, feedback: Int): Int {
+    private fun computeOp0(ops: Array<OperatorState>, feedback: Int, clockEnvelope: Boolean): Int {
         val op = ops[0]
-        val modulation = if (feedback > 0) {
-            val fbOut = op0Feedback1 + op0Feedback2
-            val inputS = fbOut shl FEEDBACK_INPUT_SHIFT
-            inputS shr (fbtab[feedback] - 1)
+        val phaseMod = if (feedback > 0) {
+            (op0Feedback1 + op0Feedback2) shr (10 - feedback)
         } else {
             0
         }
-        val phaseAddr = (((op.phase + modulation.toUInt()) shr PHASE_ADDRESS_SHIFT) and PHASE_ADDRESS_MASK).toInt()
+        val phaseAddr = (basePhaseAddress(op) + phaseMod) and PHASE_ADDRESS_MASK
         op.phase += op.phaseStep
 
-        val envRaw = envNextRaw(op)
-        val sineRaw = AudioSinLut.sample10BitInt(phaseAddr)
-        val out = (sineRaw * envRaw) shr 8
+        val attenuation = if (clockEnvelope) op.opnEnvelope.nextAttenuation() else op.opnEnvelope.attenuation
+        val out = OpnLogTables.output(phaseAddr, attenuation, op.tl)
 
         op.prevOutput = out
         op0Feedback2 = op0Feedback1
@@ -366,38 +397,39 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         return out
     }
 
-    private fun computeOpFree(opIdx: Int): Int {
+    private fun computeOpFree(opIdx: Int, clockEnvelope: Boolean): Int {
         val op = opState[opIdx]
-        val phaseAddr = ((op.phase shr PHASE_ADDRESS_SHIFT) and PHASE_ADDRESS_MASK).toInt()
+        val phaseAddr = basePhaseAddress(op)
         op.phase += op.phaseStep
 
-        val envRaw = envNextRaw(op)
-        val sineRaw = AudioSinLut.sample10BitInt(phaseAddr)
-        val out = (sineRaw * envRaw) shr 8
+        val attenuation = if (clockEnvelope) op.opnEnvelope.nextAttenuation() else op.opnEnvelope.attenuation
+        val out = OpnLogTables.output(phaseAddr, attenuation, op.tl)
 
         op.prevOutput = out
         return out
     }
 
-    private fun advanceOp(opIdx: Int, phaseMod: Int): Int {
+    private fun advanceOp(opIdx: Int, phaseMod: Int, clockEnvelope: Boolean): Int {
         val op = opState[opIdx]
-        val modulation = phaseMod shl OPERATOR_INPUT_SHIFT
-        val phaseAddr = (((op.phase + modulation.toUInt()) shr PHASE_ADDRESS_SHIFT) and PHASE_ADDRESS_MASK).toInt()
+        val phaseAddr = (basePhaseAddress(op) + (phaseMod shr 1)) and PHASE_ADDRESS_MASK
         op.phase += op.phaseStep
 
-        val envRaw = envNextRaw(op)
-        val sineRaw = AudioSinLut.sample10BitInt(phaseAddr)
-        val out = (sineRaw * envRaw) shr 8
+        val attenuation = if (clockEnvelope) op.opnEnvelope.nextAttenuation() else op.opnEnvelope.attenuation
+        val out = OpnLogTables.output(phaseAddr, attenuation, op.tl)
 
         op.prevOutput = out
         return out
     }
+
+    private fun basePhaseAddress(op: OperatorState): Int =
+        ((op.phase shr PHASE_ADDRESS_SHIFT) and PHASE_ADDRESS_MASK_UINT).toInt()
 
     private companion object {
-        const val PHASE_CYCLE_UNITS = 536870912.0
-        const val PHASE_ADDRESS_SHIFT = 19
-        const val OPERATOR_INPUT_SHIFT = 15
-        const val FEEDBACK_INPUT_SHIFT = 13
-        const val PHASE_ADDRESS_MASK = 1023u
+        const val NO_ADSR_OVERRIDE = -1f
+        const val PHASE_CYCLE_BITS = 29
+        const val PHASE_ADDRESS_BITS = 10
+        const val PHASE_ADDRESS_SHIFT = PHASE_CYCLE_BITS - PHASE_ADDRESS_BITS
+        const val PHASE_ADDRESS_MASK = (1 shl PHASE_ADDRESS_BITS) - 1
+        val PHASE_ADDRESS_MASK_UINT: UInt = PHASE_ADDRESS_MASK.toUInt()
     }
 }

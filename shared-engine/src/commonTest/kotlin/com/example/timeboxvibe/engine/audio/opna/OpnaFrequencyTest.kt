@@ -1,6 +1,7 @@
 package com.example.timeboxvibe.engine.audio.opna
 
 import com.example.timeboxvibe.engine.audio.AudioLaws
+import kotlin.math.pow
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -13,16 +14,16 @@ class OpnaFrequencyTest {
         val simpleTestPatch = FmPatch(
             algorithm = 3,
             feedback = 0,
-            op0 = OperatorSpec(mul = 1, detune = 0, tl = 127, attack = 0.001f, decay = 0.01f, sustain = 1.0f, release = 0.01f),
-            op1 = OperatorSpec(mul = 1, detune = 0, tl = 127, attack = 0.001f, decay = 0.01f, sustain = 1.0f, release = 0.01f),
-            op2 = OperatorSpec(mul = 1, detune = 0, tl = 127, attack = 0.001f, decay = 0.01f, sustain = 1.0f, release = 0.01f),
-            op3 = OperatorSpec(mul = 1, detune = 0, tl = 0,   attack = 0.001f, decay = 0.01f, sustain = 1.0f, release = 0.01f),
+            op0 = OperatorSpec(mul = 1, detune = 0, tl = 127, ar = 31, dr = 0, sr = 0, sl = 0, egMode = EgMode.OPN_RATE),
+            op1 = OperatorSpec(mul = 1, detune = 0, tl = 127, ar = 31, dr = 0, sr = 0, sl = 0, egMode = EgMode.OPN_RATE),
+            op2 = OperatorSpec(mul = 1, detune = 0, tl = 127, ar = 31, dr = 0, sr = 0, sl = 0, egMode = EgMode.OPN_RATE),
+            op3 = OperatorSpec(mul = 1, detune = 0, tl = 0, ar = 31, dr = 0, sr = 0, sl = 0, egMode = EgMode.OPN_RATE),
             totalLevel = 1.0f,
             pms = 0, pan = 0
         )
         synth.fm[0].applyPatch(simpleTestPatch)
         val buffer = FloatArray(sampleRate)
-        synth.fm[0].noteOn(midi, 0.05f, 0.05f, 0.7f, 0.1f)
+        synth.fm[0].noteOn(midi)
         synth.render(buffer, sampleRate)
         return buffer
     }
@@ -38,7 +39,10 @@ class OpnaFrequencyTest {
 
     private fun renderSingleFmOperatorOneSecond(opIndex: Int): FloatArray {
         val sampleRate = AudioLaws.SAMPLE_RATE
-        val audible = OperatorSpec(mul = 1, detune = 0, tl = 0, attack = 0.001f, decay = 0.01f, sustain = 1f, release = 0.01f)
+        val audible = OperatorSpec(
+            mul = 1, detune = 0, tl = 0,
+            ar = 31, dr = 0, sr = 0, sl = 0, egMode = EgMode.OPN_RATE
+        )
         val muted = audible.copy(tl = 127)
         val patch = FmPatch(
             algorithm = 7,
@@ -121,30 +125,25 @@ class OpnaFrequencyTest {
             val measured = expectedCrossingsHz(buffer, AudioLaws.SAMPLE_RATE)
             assertTrue(
                 kotlin.math.abs(measured - 440.0) < 5.0,
-                "FM operator $opIndex measured=$measured Hz after repeated 32-bit phase wraps"
+                "FM operator $opIndex measured=$measured Hz after repeated UInt phase wraps"
             )
             opIndex++
         }
     }
 
     @Test
-    fun sineLutMatchesAllReferenceRomEntries() {
-        val twoPi = 6.283185307179586
+    fun proceduralLogTablesMatchTheirDocumentedEquations() {
         var index = 0
-        while (index < AudioSinLut.SIZE) {
-            val phase = (index.toDouble() + 0.5) / AudioSinLut.SIZE.toDouble()
-            val scaled = kotlin.math.sin(phase * twoPi).toFloat() * 256f
-            val rounded = if (scaled >= 0f) (scaled + 0.5f).toInt() else (scaled - 0.5f).toInt()
-            val biased = if (rounded < 0 && (rounded and 1) == 0) rounded - 2 else rounded
-            val expected = when (index) {
-                508 -> 6
-                511 -> 1
-                1020 -> -8
-                else -> biased
-            }
-            assertEquals(expected, AudioSinLut.sample10BitInt(index), "sinetab mismatch at address $index")
+        while (index < OpnLogTables.QUARTER_SIZE) {
+            val angle = (index.toDouble() + 0.5) * kotlin.math.PI / 512.0
+            val expectedLog = (-kotlin.math.log2(kotlin.math.sin(angle)) * 256.0 + 0.5).toInt()
+            val expectedPower = (8191.0 * 2.0.pow(-index.toDouble() / 256.0) + 0.5).toInt()
+            assertEquals(expectedLog, OpnLogTables.quarterLogValue(index), "log-sine mismatch at $index")
+            assertEquals(expectedPower, OpnLogTables.powerValue(index), "power mismatch at $index")
             index++
         }
+        assertTrue(OpnLogTables.quarterLogValue(0) > OpnLogTables.quarterLogValue(255))
+        assertTrue(OpnLogTables.powerValue(0) > OpnLogTables.powerValue(255))
     }
 
     @Test
