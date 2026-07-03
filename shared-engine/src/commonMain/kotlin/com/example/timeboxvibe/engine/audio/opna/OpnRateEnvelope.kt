@@ -13,6 +13,7 @@ class OpnRateEnvelope {
         const val RELEASE: Int = 4
         const val MAX_ATTENUATION: Int = 1023
         private const val MAX_EFFECTIVE_RATE = 63
+        private const val SSG_EG_LIMIT: Int = 511
 
         fun keyCode(block: Int, fnum: Int): Int = OpnPitch.keyCode(block, fnum)
 
@@ -92,6 +93,15 @@ class OpnRateEnvelope {
     private var rateCounter: Long = 0L
     private var egClockDenominator: Long =
         48_000L * OpnPitch.FM_CLOCK_DIVIDER.toLong() * OpnPitch.EG_CLOCK_DIVIDER.toLong()
+    private var ssgEgShape: Int = 0
+    private var ssgEgInverted: Boolean = false
+    private var ssgEgHolding: Boolean = false
+
+    fun configureSsgEg(shape: Int) {
+        ssgEgShape = if (shape in 8..15) shape else 0
+        ssgEgInverted = false
+        ssgEgHolding = false
+    }
 
     fun setSampleRate(sampleRate: Int) {
         egClockDenominator = sampleRate.coerceAtLeast(1).toLong() *
@@ -105,6 +115,8 @@ class OpnRateEnvelope {
 
     fun noteOn(retrigger: Boolean = false) {
         if (!retrigger || stage == OFF) attenuation = MAX_ATTENUATION
+        ssgEgInverted = ssgEgShape != 0 && (ssgEgShape and 4) != 0
+        ssgEgHolding = false
         stage = ATTACK
         if (currentEffectiveRate() >= 62) finishAttack()
     }
@@ -119,6 +131,8 @@ class OpnRateEnvelope {
         keyCodeValue = 0
         egClockAccumulator = 0L
         rateCounter = 0L
+        ssgEgInverted = false
+        ssgEgHolding = false
     }
 
     fun nextAttenuation(): Int {
@@ -127,7 +141,17 @@ class OpnRateEnvelope {
             egClockAccumulator -= egClockDenominator
             clockEnvelope()
         }
-        return attenuation
+        return currentAttenuation()
+    }
+
+    fun currentAttenuation(): Int {
+        if (ssgEgShape == 0 || stage == RELEASE || stage == OFF) return attenuation
+        val value = attenuation.coerceIn(0, SSG_EG_LIMIT)
+        return if (ssgEgInverted) {
+            (SSG_EG_LIMIT - value) shl 1
+        } else {
+            value shl 1
+        }
     }
 
     fun next(): Float {
@@ -143,6 +167,7 @@ class OpnRateEnvelope {
     private fun clockEnvelope() {
         rateCounter++
         if (stage == OFF) return
+        if (ssgEgHolding && stage != RELEASE) return
 
         if (stage == DECAY && attenuation >= sustainAttenuation(sustainLevel)) stage = SUSTAIN
 
@@ -169,11 +194,27 @@ class OpnRateEnvelope {
             }
             SUSTAIN, RELEASE -> {
                 attenuation += increment
+                if (stage == SUSTAIN && ssgEgShape != 0 && attenuation >= SSG_EG_LIMIT) {
+                    clockSsgEgBoundary()
+                    return
+                }
                 if (attenuation >= MAX_ATTENUATION) {
                     attenuation = MAX_ATTENUATION
                     stage = OFF
                 }
             }
+        }
+    }
+
+    private fun clockSsgEgBoundary() {
+        val alternate = (ssgEgShape and 2) != 0
+        val hold = (ssgEgShape and 1) != 0
+        if (alternate) ssgEgInverted = !ssgEgInverted
+        if (hold) {
+            attenuation = SSG_EG_LIMIT
+            ssgEgHolding = true
+        } else {
+            attenuation = 0
         }
     }
 

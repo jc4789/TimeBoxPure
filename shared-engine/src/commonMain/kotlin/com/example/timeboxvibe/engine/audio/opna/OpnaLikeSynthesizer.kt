@@ -6,9 +6,10 @@ import com.example.timeboxvibe.engine.SongEqBand
 
 class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     internal val mixer = OpnaMixer(sampleRate)
-    val ssg: Array<SsgVoice> = Array(AudioLaws.SSG_CHANNELS) { SsgVoice(it) }
+    private val ssgShared = SsgSharedState(sampleRate)
+    val ssg: Array<SsgVoice> = Array(AudioLaws.SSG_CHANNELS) { SsgVoice(it, ssgShared, sampleRate) }
     val fm: Array<Fm4OpVoice> = Array(AudioLaws.FM_CHANNELS) { Fm4OpVoice(sampleRate) }
-    val drums = ProceduralDrums()
+    val drums = ProceduralDrums(sampleRate)
     val lfo = Lfo(sampleRate)
 
     var preClampPeak: Float = 0f
@@ -17,6 +18,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     private val fmActiveNoteId = IntArray(AudioLaws.FM_CHANNELS) { -1 }
     private val ssgActiveNoteId = IntArray(AudioLaws.SSG_CHANNELS) { -1 }
+    private val fm3ActiveNoteId = IntArray(AudioLaws.FM_OPERATORS) { -1 }
     private val tempMonoBuffer = FloatArray(sampleRate)
 
     private var filterStateL: Float = 0f
@@ -73,23 +75,37 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         }
     }
 
-    fun triggerDrum(kind: Int, velocity: Float = 1f) {
+    fun triggerDrum(kind: Int, velocity: Float = 1f, pan: Int = 0) {
         when (kind) {
             0, ProceduralDrums.DrumKind.KICK.ordinal -> {
                 drums.kickGain = velocity
+                drums.setPan(ProceduralDrums.DrumKind.KICK, pan)
                 drums.triggerKick()
             }
             1, ProceduralDrums.DrumKind.SNARE.ordinal -> {
                 drums.snareGain = velocity
+                drums.setPan(ProceduralDrums.DrumKind.SNARE, pan)
                 drums.triggerSnare()
             }
             2, ProceduralDrums.DrumKind.HAT.ordinal -> {
                 drums.hatGain = velocity
+                drums.setPan(ProceduralDrums.DrumKind.HAT, pan)
                 drums.triggerHat()
             }
             3, ProceduralDrums.DrumKind.TOM.ordinal -> {
                 drums.tomGain = velocity
+                drums.setPan(ProceduralDrums.DrumKind.TOM, pan)
                 drums.triggerTom(150f)
+            }
+            ProceduralDrums.DrumKind.CYMBAL.ordinal -> {
+                drums.cymbalGain = velocity
+                drums.setPan(ProceduralDrums.DrumKind.CYMBAL, pan)
+                drums.triggerCymbal()
+            }
+            ProceduralDrums.DrumKind.RIMSHOT.ordinal -> {
+                drums.rimGain = velocity
+                drums.setPan(ProceduralDrums.DrumKind.RIMSHOT, pan)
+                drums.triggerRimshot()
             }
         }
     }
@@ -108,6 +124,12 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             i++
         }
         drums.stopAll()
+        ssgShared.reset()
+        i = 0
+        while (i < fm3ActiveNoteId.size) {
+            fm3ActiveNoteId[i] = -1
+            i++
+        }
     }
 
     fun reset() {
@@ -124,6 +146,12 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             i++
         }
         drums.reset()
+        ssgShared.reset()
+        i = 0
+        while (i < fm3ActiveNoteId.size) {
+            fm3ActiveNoteId[i] = -1
+            i++
+        }
         lfo.reset()
         filterStateL = 0f
         filterStateR = 0f
@@ -202,14 +230,16 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     private fun renderSegment(buffer: FloatArray, startFrame: Int, frames: Int) {
         if (frames <= 0) return
+        lfo.prepare(frames)
+        ssgShared.prepare(frames)
         var i = 0
         while (i < ssg.size) {
-            ssg[i].render(buffer, frames, sampleRate, mixer.ssgGain, startFrame)
+            ssg[i].render(buffer, frames, sampleRate, mixer.ssgGain, startFrame, sharedPrepared = true)
             i++
         }
         i = 0
         while (i < fm.size) {
-            fm[i].render(buffer, frames, sampleRate, mixer.fmGain, startFrame)
+            fm[i].render(buffer, frames, sampleRate, mixer.fmGain, startFrame, lfo)
             i++
         }
         drums.render(buffer, frames, sampleRate, mixer.rhythmGain, startFrame)
@@ -217,13 +247,15 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     private fun renderStereoSegment(stereoBuffer: FloatArray, startFrame: Int, frames: Int) {
         if (frames <= 0) return
+        lfo.prepare(frames)
+        ssgShared.prepare(frames)
 
         var i = 0
         while (i < ssg.size) {
             ensureTempBuffer(frames)
             tempMonoBuffer.fill(0f, 0, frames)
-            ssg[i].render(tempMonoBuffer, frames, sampleRate, mixer.ssgGain)
-            panMonoToStereo(tempMonoBuffer, stereoBuffer, frames, startFrame, 0)
+            ssg[i].render(tempMonoBuffer, frames, sampleRate, mixer.ssgGain, sharedPrepared = true)
+            panMonoToStereo(tempMonoBuffer, stereoBuffer, frames, startFrame, ssg[i].getPan())
             i++
         }
 
@@ -231,16 +263,13 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         while (i < fm.size) {
             ensureTempBuffer(frames)
             tempMonoBuffer.fill(0f, 0, frames)
-            fm[i].render(tempMonoBuffer, frames, sampleRate, mixer.fmGain)
+            fm[i].render(tempMonoBuffer, frames, sampleRate, mixer.fmGain, lfo = lfo)
             val pan = fm[i].getPan()
             panMonoToStereo(tempMonoBuffer, stereoBuffer, frames, startFrame, pan)
             i++
         }
 
-        ensureTempBuffer(frames)
-        tempMonoBuffer.fill(0f, 0, frames)
-        drums.render(tempMonoBuffer, frames, sampleRate, mixer.rhythmGain)
-        panMonoToStereo(tempMonoBuffer, stereoBuffer, frames, startFrame, 0)
+        drums.renderStereo(stereoBuffer, frames, sampleRate, mixer.rhythmGain, startFrame)
     }
 
     private fun ensureTempBuffer(frames: Int) {
@@ -316,52 +345,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                 renderPos = eventOffset
             }
 
-            when (nextEvent.type) {
-                SequencerEvent.FM_ON -> {
-                    val ch = nextEvent.channel
-                    if (ch >= 0 && ch < fm.size) {
-                        fm[ch].noteOnScheduled(
-                            nextEvent.midi,
-                            nextEvent.attack,
-                            nextEvent.decay,
-                            nextEvent.sustain,
-                            nextEvent.release
-                        )
-                        fm[ch].noteGain = nextEvent.velocity
-                        fmActiveNoteId[ch] = nextEvent.noteId
-                    }
-                }
-                SequencerEvent.FM_OFF -> {
-                    val ch = nextEvent.channel
-                    if (ch >= 0 && ch < fm.size && fmActiveNoteId[ch] == nextEvent.noteId) {
-                        fm[ch].noteOff()
-                        fmActiveNoteId[ch] = -1
-                    }
-                }
-                SequencerEvent.SSG_ON -> {
-                    val ch = nextEvent.channel
-                    if (ch >= 0 && ch < ssg.size) {
-                        ssg[ch].duty = nextEvent.duty
-                        if (nextEvent.attack >= 0f) ssg[ch].env.attack = nextEvent.attack
-                        if (nextEvent.decay >= 0f) ssg[ch].env.decay = nextEvent.decay
-                        if (nextEvent.sustain >= 0f) ssg[ch].env.sustain = nextEvent.sustain
-                        if (nextEvent.release >= 0f) ssg[ch].env.release = nextEvent.release
-                        ssg[ch].noteOn(midiToFreq(nextEvent.midi))
-                        ssg[ch].noteGain = nextEvent.velocity
-                        ssgActiveNoteId[ch] = nextEvent.noteId
-                    }
-                }
-                SequencerEvent.SSG_OFF -> {
-                    val ch = nextEvent.channel
-                    if (ch >= 0 && ch < ssg.size && ssgActiveNoteId[ch] == nextEvent.noteId) {
-                        ssg[ch].noteOff()
-                        ssgActiveNoteId[ch] = -1
-                    }
-                }
-                SequencerEvent.DRUM -> {
-                    triggerDrum(nextEvent.midi, nextEvent.velocity)
-                }
-            }
+            handleSequencerEvent(nextEvent)
 
             sequencer.nextEventIdx++
         }
@@ -402,50 +386,95 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                 renderPos = eventOffset
             }
 
-            when (nextEvent.type) {
-                SequencerEvent.FM_ON -> {
-                    val ch = nextEvent.channel
-                    if (ch >= 0 && ch < fm.size) {
-                        fm[ch].noteOnScheduled(
-                            nextEvent.midi,
-                            nextEvent.attack,
-                            nextEvent.decay,
-                            nextEvent.sustain,
-                            nextEvent.release
-                        )
-                        fm[ch].noteGain = nextEvent.velocity
-                        fmActiveNoteId[ch] = nextEvent.noteId
-                    }
-                }
-                SequencerEvent.FM_OFF -> {
-                    val ch = nextEvent.channel
-                    if (ch >= 0 && ch < fm.size && fmActiveNoteId[ch] == nextEvent.noteId) {
-                        fm[ch].noteOff()
-                        fmActiveNoteId[ch] = -1
-                    }
-                }
-                SequencerEvent.SSG_ON -> {
-                    val ch = nextEvent.channel
-                    if (ch >= 0 && ch < ssg.size) {
-                        ssg[ch].duty = nextEvent.duty
-                        ssg[ch].noteOn(midiToFreq(nextEvent.midi))
-                        ssg[ch].noteGain = nextEvent.velocity
-                        ssgActiveNoteId[ch] = nextEvent.noteId
-                    }
-                }
-                SequencerEvent.SSG_OFF -> {
-                    val ch = nextEvent.channel
-                    if (ch >= 0 && ch < ssg.size && ssgActiveNoteId[ch] == nextEvent.noteId) {
-                        ssg[ch].noteOff()
-                        ssgActiveNoteId[ch] = -1
-                    }
-                }
-                SequencerEvent.DRUM -> {
-                    triggerDrum(nextEvent.midi, nextEvent.velocity)
-                }
-            }
+            handleSequencerEvent(nextEvent)
 
             sequencer.nextEventIdx++
+        }
+    }
+
+    private fun handleSequencerEvent(event: SequencerEvent) {
+        when (event.type) {
+            SequencerEvent.FM_ON -> {
+                val ch = event.channel
+                if (ch >= 0 && ch < fm.size) {
+                    val voice = fm[ch]
+                    val selectedPatch = event.patch
+                    if (selectedPatch != null) voice.applyPatch(selectedPatch)
+                    voice.setPerformanceControls(
+                        event.pan,
+                        event.detuneCents,
+                        event.pms,
+                        event.ams,
+                        event.lfoDelayFrames,
+                        event.targetMidi,
+                        event.slideFrames
+                    )
+                    voice.noteOnScheduled(event.midi, event.attack, event.decay, event.sustain, event.release)
+                    voice.noteGain = event.velocity
+                    fmActiveNoteId[ch] = event.noteId
+                }
+            }
+            SequencerEvent.FM_OFF -> {
+                val ch = event.channel
+                if (ch >= 0 && ch < fm.size && fmActiveNoteId[ch] == event.noteId) {
+                    fm[ch].noteOff()
+                    fmActiveNoteId[ch] = -1
+                }
+            }
+            SequencerEvent.SSG_ON -> {
+                val ch = event.channel
+                if (ch >= 0 && ch < ssg.size) {
+                    val voice = ssg[ch]
+                    val selectedPatch = event.ssgPatch
+                    if (selectedPatch != null) voice.applyPatch(selectedPatch)
+                    voice.setPan(event.pan)
+                    voice.duty = event.duty
+                    if (event.attack >= 0f) voice.env.attack = event.attack
+                    if (event.decay >= 0f) voice.env.decay = event.decay
+                    if (event.sustain >= 0f) voice.env.sustain = event.sustain
+                    if (event.release >= 0f) voice.env.release = event.release
+                    val frequency = OpnPitch.applyCents(midiToFreq(event.midi), event.detuneCents)
+                    voice.setPitchRamp(
+                        if (event.targetMidi >= 0) OpnPitch.applyCents(midiToFreq(event.targetMidi), event.detuneCents) else 0f,
+                        event.slideFrames
+                    )
+                    voice.noteOn(frequency)
+                    voice.noteGain = event.velocity
+                    ssgActiveNoteId[ch] = event.noteId
+                }
+            }
+            SequencerEvent.SSG_OFF -> {
+                val ch = event.channel
+                if (ch >= 0 && ch < ssg.size && ssgActiveNoteId[ch] == event.noteId) {
+                    ssg[ch].noteOff()
+                    ssgActiveNoteId[ch] = -1
+                }
+            }
+            SequencerEvent.DRUM -> triggerDrum(event.midi, event.velocity, event.pan)
+            SequencerEvent.FM3_OPERATOR_ON -> {
+                val op = event.operator.coerceIn(0, AudioLaws.FM_OPERATORS - 1)
+                val selectedPatch = event.patch
+                if (selectedPatch != null) fm[2].applyPatch(selectedPatch)
+                fm[2].setPerformanceControls(
+                    event.pan,
+                    event.detuneCents,
+                    event.pms,
+                    event.ams,
+                    event.lfoDelayFrames,
+                    -1,
+                    0
+                )
+                fm[2].noteOnOperator(op, event.midi, event.targetMidi, event.slideFrames)
+                fm[2].noteGain = event.velocity
+                fm3ActiveNoteId[op] = event.noteId
+            }
+            SequencerEvent.FM3_OPERATOR_OFF -> {
+                val op = event.operator.coerceIn(0, AudioLaws.FM_OPERATORS - 1)
+                if (fm3ActiveNoteId[op] == event.noteId) {
+                    fm[2].noteOffOperator(op)
+                    fm3ActiveNoteId[op] = -1
+                }
+            }
         }
     }
 

@@ -16,6 +16,9 @@ internal object OpnPitch {
     private const val FNUM_MASK = (1 shl FNUM_BITS) - 1
     private const val PHASE_COORDINATE_SCALE = 512.0 // 2^29 / 2^20
     private const val PHASE_STEP_MASK = 0x1ffff
+    private const val CENT_LIMIT = 1_200
+    private const val CENT_SCALE_BITS = 20
+    private const val CENT_SCALE_ONE = 1 shl CENT_SCALE_BITS
 
     // Yamaha YM2608 Application Manual, detune table, represented as OPN phase-step units.
     // Columns are DT magnitudes 0..3; DT values 4..7 apply the negative sign.
@@ -33,6 +36,11 @@ internal object OpnPitch {
     private val midiPitch = IntArray(128) { midi ->
         val frequencyHz = 440.0 * 2.0.pow((midi - 69).toDouble() / 12.0)
         nearestBlockFnum(frequencyHz)
+    }
+
+    private val centsScale = IntArray(CENT_LIMIT * 2 + 1) { index ->
+        val cents = index - CENT_LIMIT
+        (2.0.pow(cents.toDouble() / 1200.0) * CENT_SCALE_ONE.toDouble() + 0.5).toInt()
     }
 
     fun nearestBlockFnum(frequencyHz: Double): Int {
@@ -87,7 +95,12 @@ internal object OpnPitch {
         return if ((dt and 4) != 0) -magnitude else magnitude
     }
 
-    fun phaseStep29(packedPitch: Int, spec: OperatorSpec, renderRate: Int): UInt {
+    fun applyCents(frequencyHz: Float, cents: Int): Float {
+        val scale = centsScale[cents.coerceIn(-CENT_LIMIT, CENT_LIMIT) + CENT_LIMIT]
+        return frequencyHz * scale.toFloat() / CENT_SCALE_ONE.toFloat()
+    }
+
+    fun phaseStep29(packedPitch: Int, spec: OperatorSpec, renderRate: Int, cents: Int = 0): UInt {
         val block = block(packedPitch)
         val fnum = fnum(packedPitch)
         val keyCode = keyCode(block, fnum)
@@ -99,6 +112,8 @@ internal object OpnPitch {
         val phaseStep = opnStep.toDouble() *
             (MASTER_CLOCK_HZ.toDouble() / FM_CLOCK_DIVIDER.toDouble()) *
             PHASE_COORDINATE_SCALE / renderRate.coerceAtLeast(1).toDouble()
-        return (phaseStep + 0.5).toLong().toUInt()
+        val rounded = (phaseStep + 0.5).toLong()
+        val scale = centsScale[cents.coerceIn(-CENT_LIMIT, CENT_LIMIT) + CENT_LIMIT].toLong()
+        return ((rounded * scale + (CENT_SCALE_ONE / 2)) shr CENT_SCALE_BITS).toUInt()
     }
 }

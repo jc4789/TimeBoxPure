@@ -22,7 +22,8 @@ def extract_functions(content):
     func_pattern = re.compile(
         r"\bfun\s+(render[A-Za-z0-9_]*|noteOn[A-Za-z0-9_]*|noteOff[A-Za-z0-9_]*|"
         r"trigger[A-Za-z0-9_]*|computeOp[A-Za-z0-9_]*|advanceOp|clockEnvelope|"
-        r"panMonoToStereo)\s*\("
+        r"panMonoToStereo|prepare|handleSequencerEvent|setLfoFrame|clockPitchRamp|"
+        r"clockSpecialPitchRamps|operatorAttenuation|advancePhase|leftPanGain|rightPanGain)\s*\("
     )
     bodies = []
     

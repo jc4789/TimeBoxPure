@@ -1,54 +1,72 @@
 package com.example.timeboxvibe.engine.audio.opna
 
-import com.example.timeboxvibe.engine.core.FastMath
-
-class Lfo(val sampleRate: Int = 48000) {
+/**
+ * Shared OPNA hardware LFO clock.
+ *
+ * The waveform table is generated from a sine rule during initialization. The
+ * render path advances one unsigned phase and writes into preallocated buffers.
+ */
+class Lfo(private val sampleRate: Int = 48_000) {
     companion object {
-        private val AMS_DEPTH_TABLE = floatArrayOf(0f, 0.016f, 0.031f, 0.063f)
-        private val PMS_DEPTH_TABLE = floatArrayOf(0f, 0.0005f, 0.001f, 0.002f, 0.004f, 0.008f, 0.016f, 0.032f)
+        private const val TABLE_BITS = 10
+        private const val TABLE_SIZE = 1 shl TABLE_BITS
+        private const val TABLE_SHIFT = 32 - TABLE_BITS
+        private const val WAVE_SCALE = 1024
+        private const val PHASE_SCALE = 4_294_967_296.0
 
-        private val LFO_FREQ_TABLE = floatArrayOf(3.98f, 5.56f, 6.02f, 6.37f, 6.88f, 9.63f, 48.1f, 72.2f)
+        // YM2608 hardware LFO rates, represented in millihertz.
+        private val RATE_MILLIHERTZ = intArrayOf(3_980, 5_560, 6_020, 6_370, 6_880, 9_630, 48_100, 72_200)
+        private val SINE_Q10 = IntArray(TABLE_SIZE) { i ->
+            val angle = i.toDouble() * kotlin.math.PI * 2.0 / TABLE_SIZE.toDouble()
+            (kotlin.math.sin(angle) * WAVE_SCALE.toDouble()).toInt()
+        }
     }
 
-    private var phase: Float = 0f
-    private var phaseStep: Float = 0f
-    private var triangleValue: Float = 0f
+    private val pmBuffer = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
+    private val amBuffer = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
+    private var phase: UInt = 0u
+    private var phaseStep: UInt = 0u
 
+    var enabled: Boolean = false
     var rate: Int = 0
         set(value) {
             field = value.coerceIn(0, 7)
-            phaseStep = LFO_FREQ_TABLE[field] / sampleRate
+            val hz = RATE_MILLIHERTZ[field].toDouble() / 1000.0
+            phaseStep = (hz * PHASE_SCALE / sampleRate.coerceAtLeast(1).toDouble()).toLong().toUInt()
         }
 
-    fun update() {
-        phase += phaseStep
-        if (phase >= 1f) phase -= 1f
-        val p4 = phase * 4f
-        triangleValue = if (p4 < 1f) {
-            p4
-        } else if (p4 < 2f) {
-            2f - p4
-        } else if (p4 < 3f) {
-            p4 - 2f
-        } else {
-            4f - p4
+    init {
+        rate = 0
+    }
+
+    fun prepare(frames: Int) {
+        val count = frames.coerceAtMost(pmBuffer.size)
+        var i = 0
+        while (i < count) {
+            if (enabled) {
+                val index = (phase shr TABLE_SHIFT).toInt()
+                val signed = SINE_Q10[index]
+                pmBuffer[i] = signed
+                amBuffer[i] = (signed + WAVE_SCALE) shr 1
+                phase += phaseStep
+            } else {
+                pmBuffer[i] = 0
+                amBuffer[i] = 0
+            }
+            i++
         }
     }
 
-    fun amsModulation(ams: Int): Float {
-        if (ams == 0) return 1f
-        val depth = AMS_DEPTH_TABLE[ams.coerceIn(0, 3)]
-        return 1f - depth * (1f - triangleValue)
-    }
-
-    fun pmsModulation(pms: Int): Float {
-        if (pms == 0) return 0f
-        val depth = PMS_DEPTH_TABLE[pms.coerceIn(0, 7)]
-        return depth * triangleValue
-    }
+    internal fun pmAt(frame: Int): Int = pmBuffer[frame]
+    internal fun amAt(frame: Int): Int = amBuffer[frame]
 
     fun reset() {
-        phase = 0f
-        triangleValue = 0f
+        phase = 0u
+        var i = 0
+        while (i < pmBuffer.size) {
+            pmBuffer[i] = 0
+            amBuffer[i] = 0
+            i++
+        }
     }
 }

@@ -34,27 +34,23 @@ class SongCatalogTest {
         while (i < SongCatalog.all.size) {
             val song = SongCatalog.all[i]
             val playback = assertNotNull(song.buildPlayback(1f), "Factory failed for ${song.id}")
-            when (song.kind) {
-                SongKind.PLATFORM_ASSET -> assertIs<SongPlayback.PlatformAsset>(playback)
-                SongKind.PROCEDURAL, SongKind.MML -> assertIs<SongPlayback.Arrangement>(playback)
-            }
+            assertEquals(SongKind.MML, song.kind)
+            assertIs<SongPlayback.Arrangement>(playback)
             i++
         }
     }
 
     @Test
-    fun soundMelodiesSelectionDelegatesToCatalog() {
-        var i = 0
-        while (i < SongCatalog.all.size) {
-            val song = SongCatalog.all[i]
-            if (song.kind == SongKind.PLATFORM_ASSET) {
-                assertNull(SoundMelodies.getArrangement(song.id, 1f))
-            } else {
-                assertNotNull(SoundMelodies.getArrangement(song.id, 1f))
-            }
-            i++
-        }
-        assertNull(SoundMelodies.getArrangement("missing-song", 1f))
+    fun catalogIsMmlOnlyAndRetiredIdsFallBack() {
+        assertEquals(1, SongCatalog.all.size)
+        assertEquals(MmlSongBank.SENBONZAKURA_DEMO_KEY, SongCatalog.DEFAULT_FOCUS_ID)
+        assertEquals(MmlSongBank.SENBONZAKURA_DEMO_KEY, SongCatalog.DEFAULT_RELAX_ID)
+        assertNull(SongCatalog.byId("oriental"))
+        assertNull(SongCatalog.byId("synth-chime"))
+        assertNull(SongCatalog.byId("synth-victory"))
+        assertNull(SongCatalog.byId("synth-bad-apple"))
+        assertNull(SongCatalog.byId("synth-senbonzakura"))
+        assertNull(SongCatalog.byId("synth-bad-apple-LotusLandStory"))
     }
 
     @Test

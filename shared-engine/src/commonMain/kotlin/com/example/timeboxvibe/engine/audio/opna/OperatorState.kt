@@ -5,6 +5,7 @@ internal class OperatorState {
     var phaseStep: UInt = 0u
     var tl: Int = 127
     var prevOutput: Int = 0
+    var amEnabled: Boolean = false
     // Retained as the source-compatible ADSR configuration view; FM execution uses opnEnvelope only.
     val envelope: Envelope = Envelope()
     val opnEnvelope: OpnRateEnvelope = OpnRateEnvelope()
@@ -13,6 +14,7 @@ internal class OperatorState {
         phase = 0u
         phaseStep = 0u
         prevOutput = 0
+        amEnabled = false
         envelope.reset()
         opnEnvelope.reset()
     }

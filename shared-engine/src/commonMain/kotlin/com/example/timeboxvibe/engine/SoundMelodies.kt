@@ -5,6 +5,7 @@ import com.example.timeboxvibe.engine.audio.opna.NoteSpec
 import com.example.timeboxvibe.engine.audio.opna.SongSpec
 import com.example.timeboxvibe.engine.audio.opna.compileNotes
 import com.example.timeboxvibe.engine.audio.opna.compileLlsNotes
+import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaSong
 
 enum class LaneMode {
     MONO_RETRIGGER,
@@ -61,13 +62,19 @@ data class ArrangementLanes(
     val routing: ArrangementRouting = ArrangementRouting.LEGACY,
     val beatsPerBar: Int = 4,
     val eqBands: List<SongEqBand> = emptyList(),
-    val additional: Lane? = null
+    val additional: Lane? = null,
+    val compiledOpnaSong: CompiledOpnaSong? = null
 )
 
 object SoundMelodies {
+    private const val LEGACY_SYNTH_CHIME_ID = "synth-chime"
+    private const val LEGACY_SYNTH_VICTORY_ID = "synth-victory"
+    private const val LEGACY_SYNTH_BAD_APPLE_ID = "synth-bad-apple"
+    private const val LEGACY_SYNTH_SENBONZAKURA_ID = "synth-senbonzakura"
+
     fun getMelody(key: String, volume: Float, isBass: Boolean): List<ToneSpec> {
         return when (key) {
-            SongCatalog.SYNTH_CHIME_ID -> {
+            LEGACY_SYNTH_CHIME_ID -> {
                 val e = 333
                 val q = 667
                 if (isBass) {
@@ -87,7 +94,7 @@ object SoundMelodies {
                     )
                 }
             }
-            SongCatalog.SYNTH_VICTORY_ID -> {
+            LEGACY_SYNTH_VICTORY_ID -> {
                 val e = 250
                 val q = 500
                 val h = 1000
@@ -107,10 +114,10 @@ object SoundMelodies {
                     )
                 }
             }
-            SongCatalog.SYNTH_BAD_APPLE_ID -> {
+            LEGACY_SYNTH_BAD_APPLE_ID -> {
                 if (isBass) emptyList() else getBadAppleArrangement(volume)
             }
-            SongCatalog.SYNTH_SENBONZAKURA_ID -> {
+            LEGACY_SYNTH_SENBONZAKURA_ID -> {
                 if (isBass) emptyList() else getSenbonzakuraArrangement(volume)
             }
             else -> emptyList()

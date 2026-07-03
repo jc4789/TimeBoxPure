@@ -1,176 +1,136 @@
 # ENGINE_BRIEF
 
 ## Current Engine Laws
-- Canonical Unit: `U = glyphWidth = glyphHeight`; layout derives from `U`.
-- Color: core engine uses palette indices `0..15` only.
-- Display: layout derives from `logicalWidth` and `logicalHeight`; no orientation assumptions.
-- Asset: no runtime PNG/JPG/SVG/TTF/WAV/JSON/XML assets.
-- Platform Firewall: platform code provides surfaces/input/audio only; core owns logic and rendering.
-- Integer-Snap: final raster output is integer-snapped (PC-98 aesthetic).
-- LUT Trigonometry: realtime trig in hot paths uses `FastMath` LUT (1024 entries, 0.35°/step).
-- Determinism: animation phase math uses `FrameClock` (monotonic), not wall-clock.
 
-## Hot Path Files
-- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/core/Scenes.kt`
-- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/core/RetroHudComponent.kt`
-- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/core/ScaledProceduralRenderer.kt`
-- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/core/NestedTimeboxInstrumentRenderer.kt`
-- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/core/MagicCircleDemoscene.kt`
-- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/core/TimerEngine.kt`
-- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/core/ChiptuneSynthesizer.kt`
-- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/core/FrameClock.kt`
-- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/core/Wave.kt`
-- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/core/PerlinNoise.kt`
-- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/core/IkChain2D.kt`
-- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/core/VisualsStateHolder.kt`
-- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/audio/opna/OpnaLikeSynthesizer.kt`
-- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/audio/opna/Fm4OpVoice.kt`
-- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/audio/opna/SsgVoice.kt`
-- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/audio/opna/ProceduralDrums.kt`
-- `shared-engine/src/commonMain/kotlin/com/example/timeboxvibe/engine/audio/opna/OpnaSequencer.kt`
+- Core engine code is Kotlin Multiplatform `commonMain`; no `java.*`, Android APIs, runtime file I/O, or hidden JVM assumptions.
+- Audio, visuals, fonts, and UI geometry are procedural. Do not add sample files or runtime-loaded assets.
+- Audio/render hot paths use caller-provided buffers, preallocated state, primitive loops, and no collection operators or heap allocation.
+- Platform wrappers present pixels/audio and forward primitive input/lifecycle events; engine behavior stays in shared code.
+- Core colors are palette indices `0..15`. Final raster output is integer-snapped.
+- Canonical UI unit is `U = 16` (the ROM glyph cell); layout derives from `U` and logical display bounds.
 
-## Procedural OPNA Sound Engine
+## Production Audio Contract
 
-- Core: pure `commonMain` Kotlin, 48 kHz, caller-provided PCM buffers, no sample assets or allocation in render loops.
-- Voices: 6 FM channels, 3 SSG channels, 4 operators per FM voice, plus procedural kick/snare/hat/tom.
-- FM: algorithms 0..7, feedback, multiplier/detune, legacy ADSR or OPN-rate envelopes, LUT sine, per-note gain, patch pan, optional 2x oversampling and low-pass downsampling.
-- SSG: square/pulse duty, PolyBLEP edge smoothing, optional LFSR noise, envelope and per-note gain.
-- Mixer/output: named lead/harmony/bass/percussion gains, output filter, peak tracking, soft clipping, mono and stereo render entry points.
-- Sequencing: `OpnaSequencer` owns a preallocated 4096-event array; FM/SSG notes emit paired ON/OFF events and drums emit one event. Events use absolute sample positions and deterministic sorting/loop reset.
-- Patches: native project patches plus Lotus Land Story `@54`, `@74`, `@99`, and `@181`. MML v1 exposes `@54`, `@74`, and `@99`.
-- Arrangement bridge: `ToneSpec` remains the note/event payload. `ArrangementLanes` contains lead, harmony, bass, optional auxiliary D, percussion, tempo, meter, and `ArrangementRouting`.
-- Routing: existing songs remain `LEGACY`. MML songs use `MML_LOGICAL_TRACKS`; A-D are assigned sequential free FM/SSG hardware channels by timbre and R schedules procedural drums.
-- Android host: `SoundPreviewPlayer` creates `AudioTrack`, converts compiled lanes into sequencer events before streaming, then renders fixed-size buffers. It never parses MML in the audio loop.
+- `SongCatalog` is MML-only. Its sole production song and both focus/relax defaults use `MmlSongBank.SENBONZAKURA_DEMO_KEY`.
+- The old Oriental MP3 entry, Zen Chime, Victory, procedural Bad Apple, procedural Senbonzakura, and Lotus Land Story arrangement are retired from the catalog.
+- Persisted retired IDs automatically fall back because app preference restoration accepts only IDs returned by `SongCatalog.byId`.
+- `SoundMelodies.kt` remains temporarily as quarantined legacy source/data. It is not a production playback contract and must not drive compatibility changes in the new FM core.
+- Android playback rejects `ArrangementRouting.LEGACY`; production uses `MML_LOGICAL_TRACKS` and `MmlArrangementScheduler` only.
+- `USAGE_ALARM` is intentional: this is an alarm/productivity application.
+- No platform audio asset path or `MediaPlayer` playback remains in `SoundPreviewPlayer`.
 
-## Minimal MML Authoring Layer
+## Procedural OPN Core
 
-- Files: `audio/mml/MmlParser.kt`, `MmlCompiler.kt`, and `MmlSongBank.kt` in `commonMain`.
-- Storage: songs are compact Kotlin raw strings; external `.mml` files and runtime file IO are forbidden.
-- Lifecycle: `MmlSongBank` compiles each source once during object initialization to `ArrangementLanes`/`List<ToneSpec>`. Per-play volume scaling may copy compiled notes, but parsing and musical compilation never occur during rendering.
-- Directives: `#BPM <positive decimal>` and `#BAR numerator/denominator`.
-- Tracks: A, B, C, D tonal tracks and R rhythm. A channel header may be followed by multiline continuation data; loops may span lines.
-- Instruments: `@54`, `@74`, `@99`, `@square`, and `@drum`. One timbre per track, declared before the first event; mid-track changes are rejected.
-- State commands: `v0..v15`, `o0..o8`, `l1|2|4|8|16`, and per-note lengths such as `c4` or `r16`.
-- Notes: `c d e f g a b`, accidentals `+`, `#`, `-`, rests `r`, and octave shifts `>`/`<`.
-- Rhythm: R uses `k` kick, `s` snare, `h` hat, and `r` rest.
-- Structure: one-level `[ ... ]N` loops, `|` bar validation, and `;` comments. Nested/unclosed loops and incomplete bars fail compilation.
-- Diagnostics: typed failures carry line, column, and reason. Compiler also rejects invalid channel/instrument combinations, more than 3 SSG tracks, unrepresentable meter ticks, out-of-range MIDI notes, parser expansion overflow, and `OpnaSequencer.MAX_EVENTS` overflow.
-- Timing: 480 ticks per quarter; milliseconds are derived from absolute ticks and decimal BPM, preventing cumulative per-note rounding drift.
-- Current demo: `synth-mml-senbonzakura-demo`, an 8-bar 160.73 BPM A/B/C/D/R arrangement compiled once 
-- Tests: `MmlCompilerTest` covers multiline parsing, directives, accidentals, loops, timing, volume, track/timbre mapping, drum sentinels, typed failures, SSG/event capacity, and deterministic non-silent PCM. Focused suite and OPNA hot-path audit pass.
+- Main files:
+  - `audio/opna/Fm4OpVoice.kt`
+  - `audio/opna/OpnPitch.kt`
+  - `audio/opna/OpnRateEnvelope.kt`
+  - `audio/opna/AudioSinLut.kt`
+  - `audio/opna/OpnaLikeSynthesizer.kt`
+  - `audio/opna/OpnaSequencer.kt`
+- Topology: 6 FM channels, 4 operators each, all 8 OPN algorithms, 3 SSG channels, and procedural drums.
+- V2 SSG uses integer tone phase, one shared 17-bit noise generator, one shared hardware envelope, and a generated logarithmic 16-level ladder. Shared configuration is authentic last-write-wins; conflicting overlaps produce compiler warnings.
+- Procedural rhythm now supplies kick, snare, hi-hat, tom, cymbal, and rimshot with per-shot volume/pan and no render-time transcendental math.
+- Phase state and step are `UInt`. The accumulator wraps at 32 bits; the intentional 29-bit waveform coordinate reads bits `28..19` for the 10-bit operator phase.
+- Pitch selects the nearest legal 8 MHz OPN block/FNUM pair. MUL=0 means one-half; MUL=1..15 is direct. Signed detune comes from the YM2608 manual keycode table.
+- Two 256-entry operator tables are generated once before playback:
+  - log-sine: `round(-log2(sin((i + 0.5) * PI / 512)) * 256)`
+  - power: `round(8191 * 2^(-i / 256))`
+- Operator output is signed 14-bit. Attenuation is `logSine + ((EG + TL * 8) << 2)`.
+- Normal modulation enters the next operator as `operatorOutput >> 1`. Feedback uses `(previous1 + previous2) >> (10 - feedback)`.
+- The voice normalizes the 14-bit operator domain with denominator `16384`; application master/lane gains are separate and must not be used to repair timbre.
+- Optional 2x oversampling advances phase twice per output frame, but the envelope is clocked once and held across both subsamples.
+- `Lfo` is one shared integer 32-bit phase source with eight OPNA rates. It prepares fixed PM/AM buffers once per render segment; PMS scales phase steps and AMS adds attenuation only to AM-enabled operators.
+- Scheduled FM state supports signed-cent detune, pan, delayed LFO, and linear phase-step portamento.
 
-## Demoscene Engine Upgrades (this pass)
+## OPN Envelope
 
-5 new pure-Kotlin files in `commonMain` provide procedural animation primitives. All allocation-free in hot paths, deterministic.
+- All FM audio executes through one integer attenuation envelope (`0..1023`) with states OFF, ATTACK, DECAY, SUSTAIN, RELEASE.
+- EG time derives from the 8 MHz chip clock divided by `144 * 3`, then is distributed over the host sample rate.
+- Attack uses `attenuation += (~attenuation * increment) >> 4`; decay, sustain, and release are linear in attenuation space.
+- AR/DR/SR/RR/SL/KS, zero-rate holds, key scaling, retrigger, and the SL=15 quiet level are implemented.
+- Rate cadence is generated procedurally from effective-rate groups and fractional pulse distribution; no emulator increment table is embedded.
+- `EgMode.OPN_RATE` consumes explicit register-style fields. `LEGACY_ADSR` only converts old float inputs to legal OPN rates at A4; it is not a second rendering engine and is not a promise that retired songs retain their old timbre.
+- Explicit target patches are `LlsPatches.At54`, `At74`, `At99`, and `At181`; their carriers keep SR=0 while intended modulators use nonzero SR shaping.
+- `OperatorSpec.ssgEg` enables FM operator SSG-EG shapes `8..15`, including repeat, alternate/invert, and hold behavior.
 
-- **FrameClock** — monotonic frame counter, replaces `getEpochMillis() % N` for ornament phase. Ticked once per frame from `SceneManager.update()`.
-- **Wave** — single-channel sine oscillator. 6 instances allocated in `MagicCircleDemoscene` for rune sway, pentagram breath, bead heartbeat (×2, π offset), core wobble, sector swing.
-- **PerlinNoise** — 1D/2D/FBM Perlin with 256-entry permutation table generated at build time by `gen_lut.py --kind perm --size 256 --seed 42`. Permutation table emitted to `engine/generated/GeneratedPermLut.kt`.
-- **IkChain2D** (FABRIK) — 2D constraint solver. Used for the 6-link yin-yang comet trail.
-- **Point2D** (data class in `IkChain2D.kt`) — 2D coordinate value class.
-- **MagicCircleDemoscene** — owner of the 6 Waves + 1 IkChain2D + Perlin rune drift helper. Created once per `ActiveTimerScene.onEnter()`.
-- **VisualsStateHolder** — pure-Kotlin in-memory holder for the 2 user-toggleable visuals settings (demoscene effects, background nebula). Read by the magic circle renderer and `MagicCircleDemoscene`. Mutated by the Settings scene UI.
+## Accuracy Profile
 
-**New primitive on `ScaledProceduralRenderer`:** `drawPolarDot(cx, cy, radius, angle, size, colorIdx)` — small filled disc at a polar coordinate. Used for the 12-dot decoration ring.
+- This is an independently derived Yamaha-style OPN core, not a copied MAME/ymfm implementation and not a bit-perfect compatibility claim.
+- Implemented musical chip features include LFO AM/PM, FM operator SSG-EG, hardware-style SSG tone/noise/envelope operation, and CH3 per-operator pitch/key control.
+- Intentionally unimplemented: CSM, timers, raw register writes, and register-level YM2608 emulation. These belong to a future register-stream frontend if S98/VGM or PMD binary compatibility becomes a requirement.
+- The engine preserves the project patch/note APIs, but production compatibility is defined by current MML content, not by `SoundMelodies.kt` output.
+- Remaining subjective issue: the production timbre retains a small amount of upper-mid/high-band bite, although the operator/envelope rewrite materially reduced the previous piercing/hollow character.
 
-**Tooling:** `tools/math_oracles/gen_lut.py` now has a `--kind perm` flag for deterministic Perlin permutation table generation.
+## MML Layer
 
-**All 3 demoscene techniques (sin/cos, Perlin, FABRIK) implemented.** All hot-loop safe.
+- Files: `audio/mml/MmlParser.kt`, `MmlCompiler.kt`, `MmlSongBank.kt`, and `MmlArrangementScheduler.kt`.
+- MML is embedded as Kotlin raw strings and compiled once; parsing and musical compilation never occur in the streaming render loop.
+- Headerless MML remains v1: A-E are flexible tonal tracks, R is rhythm, and the production source remains byte-for-byte unchanged.
+- `#MML 2` compiles to `CompiledOpnaSong`, a primitive fixed-capacity event program independent of parser/catalog types.
+- V2 layout is A-F FM, G-I SSG, R rhythm, with optional C1-C4 operator parts under `#FM3EXTEND ON`.
+- V2 expression includes dots, ties/slurs, `Q0..8`, `V0..127`, relative accents, `p1..p3`, signed-cent `D`, `{cg}4` portamento, `H<pms>,<ams>[,l<delay>]`, and shared `#LFO 0..7`.
+- V2 authoring includes named FM/SSG patches, nested loops to depth 8, `#MACRO`/`$name`, and global channel-A `T20..T400` tempo changes.
+- Named FM patches are `54`, `74`, `99`, `181`, `lead`, `bell`, `bass`, `pad`, `chime`, `brass`, `piano`, `strings`, and `effect`; named SSG patches are `square`, `ssg_lead`, `ssg_bass`, `ssg_noise`, and `ssg_envelope`.
+- V2 rhythm tokens are kick `k`, snare `s`, hi-hat `h`, tom `t`, cymbal `y`, and rimshot `i`; volume and pan are captured per shot.
+- Timing uses 480 ticks per quarter and absolute tick conversion to avoid cumulative note-rounding drift.
+- The production source is a 32-bar A/B/C/D/E/R arrangement (a 16-bar body repeated twice) at 160.73 BPM. Its historical ID still contains `demo`; do not rename persisted IDs casually.
+- The sequencer owns a preallocated 4096-event array. `SoundPreviewPlayer` schedules and sorts events before starting streamed rendering.
 
-## Magic Circle (9 explicit non-overlapping bands)
+## Hot Paths
 
-Replaces the prior 16-layer overlapping layout. Rendered by `NestedTimeboxInstrumentRenderer.render()`. 14 draw calls.
+- `OpnaLikeSynthesizer.render*`
+- `Fm4OpVoice.render` / `renderOne`
+- `OpnRateEnvelope.nextAttenuation`
+- `SsgVoice.render`
+- `ProceduralDrums.render`
+- `Lfo.prepare`
+- `SsgSharedState.prepare`
+- `OpnaSequencer` event dispatch inside synth rendering
+- `ScaledProceduralRenderer`, scene `update/render`, and framebuffer rasterization
 
-| # | Layer | Radius | Color | Animation |
-|---|---|---|---|---|
-| 1 | Outer ring | `r` | `MAGIC_PRIMARY` (red) | static |
-| 2 | Rune band (36 mantra glyphs) | `r - U*0.5` | `MAGIC_SECONDARY` | drift + Perlin |
-| 3 | Outer detail ticks (36) | `r - U*0.5` to `r - U*0.75` | `BORDER` | 0.10x |
-| 4 | 12-dot decoration ring | `r - U*0.75` | gold (cardinal) + gray | static |
-| 5 | Outer timer beads (60) | `r - U*0.75` | `OUTER_ACTIVE` | 0.10x + heartbeat |
-| 6 | Scripture ring (10 kanji) | `r - U*1.0` | `MAGIC_PRIMARY` | 0.08x |
-| 7 | Outer pentagram (double-line) | `r - U*1.0` / `r - U*2.0` | `TEXT_FRAME` | 0.40x + breath |
-| 8 | 5 sector kanji (龍雀麟虎武) | `r - U*1.5` | `MAGIC_PRIMARY` | locked to penta + swing |
-| 9 | Octagram (2 squares) | `r - U*2.5` | sec/pri reds | -0.75x / +0.90x |
-| 10 | Inner timer beads (48) | `r - U*2.5` | `INNER_ACTIVE` | static + heartbeat |
-| 11 | Small inner ring | `r - U*3.5` | `MAGIC_PRIMARY` | static |
-| 12 | Yin-yang core | `r * 0.16` | pri/sec | 1.50x + wobble |
-| 13 | Comet trail (6 dots) | along trail | `TEXT_FRAME` | FABRIK (lagging 30°) |
-| 14 | 5 inner cardinals | `r - U*4.0` | `MAGIC_PRIMARY` | static, upright |
-| 15 | Center text readout | `cx, cy` | `TEXT_PRIMARY`/`TEXT_SECONDARY` | static (crisp) |
+## Known Risks / Failure Modes
 
-**Color remap:** uses `ACCENT_PRIMARY` (深緋), `ACCENT_DANGER` (緋色), `HIGHLIGHT` (真紅) for the red target aesthetic.
+- Do not retune timbre with `MASTER_GAIN`, lane gains, MML volumes, or Android `AudioTrack`; fix operator/envelope/patch parameters.
+- Do not reintroduce platform assets or a `MediaPlayer` branch for alarms.
+- Do not make retired `LEGACY` arrangements pass by weakening OPN math.
+- Do not lazily initialize operator tables on the first note; synth/patch setup explicitly warms procedural tables and compatibility curves.
+- Procedural drum exponential and pitch curves are generated once during initialization; rendering only indexes those tables. The six voices are original approximations, not copied YM2608 rhythm-ROM samples.
+- No checked-in black-box ymfm capture exists. Current accuracy evidence comes from documented equations, manual detune values, behavioral tests, and rendered output, not an external bit-for-bit oracle.
+- No pre-rewrite PCM baseline was preserved, so the old proposed historical 2 dB spectral A/B gate is not reproducible. Current full-song spectral/body regressions compare deterministic in-tree renders.
+- MML v1 intentionally rejects mid-track timbre changes and songs exceeding channel/event capacity.
+- MML v2 is PMD-inspired, not PMD-compatible. Raw registers, CSM, timer effects, historical grace-note syntax, and PMD software-LFO compatibility remain unsupported.
+- `MmlSongBank.getArrangement(volume != 1)` allocates scaled note copies before playback; rendering itself remains allocation-free.
 
-## Platform Wrappers
-- Android: `app/src/main/java/com/example/timeboxvibe/...`
-- iOS: KMP platform source set
-- Win32: KMP platform source set
+## Key Constants
 
-## Known Failure Modes
-- HUD must be explicitly delegated by each scene; no global HUD hooks in `SceneManager`.
-- Template forge/list split can break HUD cards-tab routing if forge is treated as a no-op tab.
-- IMGUI rows overlap when label/control layout does not derive from `U` and measured label width.
-- Compose-style assumptions drift into engine code as hardcoded breakpoints or orientation hacks.
-- Render/input helper paths in scenes can still allocate strings in hot paths and need periodic audits.
-- Never call `MmlParser` or `MmlCompiler` from `render`, audio callbacks, or per-buffer streaming code.
-- `ArrangementLanes` cannot represent a mid-track timbre change; MML v1 intentionally rejects it.
-- Four `@square` tonal tracks exceed the 3-channel SSG hardware model and must fail compilation.
-- The legacy `oriental` sound still loads `sounds/oriental_alarm.mp3`; it is outside the procedural OPNA/MML path and conflicts with the current zero-asset law.
-- Full shared-engine tests currently have two unrelated Lotus Land Story duration failures; focused MML tests pass.
-
-## Current Constants
-- `U = 16` (Int constant, layout refactored to discrete integer grid)
-- `PALETTE_SIZE = 16`
-- `MIN_SAFE_LOGICAL_WIDTH = 320`
-- `MAX_SAFE_LOGICAL_WIDTH = 1200`
-- `FastMath.TABLE_SIZE = 1024` (LUT for sin/cos)
-- `PerlinNoise.PERM_SIZE = 256` (permutation table, doubled to 512 in `GeneratedPermLut`)
-- `ORNAMENT_PHASE_PERIOD_FRAMES = 3600L` (60s at 60Hz)
-- `MagicCircleDemoscene.TRAIL_LINKS = 6` (FABRIK chain length)
 - `AudioLaws.SAMPLE_RATE = 48000`
-- `AudioLaws.FM_CHANNELS = 6`; `AudioLaws.SSG_CHANNELS = 3`; `AudioLaws.FM_OPERATORS = 4`
+- `AudioLaws.FM_CHANNELS = 6`
+- `AudioLaws.FM_OPERATORS = 4`
+- `AudioLaws.SSG_CHANNELS = 3`
+- `OpnPitch.MASTER_CLOCK_HZ = 8_000_000`
+- FM clock divider `144`; EG divider `3`
+- Phase coordinate `2^29`; operator lookup shift `19`; lookup size `1024`
+- Envelope attenuation `0..1023`; TL `0..127`; signed operator peak `8191`
 - `OpnaSequencer.MAX_EVENTS = 4096`
+- `CompiledOpnaSong.MAX_EVENTS = 4096`; tempo-change capacity is `128`
 - `MmlCompiler.TICKS_PER_QUARTER = 480`
+- Palette size `16`; canonical UI unit `U = 16`
+
+## Verification
+
+- Math/hot-path audit: `python tools/math_oracles/opna_audit.py`
+- Required local build:
+
+```powershell
+$env:JAVA_HOME="D:\Programes\Android Studio\jbr"; .\gradlew :shared-engine:testDebugUnitTest :shared-engine:compileCommonMainKotlinMetadata :shared-engine:compileKotlinMetadata :shared-engine:compileDebugKotlinAndroid :app:compileDebugKotlin :app:assembleDebug
+```
+
+- Core coverage includes procedural tables, pitch/FNUM, detune, EG timing/rates, every algorithm/feedback level, phase wraps, oversampling, LFO AM/PM, SSG-EG shapes, hardware SSG determinism, CH3 scheduling, MML v1/v2, macro/tempo timelines, deterministic chunking, headroom, and allocation auditing.
 
 ## Current Task Focus
-- Procedural OPNA engine is operational and unchanged by the MML work. Minimal MML authoring now compiles embedded multiline A/B/C/D/R songs into the existing arrangement path before playback.
-- Current MML demo is the revised 8-bar `synth-mml-senbonzakura-demo`; next music work should improve composition/content without altering DSP math.
-- Demoscene engine upgrades implemented (FrameClock, Wave, PerlinNoise, IkChain2D, MagicCircleDemoscene, VisualsStateHolder). Magic circle redesigned as 9-band layout with independent rotation, demoscene effects, FABRIK trail.
-- Visuals settings section in SettingsScene (Demoscene Effects, Background Nebula toggles).
-- Next: run oracle validation (`palette_verify.py`, `gen_lut.py --kind perm`, `affine_matrix_verify.py --cases`), then regression test the magic circle on device.
 
-## File Change Manifest (this pass)
-
-**New files (5 hand-written + 1 generated):**
-- `shared-engine/.../engine/core/FrameClock.kt` (~50 LOC)
-- `shared-engine/.../engine/core/Wave.kt` (~50 LOC)
-- `shared-engine/.../engine/core/PerlinNoise.kt` (~90 LOC)
-- `shared-engine/.../engine/core/IkChain2D.kt` (~80 LOC, includes Point2D)
-- `shared-engine/.../engine/core/VisualsStateHolder.kt` (~25 LOC)
-- `shared-engine/.../engine/core/MagicCircleDemoscene.kt` (~110 LOC)
-- `shared-engine/.../engine/generated/GeneratedPermLut.kt` (auto-generated by `gen_lut.py`)
-
-**Modified files (5):**
-- `shared-engine/.../engine/core/ScaledProceduralRenderer.kt` — added `drawPolarDot`
-- `shared-engine/.../engine/core/NestedTimeboxInstrumentRenderer.kt` — 9-band rewrite of `render()`, accepts `phase` + `demoscene` params
-- `shared-engine/.../engine/core/Scenes.kt` — `ActiveTimerScene` now owns a `MagicCircleDemoscene` instance, uses `FrameClock.phase(3600)`; `SettingsScene` got the Visuals section with 2 toggles
-- `shared-engine/.../engine/core/SceneManager.kt` — `FrameClock.tick()` at top of `update()`
-- `shared-engine/.../engine/Strings.kt` — added 3 new strings (`visualsHeader`, `demosceneLabel`, `nebulaLabel`) in EN/ZH/JA
-
-**Tooling:**
-- `tools/math_oracles/gen_lut.py` — added `--kind perm` flag for Perlin permutation table generation
-
-**Docs:**
-- `AI_REF/overview.md` — section 7 updated with new primitives + 14-layer magic circle table
-- `AI_REF/plan.md` — full plan document
-
-**Total LOC:** ~600 new code lines + ~150 modified lines = ~750 net delta.
-
-## Settings Additions
-
-`SettingsScene` got a new "Visuals" section after the existing rows:
-
-- **Demoscene Effects** (default ON) — toggles all 6 Wave oscillators + Perlin rune drift + FABRIK trail. When OFF, the magic circle renders as a static 14-layer layout.
-- **Background Nebula** (default OFF) — toggles Perlin-driven 2-octave fbm modulation of BG ↔ BG_ALT. When OFF, flat `BG` color.
-
-Toggles write to `VisualsStateHolder` (session-scoped, no platform persistence yet).
+- Treat the procedural OPN engine plus embedded MML as the forward architecture.
+- Compose new songs in `#MML 2` with named patches and authentic A-F/G-I/R limits; keep production Senbonzakura on v1 until a deliberate musical migration is requested.
+- Add register emulation only if a concrete future project requires register-stream compatibility.
+- Keep `SoundMelodies.kt` only until its shared arrangement model types are moved to a neutral file; then delete the retired builders separately.

@@ -14,6 +14,9 @@ data class OperatorSpec(
     val dr: Int = 10,
     val sr: Int = 0,
     val ks: Int = 0,
+    /** OPNA operator AM-enable bit: zero disables, non-zero enables. */
     val ams: Int = 0,
+    /** OPNA SSG-EG shape 8..15; values below 8 disable SSG-EG. */
+    val ssgEg: Int = 0,
     val egMode: EgMode = EgMode.LEGACY_ADSR
 )

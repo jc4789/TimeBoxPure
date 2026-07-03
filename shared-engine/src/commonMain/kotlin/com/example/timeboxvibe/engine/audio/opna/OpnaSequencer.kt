@@ -7,6 +7,8 @@ internal class SequencerEvent {
         const val SSG_ON = 2
         const val SSG_OFF = 3
         const val DRUM = 4
+        const val FM3_OPERATOR_ON = 5
+        const val FM3_OPERATOR_OFF = 6
     }
 
     var type: Int = 0
@@ -20,6 +22,16 @@ internal class SequencerEvent {
     var sustain: Float = -1f
     var release: Float = -1f
     var duty: Float = 0.5f
+    var patch: FmPatch? = null
+    var ssgPatch: SsgPatch? = null
+    var pan: Int = 0
+    var detuneCents: Int = 0
+    var pms: Int = 0
+    var ams: Int = 0
+    var lfoDelayFrames: Int = 0
+    var targetMidi: Int = -1
+    var slideFrames: Int = 0
+    var operator: Int = -1
 }
 
 class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 4) {
@@ -65,6 +77,32 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
         sustain: Float?,
         release: Float?
     ) {
+        noteFmControlledRaw(
+            channel, midi, startSample, durationSamples, velocity,
+            attack, decay, sustain, release,
+            null, 0, 0, 0, 0, 0, -1, 0
+        )
+    }
+
+    fun noteFmControlledRaw(
+        channel: Int,
+        midi: Int,
+        startSample: Long,
+        durationSamples: Long,
+        velocity: Float,
+        attack: Float?,
+        decay: Float?,
+        sustain: Float?,
+        release: Float?,
+        patch: FmPatch?,
+        pan: Int,
+        detuneCents: Int,
+        pms: Int,
+        ams: Int,
+        lfoDelayFrames: Int,
+        targetMidi: Int,
+        slideFrames: Int
+    ) {
         if (eventCount + 2 > MAX_EVENTS) return
         val noteId = nextNoteId()
         isSorted = false
@@ -81,6 +119,16 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
         onEv.decay = decay ?: -1f
         onEv.sustain = sustain ?: -1f
         onEv.release = release ?: -1f
+        onEv.patch = patch
+        onEv.ssgPatch = null
+        onEv.pan = pan
+        onEv.detuneCents = detuneCents
+        onEv.pms = pms
+        onEv.ams = ams
+        onEv.lfoDelayFrames = lfoDelayFrames
+        onEv.targetMidi = targetMidi
+        onEv.slideFrames = slideFrames
+        onEv.operator = -1
 
         // 2. FM_OFF Event
         val offEv = events[eventCount++]
@@ -94,6 +142,7 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
         offEv.decay = -1f
         offEv.sustain = -1f
         offEv.release = -1f
+        clearControls(offEv)
     }
 
     fun noteSsg(channel: Int, midi: Int, atBeat: Float, durBeats: Float) {
@@ -126,6 +175,26 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
         sustain: Float = -1f,
         release: Float = -1f
     ) {
+        noteSsgControlledRaw(channel, midi, startSample, durationSamples, velocity, duty, attack, decay, sustain, release, null)
+    }
+
+    fun noteSsgControlledRaw(
+        channel: Int,
+        midi: Int,
+        startSample: Long,
+        durationSamples: Long,
+        velocity: Float,
+        duty: Float,
+        attack: Float = -1f,
+        decay: Float = -1f,
+        sustain: Float = -1f,
+        release: Float = -1f,
+        patch: SsgPatch?,
+        pan: Int = patch?.pan ?: 0,
+        detuneCents: Int = 0,
+        targetMidi: Int = -1,
+        slideFrames: Int = 0
+    ) {
         if (eventCount + 2 > MAX_EVENTS) return
         val noteId = nextNoteId()
         isSorted = false
@@ -143,6 +212,16 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
         onEv.sustain = sustain
         onEv.release = release
         onEv.duty = duty
+        onEv.patch = null
+        onEv.ssgPatch = patch
+        onEv.pan = pan
+        onEv.detuneCents = detuneCents
+        onEv.pms = 0
+        onEv.ams = 0
+        onEv.lfoDelayFrames = 0
+        onEv.targetMidi = targetMidi
+        onEv.slideFrames = slideFrames
+        onEv.operator = -1
 
         // 2. SSG_OFF Event
         val offEv = events[eventCount++]
@@ -157,6 +236,7 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
         offEv.sustain = -1f
         offEv.release = -1f
         offEv.duty = duty
+        clearControls(offEv)
     }
 
     fun noteDrum(kind: ProceduralDrums.DrumKind, atBeat: Float) {
@@ -168,6 +248,10 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
     }
 
     fun noteDrumRaw(kind: ProceduralDrums.DrumKind, startSample: Long, velocity: Float) {
+        noteDrumControlledRaw(kind, startSample, velocity, 0)
+    }
+
+    fun noteDrumControlledRaw(kind: ProceduralDrums.DrumKind, startSample: Long, velocity: Float, pan: Int) {
         if (eventCount + 1 > MAX_EVENTS) return
         isSorted = false
 
@@ -182,6 +266,77 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
         ev.decay = -1f
         ev.sustain = -1f
         ev.release = -1f
+        clearControls(ev)
+        ev.pan = pan.coerceIn(0, 2)
+    }
+
+    fun noteFm3OperatorRaw(
+        operator: Int,
+        midi: Int,
+        startSample: Long,
+        durationSamples: Long,
+        velocity: Float,
+        patch: FmPatch,
+        pan: Int,
+        detuneCents: Int,
+        pms: Int,
+        ams: Int,
+        lfoDelayFrames: Int,
+        targetMidi: Int = -1,
+        slideFrames: Int = 0
+    ) {
+        if (eventCount + 2 > MAX_EVENTS) return
+        val noteId = nextNoteId()
+        isSorted = false
+        val onEv = events[eventCount++]
+        onEv.type = SequencerEvent.FM3_OPERATOR_ON
+        onEv.sampleTime = startSample
+        onEv.channel = 2
+        onEv.operator = operator.coerceIn(0, 3)
+        onEv.midi = midi
+        onEv.velocity = velocity
+        onEv.noteId = noteId
+        onEv.patch = patch
+        onEv.ssgPatch = null
+        onEv.pan = pan
+        onEv.detuneCents = detuneCents
+        onEv.pms = pms
+        onEv.ams = ams
+        onEv.lfoDelayFrames = lfoDelayFrames
+        onEv.targetMidi = targetMidi
+        onEv.slideFrames = slideFrames
+        onEv.attack = -1f
+        onEv.decay = -1f
+        onEv.sustain = -1f
+        onEv.release = -1f
+
+        val offEv = events[eventCount++]
+        offEv.type = SequencerEvent.FM3_OPERATOR_OFF
+        offEv.sampleTime = startSample + durationSamples
+        offEv.channel = 2
+        offEv.operator = onEv.operator
+        offEv.midi = midi
+        offEv.velocity = 0f
+        offEv.noteId = noteId
+        offEv.attack = -1f
+        offEv.decay = -1f
+        offEv.sustain = -1f
+        offEv.release = -1f
+        clearControls(offEv)
+        offEv.operator = onEv.operator
+    }
+
+    private fun clearControls(event: SequencerEvent) {
+        event.patch = null
+        event.ssgPatch = null
+        event.pan = 0
+        event.detuneCents = 0
+        event.pms = 0
+        event.ams = 0
+        event.lfoDelayFrames = 0
+        event.targetMidi = -1
+        event.slideFrames = 0
+        event.operator = -1
     }
 
     fun clear() {
