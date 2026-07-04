@@ -846,10 +846,29 @@ class FocusService : Service() {
             else -> if (isBreak) "Break Session" else "Focus Session"
         }
 
-        val content = when (stateType) {
-            "ringing" -> "Task: $taskName · ${eng?.currentStageLabel ?: ""}"
-            "paused" -> "${eng?.currentStageLabel ?: taskName} (Paused at $timeStr)"
-            else -> "${eng?.currentStageLabel ?: taskName} ($timeStr)"
+        val content = if (eng != null && eng.isDual) {
+            val smallStr = formatTime(eng.timeRemaining.coerceAtLeast(0))
+            val bigStr = formatTime(eng.bigTimeRemaining.coerceAtLeast(0))
+            val midStr = formatTime(eng.midTimeRemaining.coerceAtLeast(0))
+            when (stateType) {
+                "ringing" -> "Task: $taskName · Total: $bigStr left"
+                "paused" -> if (eng.mode == "dual.5") {
+                    "$taskName (Paused) · Loop: $smallStr | Mid: $midStr | Total: $bigStr"
+                } else {
+                    "$taskName (Paused) · Loop: $smallStr | Total: $bigStr"
+                }
+                else -> if (eng.mode == "dual.5") {
+                    "$taskName · Loop: $smallStr | Mid: $midStr | Total: $bigStr"
+                } else {
+                    "$taskName · Loop: $smallStr | Total: $bigStr"
+                }
+            }
+        } else {
+            when (stateType) {
+                "ringing" -> "Task: $taskName · ${eng?.currentStageLabel ?: ""}"
+                "paused" -> "${eng?.currentStageLabel ?: taskName} (Paused at $timeStr)"
+                else -> "${eng?.currentStageLabel ?: taskName} ($timeStr)"
+            }
         }
 
         val notificationIntent = Intent(this, MainActivity::class.java).apply {
@@ -869,8 +888,10 @@ class FocusService : Service() {
         }
         val iconBitmap = getOrCreateIconBitmap(iconName, appTheme, isBreak)
 
+        val targetChannelId = if (stateType == "ringing") ALARM_CHANNEL_ID else CHANNEL_ID
+
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, CHANNEL_ID)
+            Notification.Builder(this, targetChannelId)
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
@@ -931,7 +952,9 @@ class FocusService : Service() {
                         stopPendingIntent
                     ).build()
                 )
-                builder.setPriority(Notification.PRIORITY_HIGH)
+                builder.setPriority(Notification.PRIORITY_LOW)
+                builder.setOngoing(false)
+                builder.setOnlyAlertOnce(true)
             }
             else -> { // running
                 val pausePendingIntent = PendingIntent.getService(
@@ -960,7 +983,9 @@ class FocusService : Service() {
                         stopPendingIntent
                     ).build()
                 )
-                builder.setPriority(Notification.PRIORITY_HIGH)
+                builder.setPriority(Notification.PRIORITY_LOW)
+                builder.setOngoing(true)
+                builder.setOnlyAlertOnce(true)
             }
         }
 
@@ -969,18 +994,27 @@ class FocusService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+
             val serviceChannel = NotificationChannel(
                 CHANNEL_ID,
                 "Focus Service Channel",
-                NotificationManager.IMPORTANCE_HIGH
+                NotificationManager.IMPORTANCE_LOW
             ).apply {
                 setSound(null, null)
                 enableVibration(false)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
+            manager.createNotificationChannel(serviceChannel)
 
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-            manager?.createNotificationChannel(serviceChannel)
+            val alarmChannel = NotificationChannel(
+                ALARM_CHANNEL_ID,
+                "Focus Alarm Channel",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+            manager.createNotificationChannel(alarmChannel)
         }
     }
 
@@ -1234,6 +1268,7 @@ class FocusService : Service() {
         @JvmStatic
         var engine: TimerEngine? = null
         private const val CHANNEL_ID = "FocusServiceChannel"
+        private const val ALARM_CHANNEL_ID = "FocusAlarmChannel"
         private const val NOTIFICATION_ID = 1
     }
 }
