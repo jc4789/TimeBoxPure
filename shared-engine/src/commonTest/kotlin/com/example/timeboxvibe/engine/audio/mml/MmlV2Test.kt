@@ -125,6 +125,75 @@ class MmlV2Test {
     }
 
     @Test
+    fun chordSyntaxUsesThePreallocatedFmVoicePoolBeyondSixHardwareParts() {
+        val source = """
+            #MML 2
+            #BPM 120
+            #BAR 4/4
+            A @strings V80 Q7 o4 {c,d,e,f,g,a,b}1 |
+        """.trimIndent()
+        val arrangement = assertIs<MmlCompileResult.Success>(MmlCompiler.compile(source)).arrangement
+        val program = assertNotNull(arrangement.compiledOpnaSong)
+        assertEquals(7, program.eventCount)
+        var eventIndex = 0
+        while (eventIndex < program.eventCount) {
+            assertEquals(CompiledOpnaSong.FM_POLY_NOTE, program.eventType[eventIndex])
+            assertEquals(0L, program.startTick[eventIndex])
+            eventIndex++
+        }
+
+        val synth = OpnaLikeSynthesizer(48_000)
+        val sequencer = OpnaSequencer(48_000, arrangement.tempoBpm)
+        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, 48_000)
+        assertEquals(7, count(sequencer, SequencerEvent.FM_POLY_ON))
+        val output = FloatArray(4_096)
+        synth.render(output, output.size, sequencer, 0L)
+        assertEquals(7, synth.activeFmVoiceCount())
+        assertTrue(output.any { abs(it) > 0.0001f })
+    }
+
+    @Test
+    fun chordSyntaxIsFmV2Only() {
+        assertIs<MmlCompileResult.Failure>(MmlCompiler.compile("#BPM 120\n#BAR 4/4\nA @54 o4 {c,e,g}1 |"))
+        val ssg = assertIs<MmlCompileResult.Failure>(
+            MmlCompiler.compile("#MML 2\n#BPM 120\n#BAR 4/4\nG @square o4 {c,e,g}1 |")
+        )
+        assertTrue(ssg.diagnostics.any { it.reason.contains("only valid on FM") })
+    }
+
+    @Test
+    fun compilerRejectsDensityInsteadOfSilentlyDroppingChordNotes() {
+        val result = assertIs<MmlCompileResult.Failure>(
+            MmlCompiler.compile(
+                "#MML 2\n#BPM 120\n#BAR 4/4\n" +
+                    "A @strings o4 {c,d,e,f,g,a,b,c}1 |\n" +
+                    "B @strings o4 {c,d,e,f,g,a,b,c}1 |\n" +
+                    "C @strings o4 {c,d,e,f,g,a,b,c}1 |"
+            )
+        )
+        assertTrue(result.diagnostics.any { it.reason.contains("simultaneous FM voices") })
+    }
+
+    @Test
+    fun polyphonicPartModePreservesSequentialReleaseTails() {
+        val arrangement = assertIs<MmlCompileResult.Success>(
+            MmlCompiler.compile("#MML 2\n#BPM 120\n#BAR 4/4\nA @strings V80 Q8 P1 o4 l8 c d e f g a b >c |")
+        ).arrangement
+        val program = assertNotNull(arrangement.compiledOpnaSong)
+        var eventIndex = 0
+        while (eventIndex < program.eventCount) {
+            assertEquals(CompiledOpnaSong.FM_POLY_NOTE, program.eventType[eventIndex])
+            eventIndex++
+        }
+        val synth = OpnaLikeSynthesizer(48_000)
+        val sequencer = OpnaSequencer(48_000, arrangement.tempoBpm)
+        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, 48_000)
+        synth.render(FloatArray(13_000), 13_000, sequencer, 0L)
+        assertEquals(1, synth.activeFmVoiceCount())
+        assertTrue(synth.occupiedFmVoiceCount() >= 2, "The first arpeggio note's release tail was stolen")
+    }
+
+    @Test
     fun tempoChangesUseOneGlobalIntegerTimeline() {
         val source = "#MML 2\n#BPM 120\n#BAR 4/4\nA @lead o4 T120 c2 T240 d2 |"
         val arrangement = assertIs<MmlCompileResult.Success>(MmlCompiler.compile(source)).arrangement

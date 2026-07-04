@@ -128,7 +128,7 @@ object MmlArrangementScheduler {
             val start = ticksToSamples(song, eventTick, sampleRate)
             val duration = ticksToSamples(song, eventTick + song.durationTick[i], sampleRate) - start
             val gate = ticksToSamples(song, eventTick + song.gateTick[i], sampleRate) - start
-            val velocity = song.velocity[i].coerceIn(0, 127) / 127f * MIX_GAIN
+            val velocity = song.velocity[i].coerceIn(0, 127) / 127f * MIX_GAIN * song.playbackGain
             when (song.eventType[i]) {
                 CompiledOpnaSong.FM_NOTE -> {
                     val patch = OpnaPatchBank.fmPatch(song.patchId[i])
@@ -153,6 +153,26 @@ object MmlArrangementScheduler {
                             (ticksToSamples(song, eventTick + song.lfoDelayTick[i], sampleRate) - start).toInt(),
                             song.targetMidi[i],
                             if (song.targetMidi[i] >= 0) duration.toInt() else 0
+                        )
+                    }
+                }
+                CompiledOpnaSong.FM_POLY_NOTE -> {
+                    val patch = OpnaPatchBank.fmPatch(song.patchId[i])
+                    if (patch != null) {
+                        val pms = if (song.pms[i] >= 0) song.pms[i] else patch.pms
+                        val ams = if (song.ams[i] >= 0) song.ams[i] else patch.ams
+                        sequencer.noteFmPolyControlledRaw(
+                            song.channel[i],
+                            song.midi[i],
+                            start,
+                            gate,
+                            velocity,
+                            patch,
+                            song.pan[i],
+                            song.detuneCents[i],
+                            pms,
+                            ams,
+                            (ticksToSamples(song, eventTick + song.lfoDelayTick[i], sampleRate) - start).toInt()
                         )
                     }
                 }

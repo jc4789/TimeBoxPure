@@ -8,7 +8,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     internal val mixer = OpnaMixer(sampleRate)
     private val ssgShared = SsgSharedState(sampleRate)
     val ssg: Array<SsgVoice> = Array(AudioLaws.SSG_CHANNELS) { SsgVoice(it, ssgShared, sampleRate) }
-    val fm: Array<Fm4OpVoice> = Array(AudioLaws.FM_CHANNELS) { Fm4OpVoice(sampleRate) }
+    val fm: Array<Fm4OpVoice> = Array(AudioLaws.FM_RENDER_VOICES) { Fm4OpVoice(sampleRate) }
     val drums = ProceduralDrums(sampleRate)
     val lfo = Lfo(sampleRate)
 
@@ -16,7 +16,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     var preClampKneeCrossings: Int = 0
         private set
 
-    private val fmActiveNoteId = IntArray(AudioLaws.FM_CHANNELS) { -1 }
+    private val fmActiveNoteId = IntArray(AudioLaws.FM_RENDER_VOICES) { FM_VOICE_FREE }
     private val ssgActiveNoteId = IntArray(AudioLaws.SSG_CHANNELS) { -1 }
     private val fm3ActiveNoteId = IntArray(AudioLaws.FM_OPERATORS) { -1 }
     private val tempMonoBuffer = FloatArray(sampleRate)
@@ -57,20 +57,20 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         sustain: Float?,
         release: Float?
     ) {
-        if (channel in fm.indices) {
+        if (channel in 0 until AudioLaws.FM_CHANNELS) {
             fm[channel].noteOn(midi, attack, decay, sustain, release)
         }
     }
 
     fun noteOnFm(channel: Int, midi: Int, patch: FmPatch) {
-        if (channel in fm.indices) {
+        if (channel in 0 until AudioLaws.FM_CHANNELS) {
             fm[channel].applyPatch(patch)
             fm[channel].noteOn(midi)
         }
     }
 
     fun noteOffFm(channel: Int) {
-        if (channel in fm.indices) {
+        if (channel in 0 until AudioLaws.FM_CHANNELS) {
             fm[channel].noteOff()
         }
     }
@@ -421,6 +421,37 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                     fmActiveNoteId[ch] = -1
                 }
             }
+            SequencerEvent.FM_POLY_ON -> {
+                val voiceIndex = availablePolyVoice(event.channel)
+                if (voiceIndex >= 0) {
+                    val voice = fm[voiceIndex]
+                    val selectedPatch = event.patch
+                    if (selectedPatch != null) voice.applyPatch(selectedPatch)
+                    voice.setPerformanceControls(
+                        event.pan,
+                        event.detuneCents,
+                        event.pms,
+                        event.ams,
+                        event.lfoDelayFrames,
+                        -1,
+                        0
+                    )
+                    voice.noteOnScheduled(event.midi, -1f, -1f, -1f, -1f)
+                    voice.noteGain = event.velocity
+                    fmActiveNoteId[voiceIndex] = event.noteId
+                }
+            }
+            SequencerEvent.FM_POLY_OFF -> {
+                var voiceIndex = 0
+                while (voiceIndex < fmActiveNoteId.size) {
+                    if (fmActiveNoteId[voiceIndex] == event.noteId) {
+                        fm[voiceIndex].noteOff()
+                        fmActiveNoteId[voiceIndex] = FM_VOICE_RELEASING
+                        break
+                    }
+                    voiceIndex++
+                }
+            }
             SequencerEvent.SSG_ON -> {
                 val ch = event.channel
                 if (ch >= 0 && ch < ssg.size) {
@@ -476,6 +507,64 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                 }
             }
         }
+    }
+
+    private fun availablePolyVoice(preferredChannel: Int): Int {
+        reclaimFinishedPolyVoices()
+        if (preferredChannel in 0 until AudioLaws.FM_CHANNELS && fmActiveNoteId[preferredChannel] == FM_VOICE_FREE) {
+            return preferredChannel
+        }
+        var voiceIndex = AudioLaws.FM_CHANNELS
+        while (voiceIndex < fmActiveNoteId.size) {
+            if (fmActiveNoteId[voiceIndex] == FM_VOICE_FREE) return voiceIndex
+            voiceIndex++
+        }
+        voiceIndex = 0
+        while (voiceIndex < AudioLaws.FM_CHANNELS) {
+            if (fmActiveNoteId[voiceIndex] == FM_VOICE_FREE) return voiceIndex
+            voiceIndex++
+        }
+        voiceIndex = AudioLaws.FM_CHANNELS
+        while (voiceIndex < fmActiveNoteId.size) {
+            if (fmActiveNoteId[voiceIndex] == FM_VOICE_RELEASING) return voiceIndex
+            voiceIndex++
+        }
+        voiceIndex = 0
+        while (voiceIndex < AudioLaws.FM_CHANNELS) {
+            if (fmActiveNoteId[voiceIndex] == FM_VOICE_RELEASING) return voiceIndex
+            voiceIndex++
+        }
+        return -1
+    }
+
+    private fun reclaimFinishedPolyVoices() {
+        var voiceIndex = 0
+        while (voiceIndex < fmActiveNoteId.size) {
+            if (fmActiveNoteId[voiceIndex] == FM_VOICE_RELEASING && fm[voiceIndex].releaseFinished()) {
+                fmActiveNoteId[voiceIndex] = FM_VOICE_FREE
+            }
+            voiceIndex++
+        }
+    }
+
+    internal fun activeFmVoiceCount(): Int {
+        var active = 0
+        var voiceIndex = 0
+        while (voiceIndex < fmActiveNoteId.size) {
+            if (fmActiveNoteId[voiceIndex] >= 0) active++
+            voiceIndex++
+        }
+        return active
+    }
+
+    internal fun occupiedFmVoiceCount(): Int {
+        var occupied = 0
+        var voiceIndex = 0
+        while (voiceIndex < fmActiveNoteId.size) {
+            if (fmActiveNoteId[voiceIndex] != FM_VOICE_FREE) occupied++
+            voiceIndex++
+        }
+        return occupied
     }
 
     private fun softClip(x: Float): Float {
@@ -551,6 +640,8 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     }
 
     companion object {
+        private const val FM_VOICE_FREE = -1
+        private const val FM_VOICE_RELEASING = -2
         const val MAX_FRAMES_PER_CHUNK = 1024
         const val SOFT_CLIP_KNEE = 0.70f
     }

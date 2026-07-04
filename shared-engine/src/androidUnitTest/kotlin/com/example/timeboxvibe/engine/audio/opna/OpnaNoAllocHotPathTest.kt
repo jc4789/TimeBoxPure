@@ -11,6 +11,9 @@ class OpnaNoAllocHotPathTest {
         val synth = OpnaLikeSynthesizer(44100)
         val seq = OpnaSequencer(44100, testBpm)
         OpnaPatterns.focusMotif(seq)
+        seq.noteFmPolyControlledRaw(2, 60, 0L, 512L, 0.5f, Patches.ZunPad1, 0, 0, 0, 0, 0)
+        seq.noteFmPolyControlledRaw(2, 64, 0L, 512L, 0.5f, Patches.ZunPad1, 0, 0, 0, 0, 0)
+        seq.noteFmPolyControlledRaw(2, 67, 0L, 512L, 0.5f, Patches.ZunPad1, 0, 0, 0, 0, 0)
         synth.fm[0].applyPatch(Patches.ZunLead1)
         synth.fm[1].applyPatch(Patches.ZunBass1)
 

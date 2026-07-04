@@ -30,6 +30,10 @@ object SongCatalog {
         SongDefinition(MmlSongBank.SENBONZAKURA_DEMO_KEY, "SENBONZAKURA", SongKind.MML, DEFAULT_PREVIEW_MS) { volume ->
             val arrangement = MmlSongBank.getArrangement(MmlSongBank.SENBONZAKURA_DEMO_KEY, volume)
             if (arrangement == null) null else SongPlayback.Arrangement(arrangement)
+        },
+        SongDefinition(MmlSongBank.RIN_TO_SHITE_KEY, "RIN TO SHITE", SongKind.MML, DEFAULT_PREVIEW_MS) { volume ->
+            val arrangement = MmlSongBank.getArrangement(MmlSongBank.RIN_TO_SHITE_KEY, volume)
+            if (arrangement == null) null else SongPlayback.Arrangement(arrangement)
         }
     )
 

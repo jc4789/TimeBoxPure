@@ -141,7 +141,7 @@ object MmlCompiler {
                 diagnostics.add(MmlDiagnostic(first.line, first.column, "${track.channel} requires #FM3EXTEND ON"))
             } else if (track.channel == MmlChannelId.C && document.fm3Extended) {
                 if (containsSoundEvent(track)) {
-                    val first = track.commands.first { it is MmlCommand.Note || it is MmlCommand.Portamento || it is MmlCommand.Drum }
+                    val first = track.commands.first { it is MmlCommand.Note || it is MmlCommand.Chord || it is MmlCommand.Portamento || it is MmlCommand.Drum }
                     diagnostics.add(MmlDiagnostic(first.line, first.column, "Channel C supplies FM3 patch/control data while #FM3EXTEND is ON; write notes on C1-C4"))
                 }
             } else {
@@ -167,6 +167,18 @@ object MmlCompiler {
         if (diagnostics.isNotEmpty()) return MmlCompileResult.Failure(diagnostics)
 
         val program = builder.build()
+        val requiredFmVoices = maximumConcurrentFmVoices(program)
+        if (requiredFmVoices > AudioLaws.FM_RENDER_VOICES) {
+            return MmlCompileResult.Failure(
+                listOf(
+                    MmlDiagnostic(
+                        1,
+                        1,
+                        "Song requires $requiredFmVoices simultaneous FM voices; engine capacity is ${AudioLaws.FM_RENDER_VOICES}"
+                    )
+                )
+            )
+        }
         val emptyFm = Lane(emptyList(), TimbreRef.FM_LLS_AT54, LaneMode.MONO_RETRIGGER)
         val emptySsg = Lane(emptyList(), TimbreRef.SSG_HARMONY_SQUARE, LaneMode.SSG_MONO)
         val emptyDrums = Lane(emptyList(), TimbreRef.DRUM_HAT, LaneMode.DRUM)
@@ -219,6 +231,52 @@ object MmlCompiler {
         return warnings
     }
 
+    private fun maximumConcurrentFmVoices(program: CompiledOpnaSong): Int {
+        val normalChannelActive = BooleanArray(AudioLaws.FM_CHANNELS)
+        var maximum = 0
+        var boundaryIndex = 0
+        while (boundaryIndex < program.eventCount) {
+            val boundaryType = program.eventType[boundaryIndex]
+            if (boundaryType == CompiledOpnaSong.FM_NOTE ||
+                boundaryType == CompiledOpnaSong.FM_POLY_NOTE ||
+                boundaryType == CompiledOpnaSong.FM3_OPERATOR_NOTE
+            ) {
+                var channel = 0
+                while (channel < normalChannelActive.size) {
+                    normalChannelActive[channel] = false
+                    channel++
+                }
+                val tick = program.startTick[boundaryIndex]
+                var polyphonic = 0
+                var eventIndex = 0
+                while (eventIndex < program.eventCount) {
+                    val type = program.eventType[eventIndex]
+                    val end = program.startTick[eventIndex] + program.gateTick[eventIndex].toLong()
+                    if (program.startTick[eventIndex] <= tick && tick < end) {
+                        if (type == CompiledOpnaSong.FM_POLY_NOTE) {
+                            polyphonic++
+                        } else if (type == CompiledOpnaSong.FM_NOTE) {
+                            val eventChannel = program.channel[eventIndex]
+                            if (eventChannel in normalChannelActive.indices) normalChannelActive[eventChannel] = true
+                        } else if (type == CompiledOpnaSong.FM3_OPERATOR_NOTE) {
+                            normalChannelActive[2] = true
+                        }
+                    }
+                    eventIndex++
+                }
+                var active = polyphonic
+                channel = 0
+                while (channel < normalChannelActive.size) {
+                    if (normalChannelActive[channel]) active++
+                    channel++
+                }
+                if (active > maximum) maximum = active
+            }
+            boundaryIndex++
+        }
+        return maximum
+    }
+
     private fun compileV2Track(
         track: MmlTrack,
         document: MmlDocument,
@@ -241,6 +299,7 @@ object MmlCompiler {
         var detuneCents = 0
         var pms = -1
         var ams = -1
+        var polyphonicPart = false
         var lfoDelayTicks = 0
         var tick = 0L
         var sequencerCost = 0
@@ -298,6 +357,13 @@ object MmlCompiler {
                         }
                     }
                 }
+                is MmlCommand.Polyphony -> {
+                    if (!isFm) {
+                        diagnostics.add(MmlDiagnostic(command.line, command.column, "P0/P1 polyphony is only valid on FM channels A-F"))
+                    } else {
+                        polyphonicPart = command.enabled
+                    }
+                }
                 is MmlCommand.Detune -> {
                     if (command.cents !in -1_200..1_200) diagnostics.add(MmlDiagnostic(command.line, command.column, "Detune must be between -1200 and +1200 cents"))
                     else detuneCents = command.cents
@@ -348,6 +414,7 @@ object MmlCompiler {
                             val type = when {
                                 isFm3Operator -> CompiledOpnaSong.FM3_OPERATOR_NOTE
                                 isSsg -> CompiledOpnaSong.SSG_NOTE
+                                polyphonicPart -> CompiledOpnaSong.FM_POLY_NOTE
                                 else -> CompiledOpnaSong.FM_NOTE
                             }
                             val channelIndex = when {
@@ -363,6 +430,49 @@ object MmlCompiler {
                             tick += totalDuration
                         }
                         i = finalIndex
+                    }
+                }
+                is MmlCommand.Chord -> {
+                    sawEvent = true
+                    if (!isFm) {
+                        diagnostics.add(MmlDiagnostic(command.line, command.column, "Polyphonic chords are only valid on FM channels A-F"))
+                    } else {
+                        val duration = durationTicksV2(command.denominator, command.dotted, defaultLength, command, diagnostics)
+                        if (patchId < 0) {
+                            diagnostics.add(MmlDiagnostic(command.line, command.column, "A chord requires a named FM instrument"))
+                        } else if (duration > 0) {
+                            val gate = duration * gateEighths / 8
+                            var pitchIndex = 0
+                            while (pitchIndex < command.pitches.size) {
+                                val pitch = command.pitches[pitchIndex]
+                                val midi = midiFor(pitch.first, pitch.second, octave)
+                                if (midi !in 0..127) {
+                                    diagnostics.add(MmlDiagnostic(command.line, command.column, "Chord note is outside MIDI range 0..127"))
+                                } else if (!builder.add(
+                                        CompiledOpnaSong.FM_POLY_NOTE,
+                                        tick,
+                                        duration,
+                                        gate,
+                                        track.channel.ordinal,
+                                        -1,
+                                        midi,
+                                        -1,
+                                        fineVolume,
+                                        patchId,
+                                        pan,
+                                        detuneCents,
+                                        pms,
+                                        ams,
+                                        lfoDelayTicks
+                                    )
+                                ) {
+                                    diagnostics.add(MmlDiagnostic(command.line, command.column, "Compiled OPNA event capacity exceeded"))
+                                }
+                                sequencerCost += 2
+                                pitchIndex++
+                            }
+                            tick += duration
+                        }
                     }
                 }
                 is MmlCommand.Portamento -> {
@@ -432,7 +542,7 @@ object MmlCompiler {
         var i = 0
         while (i < track.commands.size) {
             val command = track.commands[i]
-            if (command is MmlCommand.Note || command is MmlCommand.Portamento || command is MmlCommand.Drum) return true
+            if (command is MmlCommand.Note || command is MmlCommand.Chord || command is MmlCommand.Portamento || command is MmlCommand.Drum) return true
             i++
         }
         return false
@@ -567,9 +677,11 @@ object MmlCompiler {
                 is MmlCommand.RelativeVolume,
                 is MmlCommand.Gate,
                 is MmlCommand.Pan,
+                is MmlCommand.Polyphony,
                 is MmlCommand.Detune,
                 is MmlCommand.Tempo,
                 is MmlCommand.HardwareLfo,
+                is MmlCommand.Chord,
                 is MmlCommand.Portamento -> {
                     diagnostics.add(MmlDiagnostic(command.line, command.column, "Command requires #MML 2"))
                 }

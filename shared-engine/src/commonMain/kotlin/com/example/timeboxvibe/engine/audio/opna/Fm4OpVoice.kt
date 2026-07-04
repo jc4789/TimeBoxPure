@@ -146,6 +146,15 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         return (envelope.stage shl 10) or envelope.attenuation
     }
 
+    internal fun releaseFinished(): Boolean {
+        var opIndex = 0
+        while (opIndex < AudioLaws.FM_OPERATORS) {
+            if (opState[opIndex].opnEnvelope.stage != OpnRateEnvelope.OFF) return false
+            opIndex++
+        }
+        return true
+    }
+
     private fun recalcPhaseSteps(p: FmPatch) {
         opState[0].phaseStep = calcPhaseStep(p.op0)
         opState[1].phaseStep = calcPhaseStep(p.op1)

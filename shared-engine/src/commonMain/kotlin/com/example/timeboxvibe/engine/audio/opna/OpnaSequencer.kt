@@ -9,6 +9,8 @@ internal class SequencerEvent {
         const val DRUM = 4
         const val FM3_OPERATOR_ON = 5
         const val FM3_OPERATOR_OFF = 6
+        const val FM_POLY_ON = 7
+        const val FM_POLY_OFF = 8
     }
 
     var type: Int = 0
@@ -133,6 +135,59 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
         // 2. FM_OFF Event
         val offEv = events[eventCount++]
         offEv.type = SequencerEvent.FM_OFF
+        offEv.sampleTime = startSample + durationSamples
+        offEv.channel = channel
+        offEv.midi = midi
+        offEv.velocity = 0f
+        offEv.noteId = noteId
+        offEv.attack = -1f
+        offEv.decay = -1f
+        offEv.sustain = -1f
+        offEv.release = -1f
+        clearControls(offEv)
+    }
+
+    fun noteFmPolyControlledRaw(
+        channel: Int,
+        midi: Int,
+        startSample: Long,
+        durationSamples: Long,
+        velocity: Float,
+        patch: FmPatch,
+        pan: Int,
+        detuneCents: Int,
+        pms: Int,
+        ams: Int,
+        lfoDelayFrames: Int
+    ) {
+        if (eventCount + 2 > MAX_EVENTS) return
+        val noteId = nextNoteId()
+        isSorted = false
+
+        val onEv = events[eventCount++]
+        onEv.type = SequencerEvent.FM_POLY_ON
+        onEv.sampleTime = startSample
+        onEv.channel = channel
+        onEv.midi = midi
+        onEv.velocity = velocity
+        onEv.noteId = noteId
+        onEv.attack = -1f
+        onEv.decay = -1f
+        onEv.sustain = -1f
+        onEv.release = -1f
+        onEv.patch = patch
+        onEv.ssgPatch = null
+        onEv.pan = pan
+        onEv.detuneCents = detuneCents
+        onEv.pms = pms
+        onEv.ams = ams
+        onEv.lfoDelayFrames = lfoDelayFrames
+        onEv.targetMidi = -1
+        onEv.slideFrames = 0
+        onEv.operator = -1
+
+        val offEv = events[eventCount++]
+        offEv.type = SequencerEvent.FM_POLY_OFF
         offEv.sampleTime = startSample + durationSamples
         offEv.channel = channel
         offEv.midi = midi

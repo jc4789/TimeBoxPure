@@ -29,6 +29,7 @@ sealed class MmlCommand(open val line: Int, open val column: Int) {
     data class Drum(val kind: Char, val denominator: Int?, override val line: Int, override val column: Int, val dotted: Boolean = false) : MmlCommand(line, column)
     data class Gate(val eighths: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
     data class Pan(val value: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
+    data class Polyphony(val enabled: Boolean, override val line: Int, override val column: Int) : MmlCommand(line, column)
     data class Detune(val cents: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
     data class Tempo(val bpm: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
     data class HardwareLfo(
@@ -43,6 +44,13 @@ sealed class MmlCommand(open val line: Int, open val column: Int) {
         val fromAccidental: Int,
         val toLetter: Char,
         val toAccidental: Int,
+        val denominator: Int?,
+        val dotted: Boolean,
+        override val line: Int,
+        override val column: Int
+    ) : MmlCommand(line, column)
+    data class Chord(
+        val pitches: List<Pair<Char, Int>>,
         val denominator: Int?,
         val dotted: Boolean,
         override val line: Int,
@@ -349,6 +357,15 @@ object MmlParser {
                 else if (c == 'v') output.add(MmlCommand.Volume(value, source.lineAt(tokenStart), source.columnAt(tokenStart)))
                 else if (c == 'o') output.add(MmlCommand.Octave(value, source.lineAt(tokenStart), source.columnAt(tokenStart)))
                 else output.add(MmlCommand.DefaultLength(value, source.lineAt(tokenStart), source.columnAt(tokenStart)))
+            } else if (raw == 'P') {
+                val tokenStart = i
+                i++
+                if (i >= end || (text[i] != '0' && text[i] != '1')) {
+                    diagnostics.add(MmlDiagnostic(source.lineAt(tokenStart), source.columnAt(tokenStart), "P requires P0 or P1"))
+                } else {
+                    output.add(MmlCommand.Polyphony(text[i] == '1', source.lineAt(tokenStart), source.columnAt(tokenStart)))
+                    i++
+                }
             } else if (raw == 'Q' || c == 'p' || raw == 'D' || raw == 'T') {
                 val tokenStart = i
                 i++
@@ -419,30 +436,47 @@ object MmlParser {
                     return
                 }
                 val content = text.substring(i + 1, close).filterNot { it.isWhitespace() }
-                val firstNote = parseInlineNote(content, 0)
-                val secondNote = if (firstNote != null) parseInlineNote(content, firstNote.third) else null
-                if (firstNote == null || secondNote == null || secondNote.third != content.length) {
-                    diagnostics.add(MmlDiagnostic(source.lineAt(tokenStart), source.columnAt(tokenStart), "Portamento requires exactly two notes, such as {cg}4"))
-                    i = close + 1
+                i = close + 1
+                val lengthStart = i
+                while (i < end && text[i].isDigit()) i++
+                val denominator = if (lengthStart == i) null else text.substring(lengthStart, i).toIntOrNull()
+                var dotted = false
+                if (i < end && text[i] == '.') { dotted = true; i++ }
+                if (content.indexOf(',') >= 0) {
+                    val tokens = content.split(',')
+                    val pitches = ArrayList<Pair<Char, Int>>(tokens.size)
+                    var tokenIndex = 0
+                    var valid = tokens.size in 2..MAX_CHORD_NOTES
+                    while (tokenIndex < tokens.size && valid) {
+                        val note = parseInlineNote(tokens[tokenIndex], 0)
+                        if (note == null || note.third != tokens[tokenIndex].length) valid = false
+                        else pitches.add(note.first)
+                        tokenIndex++
+                    }
+                    if (!valid) {
+                        diagnostics.add(MmlDiagnostic(source.lineAt(tokenStart), source.columnAt(tokenStart), "Chord requires 2..$MAX_CHORD_NOTES comma-separated notes, such as {c,e,g}4"))
+                    } else {
+                        output.add(MmlCommand.Chord(pitches, denominator, dotted, source.lineAt(tokenStart), source.columnAt(tokenStart)))
+                    }
                 } else {
-                    i = close + 1
-                    val lengthStart = i
-                    while (i < end && text[i].isDigit()) i++
-                    val denominator = if (lengthStart == i) null else text.substring(lengthStart, i).toIntOrNull()
-                    var dotted = false
-                    if (i < end && text[i] == '.') { dotted = true; i++ }
-                    output.add(
-                        MmlCommand.Portamento(
-                            firstNote.first.first,
-                            firstNote.first.second,
-                            secondNote.first.first,
-                            secondNote.first.second,
-                            denominator,
-                            dotted,
-                            source.lineAt(tokenStart),
-                            source.columnAt(tokenStart)
+                    val firstNote = parseInlineNote(content, 0)
+                    val secondNote = if (firstNote != null) parseInlineNote(content, firstNote.third) else null
+                    if (firstNote == null || secondNote == null || secondNote.third != content.length) {
+                        diagnostics.add(MmlDiagnostic(source.lineAt(tokenStart), source.columnAt(tokenStart), "Portamento requires exactly two notes, such as {cg}4"))
+                    } else {
+                        output.add(
+                            MmlCommand.Portamento(
+                                firstNote.first.first,
+                                firstNote.first.second,
+                                secondNote.first.first,
+                                secondNote.first.second,
+                                denominator,
+                                dotted,
+                                source.lineAt(tokenStart),
+                                source.columnAt(tokenStart)
+                            )
                         )
-                    )
+                    }
                 }
             } else if (c in 'a'..'g') {
                 val tokenStart = i
@@ -567,6 +601,7 @@ object MmlParser {
     }
 
     private const val MAX_LOOP_DEPTH = 8
+    private const val MAX_CHORD_NOTES = 8
     private const val MAX_MACRO_DEPTH = 8
     private const val MAX_MACRO_CHARACTERS = 65_536
 

@@ -11,7 +11,7 @@
 
 ## Production Audio Contract
 
-- `SongCatalog` is MML-only. Its sole production song and both focus/relax defaults use `MmlSongBank.SENBONZAKURA_DEMO_KEY`.
+- `SongCatalog` is MML-only. It contains the v1 Senbonzakura arrangement and the v2 `凛として咲く花の如く` arrangement; both focus/relax defaults remain `MmlSongBank.SENBONZAKURA_DEMO_KEY`.
 - The old Oriental MP3 entry, Zen Chime, Victory, procedural Bad Apple, procedural Senbonzakura, and Lotus Land Story arrangement are retired from the catalog.
 - Persisted retired IDs automatically fall back because app preference restoration accepts only IDs returned by `SongCatalog.byId`.
 - `SoundMelodies.kt` remains temporarily as quarantined legacy source/data. It is not a production playback contract and must not drive compatibility changes in the new FM core.
@@ -52,6 +52,7 @@
 - Rate cadence is generated procedurally from effective-rate groups and fractional pulse distribution; no emulator increment table is embedded.
 - `EgMode.OPN_RATE` consumes explicit register-style fields. `LEGACY_ADSR` only converts old float inputs to legal OPN rates at A4; it is not a second rendering engine and is not a promise that retired songs retain their old timbre.
 - Explicit target patches are `LlsPatches.At54`, `At74`, `At99`, and `At181`; their carriers keep SR=0 while intended modulators use nonzero SR shaping.
+- Legacy named `lead`, `bell`, `bass`, and `pad` patches retain their carrier levels but add 24 TL steps to modulators so they share the corrected phase-injection coordinate instead of overmodulating.
 - `OperatorSpec.ssgEg` enables FM operator SSG-EG shapes `8..15`, including repeat, alternate/invert, and hold behavior.
 
 ## Accuracy Profile
@@ -64,18 +65,22 @@
 
 ## MML Layer
 
-- Files: `audio/mml/MmlParser.kt`, `MmlCompiler.kt`, `MmlSongBank.kt`, and `MmlArrangementScheduler.kt`.
+- Files: `audio/mml/MmlParser.kt`, `MmlCompiler.kt`, `MmlSongBank.kt`, `RinToShiteSong.kt`, and `MmlArrangementScheduler.kt`.
 - MML is embedded as Kotlin raw strings and compiled once; parsing and musical compilation never occur in the streaming render loop.
 - Headerless MML remains v1: A-E are flexible tonal tracks, R is rhythm, and the production source remains byte-for-byte unchanged.
 - `#MML 2` compiles to `CompiledOpnaSong`, a primitive fixed-capacity event program independent of parser/catalog types.
 - V2 layout is A-F FM, G-I SSG, R rhythm, with optional C1-C4 operator parts under `#FM3EXTEND ON`.
 - V2 expression includes dots, ties/slurs, `Q0..8`, `V0..127`, relative accents, `p1..p3`, signed-cent `D`, `{cg}4` portamento, `H<pms>,<ams>[,l<delay>]`, and shared `#LFO 0..7`.
+- V2 authored polyphony uses `{c,e,g}4` for simultaneous FM chords and `P1`/`P0` to enable/disable polyphonic sequential-note allocation on an FM part. This preserves arpeggio release tails without changing note timing.
 - V2 authoring includes named FM/SSG patches, nested loops to depth 8, `#MACRO`/`$name`, and global channel-A `T20..T400` tempo changes.
 - Named FM patches are `54`, `74`, `99`, `181`, `lead`, `bell`, `bass`, `pad`, `chime`, `brass`, `piano`, `strings`, and `effect`; named SSG patches are `square`, `ssg_lead`, `ssg_bass`, `ssg_noise`, and `ssg_envelope`.
 - V2 rhythm tokens are kick `k`, snare `s`, hi-hat `h`, tom `t`, cymbal `y`, and rimshot `i`; volume and pan are captured per shot.
 - Timing uses 480 ticks per quarter and absolute tick conversion to avoid cumulative note-rounding drift.
-- The production source is a 32-bar A/B/C/D/E/R arrangement (a 16-bar body repeated twice) at 160.73 BPM. Its historical ID still contains `demo`; do not rename persisted IDs casually.
+- The retained Senbonzakura source is a 32-bar A/B/C/D/E/R v1 arrangement (a 16-bar body repeated twice) at 160.73 BPM. Its historical ID still contains `demo`; do not rename persisted IDs casually.
+- `凛として咲く花の如く` is a ten-bar v2 PC-98 finale at 136 BPM, adapted from score measures 67..76. Five FM parts divide lead, polyphonic piano motion, and sustained three-note block harmony; it intentionally has no rhythm part or synthetic duplicate bass ostinato. Tests protect scheduling, determinism, finite output, and independent chord voices, but listening—not aggregate spectral thresholds—decides musical acceptance.
 - The sequencer owns a preallocated 4096-event array. `SoundPreviewPlayer` schedules and sorts events before starting streamed rendering.
+- Six OPNA control parts feed a preallocated 16-voice authored-music pool. Explicit chord/polyphonic events retain release tails in spare voices; compilation fails with the required voice count instead of silently dropping keyed notes above capacity.
+- Compiled v2 programs carry an internal playback-gain scalar so the existing catalog volume argument works without copying event arrays or allocating in rendering.
 
 ## Hot Paths
 
@@ -100,12 +105,13 @@
 - No pre-rewrite PCM baseline was preserved, so the old proposed historical 2 dB spectral A/B gate is not reproducible. Current full-song spectral/body regressions compare deterministic in-tree renders.
 - MML v1 intentionally rejects mid-track timbre changes and songs exceeding channel/event capacity.
 - MML v2 is PMD-inspired, not PMD-compatible. Raw registers, CSM, timer effects, historical grace-note syntax, and PMD software-LFO compatibility remain unsupported.
-- `MmlSongBank.getArrangement(volume != 1)` allocates scaled note copies before playback; rendering itself remains allocation-free.
+- `MmlSongBank.getArrangement(volume != 1)` allocates scaled note copies for v1 or one lightweight program wrapper for v2 before playback; event arrays are shared and rendering itself remains allocation-free.
 
 ## Key Constants
 
 - `AudioLaws.SAMPLE_RATE = 48000`
 - `AudioLaws.FM_CHANNELS = 6`
+- `AudioLaws.FM_RENDER_VOICES = 16`
 - `AudioLaws.FM_OPERATORS = 4`
 - `AudioLaws.SSG_CHANNELS = 3`
 - `OpnPitch.MASTER_CLOCK_HZ = 8_000_000`
@@ -131,6 +137,6 @@ $env:JAVA_HOME="D:\Programes\Android Studio\jbr"; .\gradlew :shared-engine:testD
 ## Current Task Focus
 
 - Treat the procedural OPN engine plus embedded MML as the forward architecture.
-- Compose new songs in `#MML 2` with named patches and authentic A-F/G-I/R limits; keep production Senbonzakura on v1 until a deliberate musical migration is requested.
+- Compose new songs in `#MML 2` with named patches and authentic A-F/G-I/R limits; keep Senbonzakura on v1 until a deliberate musical migration is requested.
 - Add register emulation only if a concrete future project requires register-stream compatibility.
 - Keep `SoundMelodies.kt` only until its shared arrangement model types are moved to a neutral file; then delete the retired builders separately.

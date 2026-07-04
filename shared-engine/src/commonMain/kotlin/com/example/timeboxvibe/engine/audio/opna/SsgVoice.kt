@@ -109,11 +109,21 @@ class SsgVoice(
         if (!enabled && env.stage == Envelope.OFF) return
 
         if (hardwareMode) {
-            if (!sharedPrepared) shared.prepare(frames)
             if (configuredSampleRate != sampleRate) {
                 configuredSampleRate = sampleRate
                 hardwarePhaseStep = phaseStep(frequency, sampleRate)
             }
+            if (!sharedPrepared && frames > OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK) {
+                var rendered = 0
+                while (rendered < frames) {
+                    val count = minOf(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK, frames - rendered)
+                    shared.prepare(count)
+                    renderHardware(buffer, count, gainScale, startFrame + rendered)
+                    rendered += count
+                }
+                return
+            }
+            if (!sharedPrepared) shared.prepare(frames)
             renderHardware(buffer, frames, gainScale, startFrame)
             return
         }

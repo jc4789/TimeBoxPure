@@ -6,6 +6,8 @@ import com.example.timeboxvibe.engine.ToneSpec
 
 object MmlSongBank {
     const val SENBONZAKURA_DEMO_KEY = "synth-mml-senbonzakura-demo"
+    const val RIN_TO_SHITE_KEY = "synth-mml-rin-to-shite-saku-hana-no-gotoku"
+    const val RIN_TO_SHITE_MML = RIN_TO_SHITE_MML_SOURCE
 
     const val SENBONZAKURA_DEMO_MML = """
 #BPM 160.73
@@ -121,18 +123,25 @@ R @drum v11 l8
 """
 
     val senbonzakuraDemoResult: MmlCompileResult = MmlCompiler.compile(SENBONZAKURA_DEMO_MML)
+    val rinToShiteResult: MmlCompileResult = MmlCompiler.compile(RIN_TO_SHITE_MML)
 
     fun getArrangement(key: String, volume: Float): ArrangementLanes? {
-        check(key == SENBONZAKURA_DEMO_KEY) {
-            "Wrong arrangement key: $key"
+        val result = when (key) {
+            SENBONZAKURA_DEMO_KEY -> senbonzakuraDemoResult
+            RIN_TO_SHITE_KEY -> rinToShiteResult
+            else -> return null
         }
 
-        val success = senbonzakuraDemoResult as? MmlCompileResult.Success
-            ?: error("SENBONZAKURA_DEMO_MML failed to compile: $senbonzakuraDemoResult")
+        val success = result as? MmlCompileResult.Success
+            ?: error("MML arrangement '$key' failed to compile: $result")
 
         if (volume == 1f) return success.arrangement
 
         val arrangement = success.arrangement
+        val compiled = arrangement.compiledOpnaSong
+        if (compiled != null) {
+            return arrangement.copy(compiledOpnaSong = compiled.withPlaybackGain(volume))
+        }
         return arrangement.copy(
             lead = scaleLane(arrangement.lead, volume),
             harmony = scaleLane(arrangement.harmony, volume),

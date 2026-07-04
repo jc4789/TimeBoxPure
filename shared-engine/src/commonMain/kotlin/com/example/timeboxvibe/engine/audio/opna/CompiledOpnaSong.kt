@@ -31,8 +31,41 @@ class CompiledOpnaSong internal constructor(
     internal val detuneCents: IntArray,
     internal val pms: IntArray,
     internal val ams: IntArray,
-    internal val lfoDelayTick: IntArray
+    internal val lfoDelayTick: IntArray,
+    internal val playbackGain: Float = 1f
 ) {
+    internal fun withPlaybackGain(gain: Float): CompiledOpnaSong {
+        if (gain == playbackGain) return this
+        return CompiledOpnaSong(
+            dialectVersion = dialectVersion,
+            bpm = bpm,
+            beatsPerBar = beatsPerBar,
+            lfoRate = lfoRate,
+            fm3Extended = fm3Extended,
+            tempoChangeCount = tempoChangeCount,
+            tempoTick = tempoTick,
+            tempoBpm = tempoBpm,
+            durationTicks = durationTicks,
+            eventCount = eventCount,
+            eventType = eventType,
+            startTick = startTick,
+            durationTick = durationTick,
+            gateTick = gateTick,
+            channel = channel,
+            operator = operator,
+            midi = midi,
+            targetMidi = targetMidi,
+            velocity = velocity,
+            patchId = patchId,
+            pan = pan,
+            detuneCents = detuneCents,
+            pms = pms,
+            ams = ams,
+            lfoDelayTick = lfoDelayTick,
+            playbackGain = gain.coerceAtLeast(0f)
+        )
+    }
+
     fun durationMilliseconds(): Long {
         var milliseconds = 0.0
         var previousTick = 0L
@@ -60,6 +93,7 @@ class CompiledOpnaSong internal constructor(
         internal const val SSG_NOTE: Int = 1
         internal const val RHYTHM_SHOT: Int = 2
         internal const val FM3_OPERATOR_NOTE: Int = 3
+        internal const val FM_POLY_NOTE: Int = 4
     }
 }
 
@@ -171,7 +205,8 @@ internal class CompiledOpnaSongBuilder(
         detuneCents = detuneCents,
         pms = pms,
         ams = ams,
-        lfoDelayTick = lfoDelayTick
+        lfoDelayTick = lfoDelayTick,
+        playbackGain = 1f
     )
 
     private companion object {
