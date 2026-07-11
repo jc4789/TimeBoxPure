@@ -127,6 +127,23 @@ class TimerPresetPipelineTest {
         }
     }
 
+    @Test
+    fun classicPomodoroIsSixtyMinuteWorkRestSequence() {
+        val classic = preset("classic_pom")
+        assertEquals("sequence", classic.mode)
+        assertEquals(4, classic.sequence.size)
+        assertEquals(1500, classic.sequence[0])
+        assertEquals(300, classic.sequence[1])
+        assertEquals(1500, classic.sequence[2])
+        assertEquals(300, classic.sequence[3])
+        assertEquals(3600, classic.sequence.sum())
+
+        val engine = TimerEngine(classic)
+        assertEquals(1500, engine.timeRemaining)
+        assertEquals(0, engine.currentIndex)
+        assertEquals(false, engine.isDual)
+    }
+
     private fun preset(id: String): TimerPreset {
         return getDefaultPresets("en").first { it.id == id }.normalized(logFailures = true)
     }

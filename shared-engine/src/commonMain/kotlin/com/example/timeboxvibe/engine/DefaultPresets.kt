@@ -62,11 +62,12 @@ fun getDefaultPresets(lang: String): List<TimerPreset> = when (lang) {
         ),
         TimerPreset(
             id = "classic_pom",
-            name = "经典单时间箱",
-            mode = "classic",
-            sequence = intArrayOf(1500),
+            name = "经典番茄箱",
+            mode = "sequence",
+            sequence = intArrayOf(1500, 300, 1500, 300),
+            sequenceLabels = arrayOf("专注 1", "休息 1", "专注 2", "休息 2"),
             alarmBehavior = "alarm",
-            description = "传统25分钟的单一计时框。"
+            description = "番茄钟：25分工作、5分休息、25分工作、5分休息（60分一轮）。"
         ),
         TimerPreset(
             id = "default_calendar",
@@ -134,11 +135,12 @@ fun getDefaultPresets(lang: String): List<TimerPreset> = when (lang) {
         ),
         TimerPreset(
             id = "classic_pom",
-            name = "クラシック・ボックス",
-            mode = "classic",
-            sequence = intArrayOf(1500),
+            name = "クラシック・ポモドーロ",
+            mode = "sequence",
+            sequence = intArrayOf(1500, 300, 1500, 300),
+            sequenceLabels = arrayOf("集中 1", "休憩 1", "集中 2", "休憩 2"),
             alarmBehavior = "alarm",
-            description = "お馴染みの25分間シングルカウントダウンタイマー。"
+            description = "ポモドーロ：25分作業、5分休憩、25分作業、5分休憩（60分1セット）。"
         ),
         TimerPreset(
             id = "default_calendar",
@@ -206,11 +208,12 @@ fun getDefaultPresets(lang: String): List<TimerPreset> = when (lang) {
         ),
         TimerPreset(
             id = "classic_pom",
-            name = "Classic Box",
-            mode = "classic",
-            sequence = intArrayOf(1500),
+            name = "Classic Pomodoro",
+            mode = "sequence",
+            sequence = intArrayOf(1500, 300, 1500, 300),
+            sequenceLabels = arrayOf("Focus 1", "Break 1", "Focus 2", "Break 2"),
             alarmBehavior = "alarm",
-            description = "A standard 25-minute singular countdown box."
+            description = "Pomodoro: 25m work, 5m relax, 25m work, 5m relax (60m set)."
         ),
         TimerPreset(
             id = "default_calendar",

@@ -1,11 +1,11 @@
 package com.example.timeboxvibe.engine.core
 
 import kotlin.math.abs
-import kotlin.math.roundToInt
 
 /**
  * A platform-independent vector coordinate representation.
  * Allows math pipelines to compile without any dependency on Jetpack Compose or Native Android types.
+ * Kept for demoscene helpers (e.g. IkChain2D); do not use list builders of Point2D in hot paths.
  */
 data class Point2D(val x: Float, val y: Float)
 
@@ -239,7 +239,11 @@ fun getPixelColor(
     }
 }
 
-// Fast integer-indexed Sine/Cosine Lookup Table (LUT) for zero-allocation procedural geometry
+/**
+ * Graphics-path sine/cosine LUT (allocation-free).
+ * Sole ornament/render trig source — do not call kotlin.math.sin/cos in hot draw paths.
+ * Circle rasterization lives only in [AliasedVectorLayer.drawAliasedCircle].
+ */
 object FastMath {
     private const val TABLE_SIZE = 1024
     private const val MASK = TABLE_SIZE - 1
@@ -268,112 +272,4 @@ object FastMath {
         return (normalized * (TABLE_SIZE / 360f)).toInt() and MASK
     }
 }
-
-fun getStarVertices(centerX: Float, centerY: Float, starRadius: Float, points: Int): List<Point2D> {
-    return List(points) { idx ->
-        val deg = idx * (360f / points)
-        val aIdx = FastMath.degreesToIdx(deg)
-        Point2D(
-            centerX + starRadius * FastMath.fastCos(aIdx),
-            centerY + starRadius * FastMath.fastSin(aIdx)
-        )
-    }
-}
-
-fun getTickPoints(centerX: Float, centerY: Float, radiusOuter: Float, radiusInner: Float, count: Int): List<Pair<Point2D, Point2D>> {
-    return List(count) { idx ->
-        val deg = idx * (360f / count)
-        val aIdx = FastMath.degreesToIdx(deg)
-        val cosVal = FastMath.fastCos(aIdx)
-        val sinVal = FastMath.fastSin(aIdx)
-        val p1 = Point2D(centerX + radiusOuter * cosVal, centerY + radiusOuter * sinVal)
-        val p2 = Point2D(centerX + radiusInner * cosVal, centerY + radiusInner * sinVal)
-        Pair(p1, p2)
-    }
-}
-
-fun getDanmakuBulletOffset(centerX: Float, centerY: Float, radius: Float, progress: Float): Point2D {
-    val angleDegrees = -90f + 360f * progress
-    val aIdx = FastMath.degreesToIdx(angleDegrees)
-    return Point2D(
-        centerX + radius * FastMath.fastCos(aIdx),
-        centerY + radius * FastMath.fastSin(aIdx)
-    )
-}
-
-fun getDanmakuSparkOffset(centerX: Float, centerY: Float, radius: Float, progress: Float): Point2D {
-    val angleDegrees = -90f + 360f * progress - 5f
-    val aIdx = FastMath.degreesToIdx(angleDegrees)
-    return Point2D(
-        centerX + radius * FastMath.fastCos(aIdx),
-        centerY + radius * FastMath.fastSin(aIdx)
-    )
-}
-
-fun drawBresenhamCircle(
-    canvas: EngineCanvas,
-    centerX: Float,
-    centerY: Float,
-    radius: Float,
-    colorIndex: Int,
-    strokeWidth: Float = 1f,
-    dashed: Boolean = false
-) {
-    val xc = centerX.roundToInt()
-    val yc = centerY.roundToInt()
-    val r = radius.roundToInt()
-    val sw = (strokeWidth * canvas.density).roundToInt().coerceAtLeast(1)
-
-    var x = 0
-    var y = r
-    var d = 3 - 2 * r
-
-    fun plotPoints(px: Int, py: Int) {
-        val points = arrayOf(
-            Pair(xc + px, yc + py),
-            Pair(xc - px, yc + py),
-            Pair(xc + px, yc - py),
-            Pair(xc - px, yc - py),
-            Pair(xc + py, yc + px),
-            Pair(xc - py, yc + px),
-            Pair(xc + py, yc - px),
-            Pair(xc - py, yc - px)
-        )
-        for (p in points) {
-            val skip = dashed && (px / 4) % 2 != 0
-            if (!skip) {
-                val xVal = p.first
-                val yVal = p.second
-                if (xVal >= 0 && xVal < canvas.width.toInt() && yVal >= 0 && yVal < canvas.height.toInt()) {
-                    if (sw <= 1) {
-                        canvas.setPixel(xVal.toFloat(), yVal.toFloat(), colorIndex)
-                    } else {
-                        canvas.drawRect(
-                            xVal.toFloat() - sw / 2f,
-                            yVal.toFloat() - sw / 2f,
-                            sw.toFloat(),
-                            sw.toFloat(),
-                            colorIndex
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    if (r > 0) {
-        plotPoints(x, y)
-        while (x <= y) {
-            x++
-            if (d > 0) {
-                y--
-                d += 4 * (x - y) + 10
-            } else {
-                d += 4 * x + 6
-            }
-            plotPoints(x, y)
-        }
-    }
-}
-
 

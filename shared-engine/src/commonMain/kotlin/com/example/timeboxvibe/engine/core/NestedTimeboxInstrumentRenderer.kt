@@ -1,9 +1,7 @@
 package com.example.timeboxvibe.engine.core
 
 import com.example.timeboxvibe.engine.AppStrings
-import kotlin.math.cos
 import kotlin.math.roundToInt
-import kotlin.math.sin
 
 /**
  * 9-band magic circle renderer (Rev 6 layout) with demoscene effects.
@@ -118,6 +116,7 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         stageLabel: String,
         midTimeRemaining: Int,
         bigTimeRemaining: Int,
+        bigTotalDuration: Int = 0,
         activeMode: String,
         isBreak: Boolean,
         sequenceLength: Int,
@@ -125,6 +124,10 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         playAreaW: Float,
         demoscene: MagicCircleDemoscene? = null
     ) {
+        // Nested readouts + inner bead ring whenever a macro tier is present
+        // (dual modes, or calendar/classic pomodoro with remaining-block total).
+        // Does not alter TimerEngine.isDual — display-only.
+        val showNestedMacro = isDual || bigTotalDuration > 0
         val thin = renderer.canvas.density
 
         // Continuous rotation angles (degrees per second × elapsed seconds).
@@ -137,8 +140,6 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         val coreAngle = elapsedSeconds * CORE_DEG_PER_SEC
 
         val coreR = (U * 3).toFloat()
-        val coreX = centerX + coreR * cosDeg(coreAngle)
-        val coreY = centerY + coreR * sinDeg(coreAngle)
 
         // Radii — all snapped to the 16x16 grid: baseRadius, baseRadius - U*N,
         // or U*N. The outer ring is the boundary (U*0 offset from baseRadius);
@@ -272,11 +273,9 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
             square2Angle, magicPrimaryColorIndex, thin
         )
 
-        // 10. Inner timer beads (48, dual mode only, static start). Size
-        //     Size 2.0px (slightly smaller than the 2.5px outer beads) and
-        //     a different color (ACCENT_SUCCESS = jade green, not the off-white
-        //     TEXT_SECONDARY) so the two bead rings are clearly distinct.
-        if (isDual) {
+        // 10. Inner timer beads (48) — macro/session ring when nested.
+        //     Slightly smaller than outer beads so the two rings stay distinct.
+        if (showNestedMacro) {
             renderer.setDrawAlpha(SOLID_ALPHA)
             val innerActive = (innerProgress.coerceIn(0f, 1f) * INNER_BEAD_COUNT).toInt()
             renderer.drawActivePolarBeadLoop(
@@ -309,8 +308,8 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
             val trailAngle = coreAngle - trailLinkIdx * 12f
             val linkAlpha = (trailBaseAlpha * (1f - trailLinkIdx * 0.22f)).toInt().coerceIn(0x20, 0xFF)
             val linkSize = (2.5f - trailLinkIdx * 0.4f).coerceAtLeast(0.8f)
-            val linkX = centerX + r * cosDeg(trailAngle)
-            val linkY = centerY + r * sinDeg(trailAngle)
+            val linkX = renderer.getPolarX(centerX, r, trailAngle)
+            val linkY = renderer.getPolarY(centerY, r, trailAngle)
             renderer.setDrawAlpha(linkAlpha)
             renderer.drawAliasedFilledCircle(linkX, linkY, linkSize, textFrameColorIndex)
             trailLinkIdx++
@@ -337,7 +336,7 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         // 14. Center timer text readout (drawn last so it sits on top of everything).
         renderer.setDrawAlpha(SOLID_ALPHA)
         drawCenterReadout(
-            centerX, centerY, quietRadius, isDual, timeRemaining, stageLabel,
+            centerX, centerY, quietRadius, showNestedMacro, timeRemaining, stageLabel,
             midTimeRemaining, bigTimeRemaining, activeMode, isBreak, sequenceLength,
             strings, playAreaW
         )
@@ -419,7 +418,7 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         centerX: Float,
         centerY: Float,
         quietRadius: Float,
-        isDual: Boolean,
+        showNestedMacro: Boolean,
         timeRemaining: Int,
         stageLabel: String,
         midTimeRemaining: Int,
@@ -434,7 +433,8 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         val secondary = PaletteIndices.TEXT_SECONDARY
         val maxTextWidth = minOf(playAreaW - (U + U / 2).toFloat(), quietRadius * 2f - U.toFloat())
 
-        if (isDual) {
+        // Nested: micro stage (large) + macro block remaining (small) + labels.
+        if (showNestedMacro) {
             if (activeMode == "dual.5") {
                 if (sequenceLength > 1) {
                     drawStageLabelCentered(centerX, stageLabel, centerY - (U * 3 + U / 2).toFloat(), secondary, maxTextWidth)
@@ -444,12 +444,16 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
                 drawTimeCentered(centerX, bigTimeRemaining, centerY + (U * 2).toFloat(), 1, primary)
                 drawStaticTextCentered(centerX, strings.sessionLimitLabel, centerY + (U * 3).toFloat(), secondary)
             } else {
-                if (sequenceLength > 1) {
+                if (sequenceLength > 1 || activeMode == "calendar" || activeMode == "sequence") {
                     drawStageLabelCentered(centerX, stageLabel, centerY - (U * 2 + U / 2).toFloat(), secondary, maxTextWidth)
                 }
                 drawTimeCentered(centerX, timeRemaining, centerY - (U / 2).toFloat(), 2, primary)
                 drawTimeCentered(centerX, bigTimeRemaining, centerY + (U + U / 2).toFloat(), 1, primary)
-                val label = if (activeMode == "dual-sequence") strings.blockLimitLabel else strings.sessionLimitLabel
+                val label = if (activeMode == "dual-sequence") {
+                    strings.blockLimitLabel
+                } else {
+                    strings.sessionLimitLabel
+                }
                 drawStaticTextCentered(centerX, label, centerY + (U * 3).toFloat(), secondary)
             }
             return
@@ -533,8 +537,4 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
     private fun drawGlyph(char: Char, x: Float, y: Float, colorIndex: Int, scale: Int = 1) {
         renderer.drawGlyph(char, x, y, colorIndex, scale = scale)
     }
-
-    /** Degree → radians helper for polar positions. */
-    private fun cosDeg(degrees: Float): Float = cos(degrees * 0.017453292519943295f)
-    private fun sinDeg(degrees: Float): Float = sin(degrees * 0.017453292519943295f)
 }

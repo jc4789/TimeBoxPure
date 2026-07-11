@@ -69,14 +69,13 @@ object ActiveTimerScene : Scene {
     private val inputContainer = FixedInputContainer(64)
     private var cachedLogicalWidth = 640f
     private var cachedLogicalHeight = 400f
-    private var blinkAccumulator = 0.0f
+    private val taskCursor = EngineCursorRenderer()
     private var scrollY = 0f
     private var lastTouchY = 0f
     private var isDragging = false
     private var initialTouchX = 0f
     private var initialTouchY = 0f
     private var hasDragged = false
-    private const val BLINK_RATE = 0.5f
     private var alarmMarqueeX = 0f
     // Demoscene manager: 6 Wave oscillators + 1 IkChain2D + Perlin rune drift.
     // Allocated on first render so we don't run the constructor at class init.
@@ -87,6 +86,7 @@ object ActiveTimerScene : Scene {
         scrollY = 0f
         isDragging = false
         hasDragged = false
+        taskCursor.reset()
         // Clear input container
         while (inputContainer.length > 0) {
             inputContainer.processPayload(EngineInputCodes.CMD_BACKSPACE)
@@ -117,6 +117,7 @@ object ActiveTimerScene : Scene {
         // Tick the 6 demoscene Wave oscillators. No-op when
         // `VisualsStateHolder.demosceneEffectsEnabled` is false.
         demoscene?.update(dt)
+        taskCursor.update(dt)
     }
 
     override fun render(renderer: ScaledProceduralRenderer, playX: Int, playY: Int, playW: Int, playH: Int) {
@@ -182,14 +183,25 @@ object ActiveTimerScene : Scene {
         val inputY = inputBaseY + scrollY
         val btnY = timerControlRowY(baseCy, radius) + scrollY
 
+        // Outer beads = current stage / micro timer. Inner beads = session macro
+        // (dual big box, calendar remaining, or sequence set remaining e.g. 60m pomodoro).
+        val activePreset = state.presets.firstOrNull { it.id == state.activePresetId }
+        val (macroRem, macroTot) = SessionMacroDisplay.resolveMacro(
+            mode = state.activeMode,
+            sequence = activePreset?.sequence ?: IntArray(0),
+            currentIndex = state.currentIndex,
+            timeRemaining = state.timeRemaining,
+            engineBigRemaining = state.bigTimeRemaining,
+            engineBigTotal = state.bigTotalDuration
+        )
         val outerProgress = if (state.totalDuration > 0) state.timeRemaining.toFloat() / state.totalDuration.toFloat() else 0f
-        val innerProgress = if (state.isDual) {
-            if (state.activeMode == "dual.5") {
-                if (state.midTotalDuration > 0) state.midTimeRemaining.toFloat() / state.midTotalDuration.toFloat() else 0f
-            } else {
-                if (state.bigTotalDuration > 0) state.bigTimeRemaining.toFloat() / state.bigTotalDuration.toFloat() else 0f
-            }
-        } else 0f
+        val innerProgress = if (state.activeMode == "dual.5") {
+            if (state.midTotalDuration > 0) state.midTimeRemaining.toFloat() / state.midTotalDuration.toFloat() else 0f
+        } else if (state.isDual || macroTot > 0) {
+            if (macroTot > 0) macroRem.toFloat() / macroTot.toFloat() else 0f
+        } else {
+            0f
+        }
 
         // 3. Draw the nested timebox instrument. `elapsedSeconds` (from
         //    FrameClock) drives each layer's continuous rotation. Demoscene
@@ -214,7 +226,8 @@ object ActiveTimerScene : Scene {
             timeRemaining = state.timeRemaining,
             stageLabel = state.currentStageLabel,
             midTimeRemaining = state.midTimeRemaining,
-            bigTimeRemaining = state.bigTimeRemaining,
+            bigTimeRemaining = macroRem,
+            bigTotalDuration = macroTot,
             activeMode = state.activeMode,
             isBreak = state.isBreak,
             sequenceLength = state.sequenceLength,
@@ -270,22 +283,19 @@ object ActiveTimerScene : Scene {
             inputH
         )
 
-        // Draw cursor if focused
+        // Task caret: blink owned by EngineCursorRenderer; placement from field + Int U cells.
         if (isTaskFocused) {
-            val dt = 0.016f
-            blinkAccumulator += dt
-            if (blinkAccumulator >= BLINK_RATE * 2f) {
-                blinkAccumulator -= BLINK_RATE * 2f
-            }
-            if (blinkAccumulator < BLINK_RATE) {
-                val maxVisibleChars = ((inputW - TASK_INPUT_INNER_PAD * 2f) / U.toFloat()).toInt().coerceAtLeast(0)
-                val visibleChars = if (displayText.length > maxVisibleChars) maxVisibleChars else displayText.length
-                val cursorX = inputX + TASK_INPUT_INNER_PAD + (visibleChars * U).toFloat()
-                val cursorH = inputH * 0.6f
-                renderer.fillRectDither(
-                    cursorX, inputY + (inputH - cursorH) / 2f, cursorX + (U / 2).toFloat(), inputY + (inputH - cursorH) / 2f + cursorH,
-                    PaletteIndices.HIGHLIGHT, PaletteIndices.HIGHLIGHT, SoftDitherPattern.SOLID)
-            }
+            val maxVisibleChars = ((inputW - TASK_INPUT_INNER_PAD * 2f) / U.toFloat()).toInt().coerceAtLeast(0)
+            val visibleChars = if (displayText.length > maxVisibleChars) maxVisibleChars else displayText.length
+            val caretX = inputX + TASK_INPUT_INNER_PAD + (visibleChars * U).toFloat()
+            val caretY = textY
+            taskCursor.draw(
+                renderer = renderer,
+                isFocused = true,
+                x = caretX,
+                y = caretY,
+                colorIndex = PaletteIndices.HIGHLIGHT
+            )
         }
 
         // 8. Draw Timer Control Buttons

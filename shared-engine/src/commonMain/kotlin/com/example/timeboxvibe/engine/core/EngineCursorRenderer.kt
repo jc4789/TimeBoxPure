@@ -1,47 +1,76 @@
 package com.example.timeboxvibe.engine.core
 
-// Run inside your main frame draw loop
+/**
+ * Blinking text caret for IMGUI text fields.
+ *
+ * Ownership:
+ * - This widget owns blink phase only.
+ * - The scene owns placement from display-derived field rects and integer [U] glyph cells.
+ * - Color is a palette index 0..15 (4-bit on-screen); 12-bit RGB lives in Pc98GraphicsHardware.
+ *
+ * Geometry uses Int [U] only (canonical glyph cell). No orientation or fixed-resolution assumptions.
+ */
 class EngineCursorRenderer {
-    private var blinkAccumulator = 0.0f
-    private val blinkRate = 0.5f // Blink phase flips every 500ms
+    companion object {
+        /** Canonical ROM glyph cell size (Int). */
+        const val U = 16
+        /** Thin PC-98 caret width — U/8 micro-detail law for UI carets. */
+        const val CURSOR_WIDTH = U / 8
+        /** Full glyph-cell height at text scale 1. */
+        const val CURSOR_HEIGHT = U
+        /** Half-period of blink cycle (seconds on, then seconds off). */
+        private const val BLINK_HALF_PERIOD_SEC = 0.5f
+    }
 
-    fun drawVirtualCursor(
+    private var blinkAccumulator = 0f
+
+    fun reset() {
+        blinkAccumulator = 0f
+    }
+
+    /**
+     * Advance blink phase with real frame [dt] from Scene.update.
+     * Never assume a fixed 1/60 frame time.
+     */
+    fun update(dt: Float) {
+        val period = BLINK_HALF_PERIOD_SEC * 2f
+        blinkAccumulator += dt
+        while (blinkAccumulator >= period) {
+            blinkAccumulator -= period
+        }
+    }
+
+    /**
+     * Draw a solid caret block when focused and in the visible blink phase.
+     *
+     * @param x logical pixel origin (scene-computed from field + visible char cells)
+     * @param y logical pixel origin (typically the glyph row Y)
+     * @param width integer U-derived width (default [CURSOR_WIDTH])
+     * @param height integer U-derived height (default [CURSOR_HEIGHT])
+     * @param colorIndex palette index 0..15
+     */
+    fun draw(
         renderer: ScaledProceduralRenderer,
-        deltaTime: Float,
         isFocused: Boolean,
-        fieldGridX: Int,
-        fieldGridY: Int,
-        cursorIndex: Int,
-        cursorWidth: Int = 10,
-        cursorHeight: Int = 16,
-        colorIndex: Int = PaletteIndices.PRIMARY
+        x: Float,
+        y: Float,
+        width: Int = CURSOR_WIDTH,
+        height: Int = CURSOR_HEIGHT,
+        colorIndex: Int = PaletteIndices.HIGHLIGHT
     ) {
         if (!isFocused) return
+        if (blinkAccumulator >= BLINK_HALF_PERIOD_SEC) return
 
-        // Step 1: Update time accumulator completely on the stack
-        blinkAccumulator += deltaTime
-        if (blinkAccumulator >= blinkRate * 2f) {
-            blinkAccumulator -= blinkRate * 2f
-        }
-
-        // Step 2: Extract boolean blink visibility state mathematically
-        val isVisible = blinkAccumulator < blinkRate
-
-        if (isVisible) {
-            // Step 3: Compute screen bounds using your 16x16 layout constraints
-            val cursorPixelX = (fieldGridX + cursorIndex) * 16f
-            val cursorPixelY = fieldGridY * 16f
-
-            // Step 4: Blit a solid block into VRAM using dither fill with same colors
-            renderer.fillRectDither(
-                x0 = cursorPixelX,
-                y0 = cursorPixelY,
-                x1 = cursorPixelX + cursorWidth.toFloat(),
-                y1 = cursorPixelY + cursorHeight.toFloat(),
-                primaryIndex = colorIndex,
-                secondaryIndex = colorIndex,
-                pattern = SoftDitherPattern.SOLID // Solid block
-            )
-        }
+        val w = width.toFloat()
+        val h = height.toFloat()
+        renderer.fillRectDither(
+            x0 = x,
+            y0 = y,
+            x1 = x + w,
+            y1 = y + h,
+            primaryIndex = colorIndex,
+            secondaryIndex = colorIndex,
+            pattern = SoftDitherPattern.SOLID
+        )
     }
 }

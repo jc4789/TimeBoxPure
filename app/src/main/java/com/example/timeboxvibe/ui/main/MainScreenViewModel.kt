@@ -30,6 +30,7 @@ import kotlinx.serialization.json.Json
 
 import com.example.timeboxvibe.engine.core.TimerActions
 import com.example.timeboxvibe.engine.core.EngineUiState
+import com.example.timeboxvibe.engine.core.SessionMacroDisplay
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
@@ -105,16 +106,29 @@ class MainScreenViewModel(
                             "label=${serviceState.currentStageLabel} type=${serviceState.currentStageType} " +
                             "time=${serviceState.timeRemaining} ringing=${serviceState.isRinging} active=${serviceState.isActive}"
                     )
+                    val nextPresetId = serviceState.presetId.ifEmpty { _uiState.value.activePresetId }
+                    val nextMode = serviceState.mode.ifEmpty { _uiState.value.activeMode }
+                    val nextTime = serviceState.timeRemaining.coerceAtLeast(0)
+                    val nextIndex = serviceState.currentIndex
+                    val preset = _uiState.value.presets.firstOrNull { it.id == nextPresetId }
+                    val (macroRem, macroTot) = SessionMacroDisplay.resolveMacro(
+                        mode = nextMode,
+                        sequence = preset?.sequence ?: IntArray(0),
+                        currentIndex = nextIndex,
+                        timeRemaining = nextTime,
+                        engineBigRemaining = serviceState.bigTimeRemaining,
+                        engineBigTotal = serviceState.bigTotalDuration
+                    )
                     _uiState.value = _uiState.value.copy(
-                        activePresetId = serviceState.presetId.ifEmpty { _uiState.value.activePresetId },
-                        activeMode = serviceState.mode.ifEmpty { _uiState.value.activeMode },
-                        timeRemaining = serviceState.timeRemaining.coerceAtLeast(0),
+                        activePresetId = nextPresetId,
+                        activeMode = nextMode,
+                        timeRemaining = nextTime,
                         totalDuration = serviceState.totalDuration,
                         midTimeRemaining = serviceState.midTimeRemaining.coerceAtLeast(0),
                         midTotalDuration = serviceState.midTotalDuration,
-                        bigTimeRemaining = serviceState.bigTimeRemaining.coerceAtLeast(0),
-                        bigTotalDuration = serviceState.bigTotalDuration,
-                        currentIndex = serviceState.currentIndex,
+                        bigTimeRemaining = macroRem,
+                        bigTotalDuration = macroTot,
+                        currentIndex = nextIndex,
                         sequenceLength = serviceState.sequenceLength,
                         currentStageLabel = serviceState.currentStageLabel,
                         currentStageType = serviceState.currentStageType,
@@ -456,7 +470,15 @@ class MainScreenViewModel(
         val (bigRemaining, bigTotal) = when (preset.mode) {
             "dual", "dual.5" -> preset.dualBigDuration to preset.dualBigDuration
             "dual-sequence" -> (preset.sequence.firstOrNull() ?: 600) to (preset.sequence.firstOrNull() ?: 600)
-            "calendar" -> preset.sequence.sum() to preset.sequence.sum()
+            "calendar" -> {
+                val sum = SessionMacroDisplay.sequenceTotalSeconds(preset.sequence)
+                sum to sum
+            }
+            "sequence" -> {
+                // Classic Pomodoro / spirals: session limit = full sequence (display).
+                val sum = SessionMacroDisplay.sequenceTotalSeconds(preset.sequence)
+                sum to sum
+            }
             else -> 0 to 0
         }
         val (midRemaining, midTotal) = if (preset.mode == "dual.5") preset.dualMidDuration to preset.dualMidDuration else 0 to 0
@@ -477,15 +499,25 @@ class MainScreenViewModel(
     }
 
     private fun syncStateToActiveEngine(activeEngine: TimerEngine) {
+        val p = activeEngine.preset
+        val time = activeEngine.timeRemaining.coerceAtLeast(0)
+        val (macroRem, macroTot) = SessionMacroDisplay.resolveMacro(
+            mode = activeEngine.mode,
+            sequence = p.sequence,
+            currentIndex = activeEngine.currentIndex,
+            timeRemaining = time,
+            engineBigRemaining = activeEngine.bigTimeRemaining,
+            engineBigTotal = activeEngine.bigTotalDuration
+        )
         _uiState.value = _uiState.value.copy(
-            timeRemaining = activeEngine.timeRemaining.coerceAtLeast(0), totalDuration = activeEngine.totalDuration,
+            timeRemaining = time, totalDuration = activeEngine.totalDuration,
             midTimeRemaining = activeEngine.midTimeRemaining.coerceAtLeast(0), midTotalDuration = activeEngine.midTotalDuration,
-            bigTimeRemaining = activeEngine.bigTimeRemaining.coerceAtLeast(0), bigTotalDuration = activeEngine.bigTotalDuration,
+            bigTimeRemaining = macroRem, bigTotalDuration = macroTot,
             currentIndex = activeEngine.currentIndex, isRunning = activeEngine.isActive,
-            sequenceLength = activeEngine.preset.stageCount(),
+            sequenceLength = p.stageCount(),
             currentStageLabel = activeEngine.currentStageLabel,
             currentStageType = activeEngine.currentStageType,
-            activePresetId = activeEngine.preset.id,
+            activePresetId = p.id,
             isRinging = activeEngine.isRinging, activeMode = activeEngine.mode, isDual = activeEngine.isDual,
             isBreak = if (activeEngine.mode == "calendar") activeEngine.isBreak else false
         )
@@ -496,17 +528,25 @@ class MainScreenViewModel(
         val savedTotal = prefs[intPreferencesKey("saved_total_duration")] ?: preset.dualSmallDuration
         val savedMid = (prefs[intPreferencesKey("saved_mid_time_remaining")] ?: 0).coerceAtLeast(0)
         val savedMidTotal = prefs[intPreferencesKey("saved_mid_total_duration")] ?: 0
+        val savedIndex = prefs[intPreferencesKey("saved_current_index")] ?: 0
         val savedBig = (prefs[intPreferencesKey("saved_big_time_remaining")] ?: 0).coerceAtLeast(0)
         val savedBigTotal = prefs[intPreferencesKey("saved_big_total_duration")] ?: 0
-        val savedIndex = prefs[intPreferencesKey("saved_current_index")] ?: 0
+        val (macroRem, macroTot) = SessionMacroDisplay.resolveMacro(
+            mode = preset.mode,
+            sequence = preset.sequence,
+            currentIndex = savedIndex,
+            timeRemaining = savedTime,
+            engineBigRemaining = savedBig,
+            engineBigTotal = savedBigTotal
+        )
 
         _uiState.value = _uiState.value.copy(
             timeRemaining = savedTime,
             totalDuration = savedTotal,
             midTimeRemaining = savedMid,
             midTotalDuration = savedMidTotal,
-            bigTimeRemaining = savedBig,
-            bigTotalDuration = savedBigTotal,
+            bigTimeRemaining = macroRem,
+            bigTotalDuration = macroTot,
             currentIndex = savedIndex,
             sequenceLength = preset.stageCount(),
             currentStageLabel = preset.stageLabel(savedIndex),

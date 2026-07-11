@@ -6,6 +6,11 @@ import kotlin.math.roundToInt
 /**
  * Small palette-indexed aliased vector layer for PC-98-style procedural linework.
  * Final raster output is snapped to integer pixels and emitted through EngineCanvas.
+ *
+ * Ownership contract:
+ * - Sole integer Bresenham circle/line/arc/Bezier rasterizer (no second circle path).
+ * - Colors are palette indices 0..15 (4-bit on-screen); 12-bit RAMDAC is Pc98GraphicsHardware.
+ * - Graphics trig uses FastMath only.
  */
 class AliasedVectorLayer(private val canvas: EngineCanvas) {
     companion object {

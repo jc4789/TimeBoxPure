@@ -53,27 +53,17 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         canvas.drawRect(x, y, w, h, colorIndex)
     }
 
+    /**
+     * Platform canvas circle. Non-authoritative for PC-98 ornaments —
+     * use [drawAliasedCircle] for integer-snapped palette-index rings.
+     */
     fun drawCircle(centerX: Float, centerY: Float, radius: Float, colorIndex: Int, strokeWidth: Float = 1f, dashed: Boolean = false) {
         canvas.drawCircle(centerX, centerY, radius, colorIndex, strokeWidth, dashed)
     }
 
     /**
-     * Renders a pixel-perfect circle using Bresenham's/Midpoint Circle Algorithm.
-     * Operates purely using fast integer arithmetic, avoiding floating-point computations or trig.
-     */
-    fun drawBresenhamCircle(
-        centerX: Float,
-        centerY: Float,
-        radius: Float,
-        colorIndex: Int,
-        strokeWidth: Float = 1f,
-        dashed: Boolean = false
-    ) {
-        drawBresenhamCircle(canvas, centerX, centerY, radius, colorIndex, strokeWidth, dashed)
-    }
-
-    /**
      * Renders a dither-filled rectangle directly via the engine canvas.
+     * Colors are palette indices 0..15 (4-bit on-screen), not host ARGB.
      */
     fun fillRectDither(
         x0: Float, y0: Float, x1: Float, y1: Float,
@@ -582,6 +572,10 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
             dy++
         }
     }
+    /**
+     * Canonical circle stroke for ornaments/UI — integer Bresenham via [AliasedVectorLayer].
+     * [colorIndex] is a palette index 0..15, not host ARGB.
+     */
     fun drawAliasedCircle(
         centerX: Float, centerY: Float, radius: Float,
         colorIndex: Int, strokeWidth: Float = 1f, dashed: Boolean = false
