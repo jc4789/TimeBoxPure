@@ -75,4 +75,26 @@ class OpnaAdvancedModesTest {
         assertTrue(outA.contentEquals(outB))
         assertTrue(outA.any { it != 0f })
     }
+
+    @Test
+    fun fixedLevelPatchDoesNotRestartSharedEnvelope() {
+        val sharedA = SsgSharedState(48_000)
+        val sharedB = SsgSharedState(48_000)
+        val voiceA = SsgVoice(0, sharedA, 48_000)
+        SsgVoice(0, sharedB, 48_000)
+        sharedA.configureEnvelope(shape = 10, period = 1, restart = true)
+        sharedB.configureEnvelope(shape = 10, period = 1, restart = true)
+        sharedA.prepare(257)
+        sharedB.prepare(257)
+
+        voiceA.applyPatch(requireNotNull(OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_SQUARE)))
+        sharedA.prepare(128)
+        sharedB.prepare(128)
+
+        var frame = 0
+        while (frame < 128) {
+            assertTrue(sharedA.envelopeAt(frame) == sharedB.envelopeAt(frame))
+            frame++
+        }
+    }
 }

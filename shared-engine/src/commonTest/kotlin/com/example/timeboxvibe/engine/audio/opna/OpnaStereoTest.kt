@@ -82,4 +82,32 @@ class OpnaStereoTest {
         val ratio = if (leftSum > rightSum) leftSum / rightSum else rightSum / leftSum
         assertTrue(ratio < 1.1f, "Center pan should produce equal signal on both channels, ratio=$ratio")
     }
+
+    @Test
+    fun proceduralResonatorAddsDeterministicCrossChannelBody() {
+        val sampleRate = 48_000
+        val first = OpnaLikeSynthesizer(sampleRate)
+        val second = OpnaLikeSynthesizer(sampleRate)
+        val patch = Patches.ZunLead1.copy(pan = 1)
+        first.enableStereoResonator = true
+        second.enableStereoResonator = true
+        first.fm[0].applyPatch(patch)
+        second.fm[0].applyPatch(patch)
+        first.fm[0].noteOn(69)
+        second.fm[0].noteOn(69)
+
+        val firstOutput = FloatArray(4_096 * 2)
+        val secondOutput = FloatArray(4_096 * 2)
+        first.renderStereo(firstOutput, 4_096)
+        second.renderStereo(secondOutput, 4_096)
+
+        var reflectedRight = 0f
+        var frame = sampleRate * 60 / 1_000
+        while (frame < 4_096) {
+            reflectedRight += abs(firstOutput[frame * 2 + 1])
+            frame++
+        }
+        assertTrue(reflectedRight > 0.01f, "Cross-fed room reflection was inaudible: $reflectedRight")
+        assertTrue(firstOutput.contentEquals(secondOutput), "Procedural resonator output must be deterministic")
+    }
 }

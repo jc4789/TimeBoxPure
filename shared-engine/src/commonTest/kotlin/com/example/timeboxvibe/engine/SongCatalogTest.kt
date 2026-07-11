@@ -45,6 +45,10 @@ class SongCatalogTest {
         assertEquals(2, SongCatalog.all.size)
         assertEquals(MmlSongBank.SENBONZAKURA_DEMO_KEY, SongCatalog.DEFAULT_FOCUS_ID)
         assertEquals(MmlSongBank.SENBONZAKURA_DEMO_KEY, SongCatalog.DEFAULT_RELAX_ID)
+        assertEquals(
+            "BAD APPLE!! / LOTUS LAND STORY",
+            assertNotNull(SongCatalog.byId(MmlSongBank.SENBONZAKURA_DEMO_KEY)).displayTitle
+        )
         assertEquals("RIN TO SHITE", assertNotNull(SongCatalog.byId(MmlSongBank.RIN_TO_SHITE_KEY)).displayTitle)
         assertNull(SongCatalog.byId("oriental"))
         assertNull(SongCatalog.byId("synth-chime"))

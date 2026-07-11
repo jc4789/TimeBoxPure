@@ -85,10 +85,6 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         state.tl = spec.tl
         state.amEnabled = spec.ams != 0
         state.opnEnvelope.configureSsgEg(spec.ssgEg)
-        state.envelope.attack = spec.attack
-        state.envelope.decay = spec.decay
-        state.envelope.sustain = spec.sustain
-        state.envelope.release = spec.release
     }
 
     private fun setupOpStateWithAdsrOverride(
@@ -101,10 +97,6 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     ) {
         val state = opState[opIdx]
         state.tl = spec.tl
-        state.envelope.attack = if (attackOverride >= 0f) attackOverride else spec.attack
-        state.envelope.decay = if (decayOverride >= 0f) decayOverride else spec.decay
-        state.envelope.sustain = if (sustainOverride >= 0f) sustainOverride else spec.sustain
-        state.envelope.release = if (releaseOverride >= 0f) releaseOverride else spec.release
         OpnEnvelopeCompatibility.configure(
             state.opnEnvelope,
             spec,
@@ -135,10 +127,6 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             if (carrier) sustain else NO_ADSR_OVERRIDE,
             if (carrier) release else NO_ADSR_OVERRIDE
         )
-    }
-
-    fun getOperatorEnvelope(opIdx: Int): Envelope {
-        return opState[opIdx].envelope
     }
 
     internal fun operatorEnvelopeSnapshot(opIdx: Int): Int {
@@ -339,7 +327,6 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             opState[i].phase = 0u
             opState[i].phaseStep = 0u
             opState[i].prevOutput = 0
-            opState[i].envelope.reset()
             opState[i].opnEnvelope.reset()
             specialRampStart[i] = 0L
             specialRampTarget[i] = 0L

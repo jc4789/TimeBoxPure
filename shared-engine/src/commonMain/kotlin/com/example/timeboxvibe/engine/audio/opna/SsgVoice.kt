@@ -10,10 +10,8 @@ class SsgVoice(
     var enabled: Boolean = false
     var frequency: Float = 0f
     var duty: Float = 0.5f
-    var phase01: Float = 0f
     var useNoise: Boolean = false
     var noteGain: Float = 1f
-    private var hardwareMode: Boolean = false
     private var toneEnabled: Boolean = true
     private var envelopeEnabled: Boolean = false
     private var fixedLevel: Int = 12
@@ -27,8 +25,9 @@ class SsgVoice(
     private var pendingSlideFrames: Int = 0
     private var pan: Int = 0
 
-    val env: Envelope = Envelope()
-    private val noise: LfsrNoise = LfsrNoise(0xACE1 xor (channelIndex * 0x9E37))
+    init {
+        applyPatch(SsgPatch())
+    }
 
     fun noteOn(freq: Float) {
         frequency = freq
@@ -40,8 +39,7 @@ class SsgVoice(
         hardwareRampPosition = 0
         pendingTargetFrequency = 0f
         pendingSlideFrames = 0
-        if (hardwareMode) hardwarePhase = 0u
-        env.noteOn()
+        hardwarePhase = 0u
     }
 
     fun setPitchRamp(targetFrequency: Float, frames: Int) {
@@ -50,22 +48,19 @@ class SsgVoice(
     }
 
     fun noteOff() {
-        if (hardwareMode) {
-            enabled = false
-        } else {
-            env.noteOff()
-        }
+        enabled = false
     }
 
     fun applyPatch(patch: SsgPatch) {
-        hardwareMode = true
         toneEnabled = patch.toneEnabled
         useNoise = patch.noiseEnabled
         fixedLevel = patch.fixedLevel.coerceIn(0, 15)
         envelopeEnabled = patch.envelopeEnabled
         pan = patch.pan.coerceIn(0, 2)
-        shared.configureNoise(patch.noisePeriod)
-        shared.configureEnvelope(patch.envelopeShape, patch.envelopePeriod, restart = true)
+        if (patch.noiseEnabled) shared.configureNoise(patch.noisePeriod)
+        if (patch.envelopeEnabled) {
+            shared.configureEnvelope(patch.envelopeShape, patch.envelopePeriod, restart = true)
+        }
     }
 
     fun getPan(): Int = pan
@@ -78,10 +73,8 @@ class SsgVoice(
         enabled = false
         frequency = 0f
         duty = 0.5f
-        phase01 = 0f
         useNoise = false
         noteGain = 1f
-        hardwareMode = false
         toneEnabled = true
         envelopeEnabled = false
         fixedLevel = 12
@@ -94,8 +87,7 @@ class SsgVoice(
         pendingTargetFrequency = 0f
         pendingSlideFrames = 0
         pan = 0
-        env.reset()
-        noise.reset(0xACE1)
+        applyPatch(SsgPatch())
     }
 
     fun render(
@@ -106,57 +98,23 @@ class SsgVoice(
         startFrame: Int = 0,
         sharedPrepared: Boolean = false
     ) {
-        if (!enabled && env.stage == Envelope.OFF) return
-
-        if (hardwareMode) {
-            if (configuredSampleRate != sampleRate) {
-                configuredSampleRate = sampleRate
-                hardwarePhaseStep = phaseStep(frequency, sampleRate)
+        if (!enabled) return
+        if (configuredSampleRate != sampleRate) {
+            configuredSampleRate = sampleRate
+            hardwarePhaseStep = phaseStep(frequency, sampleRate)
+        }
+        if (!sharedPrepared && frames > OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK) {
+            var rendered = 0
+            while (rendered < frames) {
+                val count = minOf(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK, frames - rendered)
+                shared.prepare(count)
+                renderHardware(buffer, count, gainScale, startFrame + rendered)
+                rendered += count
             }
-            if (!sharedPrepared && frames > OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK) {
-                var rendered = 0
-                while (rendered < frames) {
-                    val count = minOf(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK, frames - rendered)
-                    shared.prepare(count)
-                    renderHardware(buffer, count, gainScale, startFrame + rendered)
-                    rendered += count
-                }
-                return
-            }
-            if (!sharedPrepared) shared.prepare(frames)
-            renderHardware(buffer, frames, gainScale, startFrame)
             return
         }
-
-        val dt = 1f / sampleRate
-        val step = frequency / sampleRate
-        val combinedGain = gainScale * noteGain
-        var i = 0
-        while (i < frames) {
-            val envVal = env.next(dt)
-            var signal = if (useNoise) {
-                noise.next()
-            } else {
-                var s = if (phase01 < duty) 1f else -1f
-                
-                // PolyBLEP at 0.0 transition (step from -1 to +1)
-                s += polyBlep(phase01, step)
-                
-                // PolyBLEP at duty transition (step from +1 to -1)
-                var tDuty = phase01 - duty
-                if (tDuty < 0f) tDuty += 1f
-                s -= polyBlep(tDuty, step)
-                s
-            }
-
-            buffer[startFrame + i] += signal * envVal * combinedGain
-
-            phase01 += step
-            if (phase01 >= 1f) {
-                phase01 -= 1f
-            }
-            i++
-        }
+        if (!sharedPrepared) shared.prepare(frames)
+        renderHardware(buffer, frames, gainScale, startFrame)
     }
 
     private fun renderHardware(buffer: FloatArray, frames: Int, gainScale: Float, startFrame: Int) {
@@ -188,21 +146,6 @@ class SsgVoice(
 
     private fun phaseStep(freq: Float, sampleRate: Int): UInt =
         (freq.toDouble() * UINT_CYCLE / sampleRate.coerceAtLeast(1).toDouble()).toLong().toUInt()
-
-    private fun polyBlep(t: Float, dt: Float): Float {
-        if (dt <= 0f) return 0f
-        return when {
-            t < dt -> {
-                val t2 = t / dt
-                2f * t2 - t2 * t2 - 1f
-            }
-            t > 1f - dt -> {
-                val t2 = (t - 1f) / dt
-                t2 * t2 + 2f * t2 + 1f
-            }
-            else -> 0f
-        }
-    }
 
     private companion object {
         const val UINT_CYCLE = 4_294_967_296.0

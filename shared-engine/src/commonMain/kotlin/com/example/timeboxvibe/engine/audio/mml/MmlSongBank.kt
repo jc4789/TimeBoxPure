@@ -1,15 +1,13 @@
 package com.example.timeboxvibe.engine.audio.mml
 
 import com.example.timeboxvibe.engine.ArrangementLanes
-import com.example.timeboxvibe.engine.Lane
-import com.example.timeboxvibe.engine.ToneSpec
 
 object MmlSongBank {
     const val SENBONZAKURA_DEMO_KEY = "synth-mml-senbonzakura-demo"
     const val RIN_TO_SHITE_KEY = "synth-mml-rin-to-shite-saku-hana-no-gotoku"
     const val RIN_TO_SHITE_MML = RIN_TO_SHITE_MML_SOURCE
 
-    const val SENBONZAKURA_DEMO_MML = """
+    const val BAD_APPLE_LLS_MIGRATION_FIXTURE_MML = """
 #BPM 160.73
 #BAR 4/4
 
@@ -122,7 +120,116 @@ R @drum v11 l8
  k h s h k r s h]2
 """
 
-    val senbonzakuraDemoResult: MmlCompileResult = MmlCompiler.compile(SENBONZAKURA_DEMO_MML)
+    const val BAD_APPLE_LLS_MML = """
+#MML 2
+#BPM 160.73
+#BAR 4/4
+#LFO 5
+
+; 52 bars / 77.64 seconds. The discarded three-bar test intro stays removed.
+; Intro 1-8, A 9-16, B 17-36, G-minor chorus 37-52.
+A @54 V90 o5 l8 Q8 p3 H2,1
+; Intro continuation - E-flat minor, 8 bars
+e- f g- b- >e-< b- g- f | e- f g- b- >d-< b- g- f |
+e- f g- b- >e- f e- d- | c- d- e- g- b- g- f e- |
+e- f g- b- >e-< b- g- f | e- f g- b- >d-< b- g- f |
+c- d- e- g- b- g- f e- | d- f a- >d-< a- f d- c |
+; A is repetition 1; B is repetitions 2-3 plus the four-bar close.
+[b- g- f e- g- f e- d- | d- f a- >d-< a- f d- c |
+ e- f g- b- >e-< b- g- f | e- f g- b- >d-< b- g- f |
+ c- d- e- g- b- g- f e- | d- f a- >d-< a- f d- c |
+ c- d- e- g- b- g- f e- | e- f g- b- >d-< b- g- f |]3
+c- d- e- g- b- g- f e- | d- f a- >d-< a- f d- c |
+c- d- e- g- b- g- f e- | d- f a- >d-< a- f d- c |
+; Chorus - G minor, 16 bars
+[e- f g b- >e-< b- g f | g b- >d g< d b- g f |
+ e- f g b- >e-< b- g f | g b- >d g< d b- g f |]4
+
+B @74 V70 o4 l8 Q8 p2 H1,1
+; Intro continuation - E-flat minor, 8 bars
+b- g- f e- g- f e- d- | b- g- f e- a- g- f e- |
+b- >c- d- e-< b- g- f e- | g- f e- d- c- d- e- f |
+b- g- f e- g- f e- d- | b- g- f e- a- g- f e- |
+c- e- g- b- g- e- d- c- | d- f a- >d-< a- f d- c |
+; A is repetition 1; B is repetitions 2-3 plus the four-bar close.
+[b- g- f e- g- f e- d- | d- f a- >d-< a- f d- c |
+ b- g- f e- g- f e- d- | b- g- f e- a- g- f e- |
+ c- e- g- b- g- e- d- c- | d- f a- >d-< a- f d- c |
+ c- e- g- b- g- e- d- c- | b- g- f e- a- g- f e- |]3
+c- e- g- b- g- e- d- c- | d- f a- >d-< a- f d- c |
+c- e- g- b- g- e- d- c- | d- f a- >d-< a- f d- c |
+[b- >e-< g b- >e-< b- g f | b- >d< g b- >d< b- g f |
+ b- >e-< g b- >e-< b- g f | b- >d< g b- >d< b- g f |]4
+
+C @99 V112 o2 l4 Q8 p3
+; Intro continuation - E-flat minor, 8 bars
+e- e- c- b- | e- e- a- b- | c- c- a- b- | e- b- e- r |
+e- e- c- b- | e- e- d- d | c- c- a- b- | d- d- d r |
+; A is repetition 1; B is repetitions 2-3 plus the four-bar close.
+[c- c- d- d- | e- e- e- r | c- c- d- d- | e- e- d- r |
+ c- c- d- d- | e- e- e- r | c- c- a- b- | d- d- d r |]3
+c- c- d- d- | e- e- e- r | c- c- a- b- | d- d- d r |
+[e- e- f f | g g g f | e- e- f f | g g g f |]4
+
+D @181 V62 o4 l8 Q8 p1 H3,1
+; Intro continuation - E-flat minor, 8 bars
+r b- r g- r e- r g- | r b- r g- r d- r f |
+r e- r g- r b- r d- | r c- r e- r g- r f |
+r b- r g- r e- r g- | r b- r g- r d- r f |
+r c- r e- r g- r d- | r d- r f r a- r c |
+; A is repetition 1; B is repetitions 2-3 plus the four-bar close.
+[r b- r g- r f r e- | r d- r f r a- r c |
+ r b- r g- r e- r g- | r b- r g- r d- r f |
+ r c- r e- r g- r d- | r d- r f r a- r c |
+ r c- r e- r g- r d- | r b- r g- r d- r f |]3
+r c- r e- r g- r d- | r d- r f r a- r c |
+r c- r e- r g- r d- | r d- r f r a- r c |
+[r e- r f r g r f | r g r b- r d r f |
+ r e- r f r g r f | r g r b- r d r f |]4
+
+G @square V82 o3 l16 Q8 p2
+; Intro continuation - E-flat minor, 8 bars
+e- b- >e-< b- e- b- >e-< b- c- g- >c-< g- b- f >b-< f |
+e- b- >e-< b- e- b- >d-< b- a- e- >a-< e- b- f >b-< f |
+c- g- >c-< g- c- g- >c-< g- a- e- >a-< e- b- f >b-< f |
+e- b- >e-< b- g- >e-< b- g- e- b- >e-< b- r16 r16 r16 r16 |
+e- b- >e-< b- e- b- >e-< b- c- g- >c-< g- b- f >b-< f |
+e- b- >e-< b- e- b- >d-< b- a- e- >a-< e- b- f >b-< f |
+c- g- >c-< g- c- g- >c-< g- a- e- >a-< e- b- f >b-< f |
+d- a- >d-< a- d a- >d< a- d f >a-< f d f >a-< f |
+; A is repetition 1; B is repetitions 2-3 plus the four-bar close.
+[c- g- >c-< g- c- g- >c-< g- d- a- >d-< a- d- a- >d-< a- |
+ e- b- >e-< b- e- b- >e-< b- e- b- >e-< b- r16 r16 r16 r16 |
+ c- g- >c-< g- c- g- >c-< g- d- a- >d-< a- d- a- >d-< a- |
+ e- b- >e-< b- e- b- >d-< b- e- b- >d-< b- r16 r16 r16 r16 |
+ c- g- >c-< g- c- g- >c-< g- d- a- >d-< a- d- a- >d-< a- |
+ e- b- >e-< b- e- b- >e-< b- e- b- >e-< b- r16 r16 r16 r16 |
+ c- g- >c-< g- c- g- >c-< g- d- a- >d-< a- d- a- >d-< a- |
+ e- b- >e-< b- e- b- >d-< b- e- b- >d-< b- r16 r16 r16 r16 |]3
+c- g- >c-< g- c- g- >c-< g- d- a- >d-< a- d- a- >d-< a- |
+e- b- >e-< b- e- b- >e-< b- e- b- >e-< b- r16 r16 r16 r16 |
+c- g- >c-< g- c- g- >c-< g- d- a- >d-< a- d- a- >d-< a- |
+e- b- >e-< b- e- b- >d-< b- e- b- >d-< b- r16 r16 r16 r16 |
+[e- b- >e-< b- f c >f< c g d >g< d f c >f< c |
+ g d >g< d g d >g< d g d >g< d f c >f< c |
+ e- b- >e-< b- f c >f< c g d >g< d f c >f< c |
+ g d >g< d g d >g< d g d >g< d f c >f< c |]4
+
+R @drum V93 l8 p3
+; Intro continuation - eight bars.
+[k h s h k h s h |]8
+; A is repetition 1; B is repetitions 2-3 plus the four-bar close.
+[k h s h k h s h | k h s h k h s h |
+ k h s h k h s h | k h s h k r s h |
+ k h s h k h s h | k h s h k h s h |
+ k h s h k h s h | k h s h k r s h |]3
+k h s h k h s h | k h s h k h s h | k h s h k h s h | k h s h k r s h |
+[k h s h k h s h | k h s h k h s h | k h s h k h s h | k h s h k r s h |]4
+"""
+
+    const val SENBONZAKURA_DEMO_MML = BAD_APPLE_LLS_MML
+
+    val senbonzakuraDemoResult: MmlCompileResult = MmlCompiler.compile(BAD_APPLE_LLS_MML)
     val rinToShiteResult: MmlCompileResult = MmlCompiler.compile(RIN_TO_SHITE_MML)
 
     fun getArrangement(key: String, volume: Float): ArrangementLanes? {
@@ -138,27 +245,9 @@ R @drum v11 l8
         if (volume == 1f) return success.arrangement
 
         val arrangement = success.arrangement
-        val compiled = arrangement.compiledOpnaSong
-        if (compiled != null) {
-            return arrangement.copy(compiledOpnaSong = compiled.withPlaybackGain(volume))
+        val compiled = requireNotNull(arrangement.compiledOpnaSong) {
+            "MML bank entry '$key' did not produce the unified event program"
         }
-        return arrangement.copy(
-            lead = scaleLane(arrangement.lead, volume),
-            harmony = scaleLane(arrangement.harmony, volume),
-            bass = scaleLane(arrangement.bass, volume),
-            percussion = scaleLane(arrangement.percussion, volume),
-            auxiliary = arrangement.auxiliary?.let { scaleLane(it, volume) },
-            additional = arrangement.additional?.let { scaleLane(it, volume) }
-        )
-    }
-    private fun scaleLane(lane: Lane, volume: Float): Lane {
-        val notes = ArrayList<ToneSpec>(lane.notes.size)
-        var i = 0
-        while (i < lane.notes.size) {
-            val note = lane.notes[i]
-            notes.add(note.copy(volume = note.volume * volume))
-            i++
-        }
-        return lane.copy(notes = notes)
+        return arrangement.copy(compiledOpnaSong = compiled.withPlaybackGain(volume))
     }
 }

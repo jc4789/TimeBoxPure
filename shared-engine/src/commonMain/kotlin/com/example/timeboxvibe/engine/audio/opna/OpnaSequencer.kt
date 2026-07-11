@@ -38,7 +38,9 @@ internal class SequencerEvent {
 
 class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 4) {
     companion object {
-        const val MAX_EVENTS = 4096
+        // A compiled tonal note expands to ON and OFF events. This capacity
+        // covers the 55-bar benchmark's dense SSG arpeggio without runtime growth.
+        const val MAX_EVENTS = 8192
     }
 
     internal val events = Array(MAX_EVENTS) { SequencerEvent() }

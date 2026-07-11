@@ -1,11 +1,12 @@
 package com.example.timeboxvibe.engine.audio.mml
 
 import com.example.timeboxvibe.engine.ArrangementLanes
-import com.example.timeboxvibe.engine.Lane
 import com.example.timeboxvibe.engine.audio.opna.OpnaAudioConstants
 import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
 import com.example.timeboxvibe.engine.audio.opna.OpnaSequencer
 import com.example.timeboxvibe.engine.audio.opna.SequencerEvent
+import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaSong
+import com.example.timeboxvibe.engine.audio.opna.OpnaPatchBank
 import kotlin.math.abs
 import kotlin.math.sqrt
 import kotlin.test.Test
@@ -15,7 +16,7 @@ import kotlin.test.assertTrue
 
 class MmlArrangementSchedulerTest {
     @Test
-    fun productionScheduleAppliesMmlGainAndArticulationPolicy() {
+    fun productionScheduleUsesOneCompiledGainAndPatchEnvelopeContract() {
         val arrangement = requireDemoArrangement()
         val sampleRate = 48000
         val synth = OpnaLikeSynthesizer(sampleRate)
@@ -24,19 +25,21 @@ class MmlArrangementSchedulerTest {
         MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
 
         val firstFm = findFirstEvent(sequencer, SequencerEvent.FM_ON)
-        val expectedLeadGain = (12f / 15f) * OpnaAudioConstants.LANE_GAIN_LEAD * MmlArrangementScheduler.MIX_GAIN
+        val expectedLeadGain = 90f / 127f * MmlArrangementScheduler.MIX_GAIN
         assertEquals(expectedLeadGain, firstFm.velocity, 0.0001f)
-        assertEquals(MmlArrangementScheduler.FM_ATTACK_SECONDS, firstFm.attack)
-        assertEquals(MmlArrangementScheduler.FM_RELEASE_SECONDS, firstFm.release)
+        assertEquals(-1f, firstFm.attack)
+        assertEquals(-1f, firstFm.release)
+        assertEquals(com.example.timeboxvibe.engine.audio.opna.LlsPatches.At54, firstFm.patch)
 
         val firstSsg = findFirstEvent(sequencer, SequencerEvent.SSG_ON)
-        val expectedSsgGain = (5f / 15f) * OpnaAudioConstants.LANE_GAIN_HARMONY * MmlArrangementScheduler.MIX_GAIN
+        val expectedSsgGain = 82f / 127f * MmlArrangementScheduler.MIX_GAIN
         assertEquals(expectedSsgGain, firstSsg.velocity, 0.0001f)
-        assertEquals(MmlArrangementScheduler.SSG_ATTACK_SECONDS, firstSsg.attack)
-        assertEquals(MmlArrangementScheduler.SSG_RELEASE_SECONDS, firstSsg.release)
+        assertEquals(-1f, firstSsg.attack)
+        assertEquals(-1f, firstSsg.release)
+        assertEquals(OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_SQUARE), firstSsg.ssgPatch)
 
         val firstDrum = findFirstEvent(sequencer, SequencerEvent.DRUM)
-        val expectedDrumGain = (11f / 15f) * OpnaAudioConstants.LANE_GAIN_PERCUSSION * MmlArrangementScheduler.MIX_GAIN
+        val expectedDrumGain = ((11 * 127 + 7) / 15) / 127f * MmlArrangementScheduler.MIX_GAIN
         assertEquals(expectedDrumGain, firstDrum.velocity, 0.0001f)
     }
 
@@ -49,10 +52,11 @@ class MmlArrangementSchedulerTest {
 
         MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
 
-        assertEquals(arrangement.lead.notes.size, countEvents(sequencer, SequencerEvent.FM_ON, 0))
-        assertEquals(arrangement.harmony.notes.size, countEvents(sequencer, SequencerEvent.FM_ON, 1))
-        assertEquals(arrangement.bass.notes.size, countEvents(sequencer, SequencerEvent.FM_ON, 2))
-        assertEquals(arrangement.auxiliary?.notes?.size, countEvents(sequencer, SequencerEvent.SSG_ON, 0))
+        assertEquals(416, countEvents(sequencer, SequencerEvent.FM_ON, 0))
+        assertEquals(416, countEvents(sequencer, SequencerEvent.FM_ON, 1))
+        assertEquals(192, countEvents(sequencer, SequencerEvent.FM_ON, 2))
+        assertEquals(208, countEvents(sequencer, SequencerEvent.FM_ON, 3))
+        assertEquals(772, countEvents(sequencer, SequencerEvent.SSG_ON, 0))
         assertEquals(0, countEvents(sequencer, SequencerEvent.SSG_ON, 1))
         assertEquals(0, countEvents(sequencer, SequencerEvent.SSG_ON, 2))
     }
@@ -93,19 +97,24 @@ class MmlArrangementSchedulerTest {
 
         val firstFmOn = findFirstEvent(sequencer, SequencerEvent.FM_ON)
         val firstFmOff = findEvent(sequencer, SequencerEvent.FM_OFF, firstFmOn.channel, firstFmOn.noteId)
-        val firstFmNote = arrangement.lead.notes[0]
-        val expectedFmGateMs = maxOf(0, firstFmNote.durationMs - MmlArrangementScheduler.FM_RELEASE_MILLISECONDS)
+        val program = requireNotNull(arrangement.compiledOpnaSong)
+        val expectedFmGateSamples =
+            ticksToSamples(program.startTick[0] + program.gateTick[0], program.bpm, sampleRate) -
+                ticksToSamples(program.startTick[0], program.bpm, sampleRate)
         assertEquals(
-            firstFmOn.sampleTime + expectedFmGateMs.toLong() * sampleRate / 1000L,
+            firstFmOn.sampleTime + expectedFmGateSamples,
             firstFmOff.sampleTime
         )
 
         val firstSsgOn = findFirstEvent(sequencer, SequencerEvent.SSG_ON)
         val firstSsgOff = findEvent(sequencer, SequencerEvent.SSG_OFF, firstSsgOn.channel, firstSsgOn.noteId)
-        val firstSsgNote = requireNotNull(arrangement.auxiliary).notes[0]
-        val expectedSsgGateMs = maxOf(0, firstSsgNote.durationMs - MmlArrangementScheduler.SSG_RELEASE_MILLISECONDS)
+        var ssgIndex = 0
+        while (program.eventType[ssgIndex] != CompiledOpnaSong.SSG_NOTE) ssgIndex++
+        val expectedSsgGateSamples =
+            ticksToSamples(program.startTick[ssgIndex] + program.gateTick[ssgIndex], program.bpm, sampleRate) -
+                ticksToSamples(program.startTick[ssgIndex], program.bpm, sampleRate)
         assertEquals(
-            firstSsgOn.sampleTime + expectedSsgGateMs.toLong() * sampleRate / 1000L,
+            firstSsgOn.sampleTime + expectedSsgGateSamples,
             firstSsgOff.sampleTime
         )
     }
@@ -134,6 +143,57 @@ class MmlArrangementSchedulerTest {
     }
 
     @Test
+    fun productionStereoBenchmarkIsAudibleFromTheFirstBlock() {
+        val arrangement = requireDemoArrangement()
+        val sampleRate = 48_000
+        val synth = OpnaLikeSynthesizer(sampleRate)
+        synth.enableOutputFilter = true
+        synth.enableStereoResonator = true
+        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
+        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
+        val frames = sampleRate / 10
+        val stereo = FloatArray(frames * 2)
+        synth.renderStereo(stereo, frames, sequencer, 0L)
+
+        var energy = 0.0
+        var i = 0
+        while (i < stereo.size) {
+            val sample = stereo[i].toDouble()
+            energy += sample * sample
+            i++
+        }
+        val firstBlockRms = sqrt(energy / stereo.size).toFloat()
+        assertTrue(firstBlockRms > 0.005f, "Benchmark still has a silent opening: rms=$firstBlockRms")
+    }
+
+    @Test
+    fun productionStereoMixKeepsHighBandBelowHalfOfEnergy() {
+        val arrangement = requireDemoArrangement()
+        val sampleRate = 48_000
+        val synth = OpnaLikeSynthesizer(sampleRate)
+        synth.enableOutputFilter = true
+        synth.enableStereoResonator = true
+        var voice = 0
+        while (voice < synth.fm.size) {
+            synth.fm[voice].enableOversampling = true
+            voice++
+        }
+        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
+        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
+        val frames = sampleRate * 4
+        val stereo = FloatArray(frames * 2)
+        val mono = FloatArray(frames)
+        synth.renderStereo(stereo, frames, sequencer, 0L)
+        var frame = 0
+        while (frame < frames) {
+            mono[frame] = (stereo[frame * 2] + stereo[frame * 2 + 1]) * 0.5f
+            frame++
+        }
+        val highBandRatio = highBandEnergyRatio(mono, sampleRate)
+        assertTrue(highBandRatio < 0.50, "High-band energy is still overpowering: ratio=$highBandRatio")
+    }
+
+    @Test
     fun completeDemoStaysBelowSoftClipKnee() {
         val arrangement = requireDemoArrangement()
         val sampleRate = 48000
@@ -152,7 +212,7 @@ class MmlArrangementSchedulerTest {
         MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
         MmlArrangementScheduler.schedule(arrangement, deterministicSynth, deterministicSequencer, sampleRate)
 
-        val totalSamples = maximumEndMs(arrangement).toLong() * sampleRate / 1000L
+        val totalSamples = requireNotNull(arrangement.compiledOpnaSong).durationMilliseconds() * sampleRate / 1000L
         val buffer = FloatArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
         val deterministicBuffer = FloatArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
         var sampleOffset = 0L
@@ -190,23 +250,26 @@ class MmlArrangementSchedulerTest {
     }
 
     @Test
-    fun richPatchesReduceHighBandAndRestoreLowBody() {
+    fun llsPatchesReachSequencerWithoutCarrierEnvelopeOverrides() {
         val arrangement = requireDemoArrangement()
         val sampleRate = 48000
-        val tuned = renderComparisonPrefix(arrangement, sampleRate, richPatches = true)
-        val hollowReference = renderComparisonPrefix(arrangement, sampleRate, richPatches = false)
-        val tunedRatio = highBandEnergyRatio(tuned, sampleRate)
-        val hollowRatio = highBandEnergyRatio(hollowReference, sampleRate)
-        val tunedBody = lowBandEnergyRatio(tuned, sampleRate)
-        val hollowBody = lowBandEnergyRatio(hollowReference, sampleRate)
-        assertTrue(
-            tunedRatio < hollowRatio * 0.95,
-            "Rich patches did not reduce >5 kHz energy: tuned=$tunedRatio hollow=$hollowRatio"
+        val synth = OpnaLikeSynthesizer(sampleRate)
+        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
+        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
+        val expected = arrayOf(
+            com.example.timeboxvibe.engine.audio.opna.LlsPatches.At54,
+            com.example.timeboxvibe.engine.audio.opna.LlsPatches.At74,
+            com.example.timeboxvibe.engine.audio.opna.LlsPatches.At99,
+            com.example.timeboxvibe.engine.audio.opna.LlsPatches.At181
         )
-        assertTrue(
-            tunedBody > hollowBody * 1.01,
-            "Rich patches did not restore low-frequency body: tuned=$tunedBody hollow=$hollowBody"
-        )
+        var channel = 0
+        while (channel < expected.size) {
+            val event = findFirstEvent(sequencer, SequencerEvent.FM_ON, channel)
+            assertEquals(expected[channel], event.patch)
+            assertEquals(-1f, event.attack)
+            assertEquals(-1f, event.release)
+            channel++
+        }
     }
 
     @Test
@@ -343,6 +406,20 @@ class MmlArrangementSchedulerTest {
         error("No sequencer event of type $type")
     }
 
+    private fun findFirstEvent(sequencer: OpnaSequencer, type: Int, channel: Int): SequencerEvent {
+        var i = 0
+        while (i < sequencer.eventCount) {
+            val event = sequencer.events[i]
+            if (event.type == type && event.channel == channel) return event
+            i++
+        }
+        error("No sequencer event of type $type on channel $channel")
+    }
+
+    private fun ticksToSamples(ticks: Long, bpm: Float, sampleRate: Int): Long =
+        (ticks.toDouble() * sampleRate.toDouble() * 60.0 /
+            (bpm.toDouble() * CompiledOpnaSong.TICKS_PER_QUARTER.toDouble())).toLong()
+
     private fun findEvent(sequencer: OpnaSequencer, type: Int, channel: Int, noteId: Int): SequencerEvent {
         var i = 0
         while (i < sequencer.eventCount) {
@@ -375,26 +452,4 @@ class MmlArrangementSchedulerTest {
         return sqrt(sumSquares / (end - start)).toFloat()
     }
 
-    private fun maximumEndMs(arrangement: ArrangementLanes): Int {
-        var maximum = maximumEndMs(arrangement.lead)
-        maximum = maxOf(maximum, maximumEndMs(arrangement.harmony))
-        maximum = maxOf(maximum, maximumEndMs(arrangement.bass))
-        maximum = maxOf(maximum, maximumEndMs(arrangement.percussion))
-        val auxiliary = arrangement.auxiliary
-        if (auxiliary != null) maximum = maxOf(maximum, maximumEndMs(auxiliary))
-        val additional = arrangement.additional
-        if (additional != null) maximum = maxOf(maximum, maximumEndMs(additional))
-        return maximum
-    }
-
-    private fun maximumEndMs(lane: Lane): Int {
-        var maximum = 0
-        var i = 0
-        while (i < lane.notes.size) {
-            val note = lane.notes[i]
-            maximum = maxOf(maximum, note.startMs + note.durationMs)
-            i++
-        }
-        return maximum
-    }
 }

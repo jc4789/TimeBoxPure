@@ -202,37 +202,27 @@ class OpnaFmCoreTest {
     }
 
     @Test
-    fun adsrOverrideAppliesToCarrierOperators() {
+    fun legacyAdsrInputChangesOnlyTheAudibleCarrierRateEnvelope() {
         val sampleRate = AudioLaws.SAMPLE_RATE
-        val synth = OpnaLikeSynthesizer(sampleRate)
+        val native = Fm4OpVoice(sampleRate)
+        val imported = Fm4OpVoice(sampleRate)
         val patch = Patches.ZunLead1
-        synth.fm[0].applyPatch(patch)
+        native.applyPatch(patch)
+        imported.applyPatch(patch)
+        native.noteOn(69)
+        imported.noteOn(69, 0.200f, 0.100f, 0.60f, 0.200f)
 
-        val expectedAttack = 0.050f
-        val expectedDecay = 0.100f
-        val expectedSustain = 0.60f
-        val expectedRelease = 0.200f
+        native.render(FloatArray(2_400), 2_400, sampleRate, 1f)
+        imported.render(FloatArray(2_400), 2_400, sampleRate, 1f)
 
-        synth.fm[0].noteOn(69, expectedAttack, expectedDecay, expectedSustain, expectedRelease)
-
-        // Carrier operator (3) should use the overrides
-        val env3 = synth.fm[0].getOperatorEnvelope(3)
-        assertTrue(abs(env3.attack - expectedAttack) < 0.001f, "Carrier attack mismatch")
-        assertTrue(abs(env3.decay - expectedDecay) < 0.001f, "Carrier decay mismatch")
-        assertTrue(abs(env3.sustain - expectedSustain) < 0.001f, "Carrier sustain mismatch")
-        assertTrue(abs(env3.release - expectedRelease) < 0.001f, "Carrier release mismatch")
-
-        // Modulator operators (0, 1, 2) should use original patch values
-        val env0 = synth.fm[0].getOperatorEnvelope(0)
-        assertTrue(abs(env0.attack - patch.op0.attack) < 0.001f, "Modulator 0 attack mismatch")
-        assertTrue(abs(env0.decay - patch.op0.decay) < 0.001f, "Modulator 0 decay mismatch")
-        assertTrue(abs(env0.sustain - patch.op0.sustain) < 0.001f, "Modulator 0 sustain mismatch")
-        assertTrue(abs(env0.release - patch.op0.release) < 0.001f, "Modulator 0 release mismatch")
-
-        val env1 = synth.fm[0].getOperatorEnvelope(1)
-        assertTrue(abs(env1.attack - patch.op1.attack) < 0.001f, "Modulator 1 attack mismatch")
-        val env2 = synth.fm[0].getOperatorEnvelope(2)
-        assertTrue(abs(env2.attack - patch.op2.attack) < 0.001f, "Modulator 2 attack mismatch")
+        assertTrue(
+            native.operatorEnvelopeSnapshot(3) != imported.operatorEnvelopeSnapshot(3),
+            "Legacy ADSR import must alter the audible carrier OpnRateEnvelope"
+        )
+        assertTrue(
+            native.operatorEnvelopeSnapshot(0) == imported.operatorEnvelopeSnapshot(0),
+            "Legacy ADSR import must not replace modulator envelope parameters"
+        )
     }
 
     @Test

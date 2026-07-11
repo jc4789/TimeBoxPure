@@ -2,10 +2,11 @@ package com.example.timeboxvibe.engine.audio.mml
 
 import com.example.timeboxvibe.engine.ArrangementRouting
 import com.example.timeboxvibe.engine.EqType
-import com.example.timeboxvibe.engine.LaneMode
-import com.example.timeboxvibe.engine.TimbreRef
 import com.example.timeboxvibe.engine.audio.opna.EgMode
 import com.example.timeboxvibe.engine.audio.opna.LlsPatches
+import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaSong
+import com.example.timeboxvibe.engine.audio.opna.OpnaPatchBank
+import com.example.timeboxvibe.engine.audio.opna.ProceduralDrums
 import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
 import com.example.timeboxvibe.engine.audio.opna.OpnaSequencer
 import kotlin.math.log2
@@ -124,41 +125,31 @@ class MmlCompilerTest {
         assertTrue(parsed.tracks[MmlChannelId.E.ordinal].commands.isNotEmpty())
 
         val arrangement = assertIs<MmlCompileResult.Success>(MmlCompiler.compile(parsed)).arrangement
-        assertEquals(TimbreRef.FM_LLS_AT181, arrangement.additional?.timbre)
-        assertEquals(1, arrangement.additional?.notes?.size)
+        val program = requireNotNull(arrangement.compiledOpnaSong)
+        assertEquals(5, program.eventCount)
+        assertEquals(OpnaPatchBank.FM_AT181, program.patchId[4])
+        assertEquals(3, program.channel[4])
     }
 
     @Test
-    fun multilineDemoCompilesToFiveTracksAtAbsoluteTickTiming() {
-        val result = assertIs<MmlCompileResult.Success>(MmlSongBank.senbonzakuraDemoResult)
+    fun multilineDemoCompilesToOnePrimitiveProgramAtAbsoluteTickTiming() {
+        val compiled = MmlSongBank.senbonzakuraDemoResult
+        assertTrue(compiled is MmlCompileResult.Success, compiled.toString())
+        val result = compiled as MmlCompileResult.Success
         val arrangement = result.arrangement
         assertEquals(ArrangementRouting.MML_LOGICAL_TRACKS, arrangement.routing)
-        assertEquals(TimbreRef.FM_LLS_AT54, arrangement.lead.timbre)
-        assertEquals(TimbreRef.FM_LLS_AT74, arrangement.harmony.timbre)
-        assertEquals(TimbreRef.FM_LLS_AT99, arrangement.bass.timbre)
-        assertEquals(TimbreRef.SSG_HARMONY_SQUARE, arrangement.auxiliary?.timbre)
-        assertEquals(248, arrangement.lead.notes.size)
-        assertEquals(246, arrangement.harmony.notes.size)
-        assertEquals(116, arrangement.bass.notes.size)
-        assertEquals(464, arrangement.auxiliary?.notes?.size)
-        assertEquals(248, arrangement.percussion.notes.size)
-        assertEquals(0, arrangement.lead.notes[0].startMs)
-        assertEquals(186, arrangement.lead.notes[1].startMs)
-        assertEquals(373, arrangement.lead.notes[2].startMs)
-        assertEquals(12f / 15f, arrangement.lead.notes[0].volume)
-        val expectedEndMs = (126.0 * 60000.0 / 160.73).toInt()
-        val last = arrangement.lead.notes.last()
-        assertEquals(expectedEndMs, last.startMs + last.durationMs)
-    }
-
-    @Test
-    fun tonalMmlLanesCompileToMonophonicModes() {
-        val arrangement = assertIs<MmlCompileResult.Success>(MmlSongBank.senbonzakuraDemoResult).arrangement
-
-        assertEquals(LaneMode.MONO_RETRIGGER, arrangement.lead.mode)
-        assertEquals(LaneMode.MONO_RETRIGGER, arrangement.harmony.mode)
-        assertEquals(LaneMode.MONO_RETRIGGER, arrangement.bass.mode)
-        assertEquals(LaneMode.SSG_MONO, arrangement.auxiliary?.mode)
+        val program = requireNotNull(arrangement.compiledOpnaSong)
+        assertEquals(2, program.dialectVersion)
+        assertEquals(2_409, program.eventCount)
+        assertEquals(1_232, countEvents(program, CompiledOpnaSong.FM_NOTE))
+        assertEquals(772, countEvents(program, CompiledOpnaSong.SSG_NOTE))
+        assertEquals(405, countEvents(program, CompiledOpnaSong.RHYTHM_SHOT))
+        assertEquals(0L, program.startTick[0])
+        assertEquals(240L, program.startTick[1])
+        assertEquals(480L, program.startTick[2])
+        assertEquals(90, program.velocity[0])
+        assertEquals(52L * 4L * MmlCompiler.TICKS_PER_QUARTER, program.durationTicks)
+        assertTrue(program.durationMilliseconds() in 77_500L..77_800L)
     }
 
     @Test
@@ -168,26 +159,24 @@ class MmlCompilerTest {
                 "#BPM 120\n#BAR 4/4\nA @54 v15 o4 l4 c r d2 |"
             )
         )
-        val notes = result.arrangement.lead.notes
-
-        assertEquals(2, notes.size)
-        assertEquals(0, notes[0].startMs)
-        assertEquals(500, notes[0].durationMs)
-        assertEquals(1000, notes[1].startMs)
-        assertEquals(1000, notes[1].durationMs)
-        assertTrue(notes[0].startMs + notes[0].durationMs <= notes[1].startMs)
+        val program = requireNotNull(result.arrangement.compiledOpnaSong)
+        assertEquals(2, program.eventCount)
+        assertEquals(0L, program.startTick[0])
+        assertEquals(480, program.durationTick[0])
+        assertEquals(960L, program.startTick[1])
+        assertEquals(960, program.durationTick[1])
     }
 
     @Test
-    fun drumsUseExistingToneSpecSentinels() {
+    fun drumsUseTypedPrimitiveEvents() {
         val arrangement = assertIs<MmlCompileResult.Success>(MmlSongBank.senbonzakuraDemoResult).arrangement
-        val notes = arrangement.percussion.notes
-        assertEquals(-1f, notes[0].freq)
-        assertEquals("kick", notes[0].type)
-        assertEquals(8000f, notes[1].freq)
-        assertEquals("hat", notes[1].type)
-        assertEquals(3000f, notes[2].freq)
-        assertEquals("snare", notes[2].type)
+        val program = requireNotNull(arrangement.compiledOpnaSong)
+        var i = 0
+        while (i < program.eventCount && program.eventType[i] != CompiledOpnaSong.RHYTHM_SHOT) i++
+        assertTrue(i + 2 < program.eventCount)
+        assertEquals(ProceduralDrums.DrumKind.KICK.ordinal, program.midi[i])
+        assertEquals(ProceduralDrums.DrumKind.HAT.ordinal, program.midi[i + 1])
+        assertEquals(ProceduralDrums.DrumKind.SNARE.ordinal, program.midi[i + 2])
     }
 
     @Test
@@ -228,45 +217,38 @@ class MmlCompilerTest {
     fun expandedSongCannotSilentlyOverflowSequencerCapacity() {
         val result = MmlCompiler.compile(
             "#BPM 120\n#BAR 4/4\n" +
-                "A @54 o4 l16 [c c c c c c c c c c c c c c c c |]129"
+                "A @54 o4 l16 [c c c c c c c c c c c c c c c c |]257"
         )
         val failure = assertIs<MmlCompileResult.Failure>(result)
         assertTrue(failure.diagnostics.any { it.reason.contains("MAX_EVENTS") })
     }
 
     @Test
-    fun compiledLeadRendersDeterministicNonSilentPcm() {
+    fun unifiedBenchmarkProgramRendersDeterministicNonSilentPcm() {
         val arrangement = assertIs<MmlCompileResult.Success>(MmlSongBank.senbonzakuraDemoResult).arrangement
         val sampleRate = 48000
         val seqA = OpnaSequencer(sampleRate, arrangement.tempoBpm)
         val seqB = OpnaSequencer(sampleRate, arrangement.tempoBpm)
-        scheduleLead(arrangement.lead.notes, seqA, sampleRate)
-        scheduleLead(arrangement.lead.notes, seqB, sampleRate)
         val synthA = OpnaLikeSynthesizer(sampleRate)
         val synthB = OpnaLikeSynthesizer(sampleRate)
-        synthA.fm[0].applyPatch(LlsPatches.At54)
-        synthB.fm[0].applyPatch(LlsPatches.At54)
-        val outA = FloatArray(4096)
-        val outB = FloatArray(4096)
+        MmlArrangementScheduler.schedule(arrangement, synthA, seqA, sampleRate)
+        MmlArrangementScheduler.schedule(arrangement, synthB, seqB, sampleRate)
+        val outA = FloatArray(sampleRate * 4)
+        val outB = FloatArray(sampleRate * 4)
         synthA.render(outA, outA.size, seqA, 0L)
         synthB.render(outB, outB.size, seqB, 0L)
         assertTrue(outA.any { it != 0f })
         assertTrue(outA.contentEquals(outB))
     }
 
-    private fun scheduleLead(notes: List<com.example.timeboxvibe.engine.ToneSpec>, seq: OpnaSequencer, sampleRate: Int) {
+    private fun countEvents(program: CompiledOpnaSong, type: Int): Int {
+        var count = 0
         var i = 0
-        while (i < notes.size) {
-            val note = notes[i]
-            val midi = (12f * log2(note.freq / 440f) + 69f).roundToInt()
-            seq.noteFmRaw(
-                0,
-                midi,
-                note.startMs.toLong() * sampleRate / 1000L,
-                note.durationMs.toLong() * sampleRate / 1000L
-            )
+        while (i < program.eventCount) {
+            if (program.eventType[i] == type) count++
             i++
         }
+        return count
     }
 
     private fun assertPatch(

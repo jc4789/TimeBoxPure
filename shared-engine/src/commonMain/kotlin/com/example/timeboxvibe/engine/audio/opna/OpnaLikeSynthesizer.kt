@@ -24,8 +24,10 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private var filterStateL: Float = 0f
     private var filterStateR: Float = 0f
     private val masterEq = MasterPeakEq(sampleRate)
+    private val stereoResonator = ProceduralStereoResonator(sampleRate)
     var filterAlpha: Float = 0.50f
     var enableOutputFilter: Boolean = true
+    var enableStereoResonator: Boolean = false
 
     init {
         OpnLogTables.warmUp()
@@ -156,6 +158,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         filterStateL = 0f
         filterStateR = 0f
         masterEq.reset()
+        stereoResonator.reset()
     }
 
     fun configureMasterEq(bands: List<SongEqBand>) {
@@ -205,6 +208,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             offset += chunkFrames
             remaining -= chunkFrames
         }
+        if (enableStereoResonator) stereoResonator.process(stereoBuffer, frames)
         applyGainAndClampStereo(stereoBuffer, frames)
         masterEq.processStereo(stereoBuffer, frames)
     }
@@ -224,6 +228,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             remaining -= chunkFrames
             sampleOffset += chunkFrames
         }
+        if (enableStereoResonator) stereoResonator.process(stereoBuffer, frames)
         applyGainAndClampStereo(stereoBuffer, frames)
         masterEq.processStereo(stereoBuffer, frames)
     }
@@ -460,10 +465,6 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                     if (selectedPatch != null) voice.applyPatch(selectedPatch)
                     voice.setPan(event.pan)
                     voice.duty = event.duty
-                    if (event.attack >= 0f) voice.env.attack = event.attack
-                    if (event.decay >= 0f) voice.env.decay = event.decay
-                    if (event.sustain >= 0f) voice.env.sustain = event.sustain
-                    if (event.release >= 0f) voice.env.release = event.release
                     val frequency = OpnPitch.applyCents(midiToFreq(event.midi), event.detuneCents)
                     voice.setPitchRamp(
                         if (event.targetMidi >= 0) OpnPitch.applyCents(midiToFreq(event.targetMidi), event.detuneCents) else 0f,

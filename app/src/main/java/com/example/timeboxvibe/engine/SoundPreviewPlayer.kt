@@ -175,6 +175,7 @@ object SoundPreviewPlayer {
             val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
 
             synth.enableOutputFilter = true
+            synth.enableStereoResonator = true
             synth.configureMasterEq(arrangement.eqBands)
             var i = 0
             while (i < synth.fm.size) {
@@ -182,28 +183,17 @@ object SoundPreviewPlayer {
                 i++
             }
 
-            fun msToSamples(ms: Int): Long = (ms.toLong() * sampleRate) / 1000L
-
             MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
             sequencer.sortEvents()
 
-            val compiledDurationMs = arrangement.compiledOpnaSong?.durationMilliseconds() ?: 0L
-            val maxDurationMs = if (compiledDurationMs > 0L) compiledDurationMs else listOf(
-                arrangement.lead.notes.maxOfOrNull { it.startMs + it.durationMs } ?: 0,
-                arrangement.harmony.notes.maxOfOrNull { it.startMs + it.durationMs } ?: 0,
-                arrangement.bass.notes.maxOfOrNull { it.startMs + it.durationMs } ?: 0,
-                arrangement.percussion.notes.maxOfOrNull { it.startMs + it.durationMs } ?: 0,
-                arrangement.auxiliary?.notes?.maxOfOrNull { it.startMs + it.durationMs } ?: 0,
-                arrangement.additional?.notes?.maxOfOrNull { it.startMs + it.durationMs } ?: 0
-            ).maxOrNull()?.toLong() ?: 0L
+            val compiled = requireNotNull(arrangement.compiledOpnaSong) {
+                "Catalog playback requires the unified MML event program"
+            }
+            val maxDurationMs = compiled.durationMilliseconds()
 
             if (maxDurationMs <= 0L) return@Runnable
 
-            if (arrangement.compiledOpnaSong == null) {
-                sequencer.customLoopLength = msToSamples(maxDurationMs.toInt())
-            }
-
-            val minBufferSize = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+            val minBufferSize = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
             val audioTrackBufferSize = maxOf(minBufferSize, chunkSize * 8 * 2)
 
             val audioTrack = try {
@@ -218,7 +208,7 @@ object SoundPreviewPlayer {
                         AudioFormat.Builder()
                             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                             .setSampleRate(sampleRate)
-                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
                             .build()
                     )
                     .setBufferSizeInBytes(audioTrackBufferSize)
@@ -249,8 +239,8 @@ object SoundPreviewPlayer {
                 return@Runnable
             }
 
-            val floatBuffer = FloatArray(chunkSize)
-            val shortBuffer = ShortArray(chunkSize)
+            val floatBuffer = FloatArray(chunkSize * 2)
+            val shortBuffer = ShortArray(chunkSize * 2)
             var currentSampleOffset = 0L
             val songLenSamples = sequencer.loopLengthSamples()
             var lastUnderrunCount = 0
@@ -277,12 +267,16 @@ object SoundPreviewPlayer {
                             framesRemaining
                         }
 
-                        synth.render(floatBuffer, framesToRender, sequencer, renderOffset)
+                        synth.renderStereo(floatBuffer, framesToRender, sequencer, renderOffset)
 
                         var k = 0
                         while (k < framesToRender) {
-                            val f = floatBuffer[k]
-                            shortBuffer[framesFilled + k] = (f * 32767f).coerceIn(-32768f, 32767f).toInt().toShort()
+                            val source = k * 2
+                            val destination = (framesFilled + k) * 2
+                            val left = floatBuffer[source]
+                            val right = floatBuffer[source + 1]
+                            shortBuffer[destination] = (left * 32767f).coerceIn(-32768f, 32767f).toInt().toShort()
+                            shortBuffer[destination + 1] = (right * 32767f).coerceIn(-32768f, 32767f).toInt().toShort()
                             k++
                         }
 
@@ -295,7 +289,7 @@ object SoundPreviewPlayer {
                         }
                     }
 
-                    val written = audioTrack.write(shortBuffer, 0, totalSamples, AudioTrack.WRITE_BLOCKING)
+                    val written = audioTrack.write(shortBuffer, 0, totalSamples * 2, AudioTrack.WRITE_BLOCKING)
                     if (written < 0) {
                         break
                     }

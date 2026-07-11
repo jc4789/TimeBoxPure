@@ -2,17 +2,12 @@ package com.example.timeboxvibe.engine.audio.mml
 
 import com.example.timeboxvibe.engine.ArrangementLanes
 import com.example.timeboxvibe.engine.ArrangementRouting
-import com.example.timeboxvibe.engine.Lane
-import com.example.timeboxvibe.engine.LaneMode
-import com.example.timeboxvibe.engine.TimbreRef
-import com.example.timeboxvibe.engine.ToneSpec
 import com.example.timeboxvibe.engine.audio.opna.OpnaSequencer
 import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaSong
 import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaSongBuilder
 import com.example.timeboxvibe.engine.audio.opna.OpnaPatchBank
 import com.example.timeboxvibe.engine.audio.opna.ProceduralDrums
 import com.example.timeboxvibe.engine.audio.AudioLaws
-import com.example.timeboxvibe.engine.audio.opna.midiNoteToFreq
 
 sealed class MmlCompileResult {
     data class Success(
@@ -39,6 +34,10 @@ object MmlCompiler {
 
     fun compile(document: MmlDocument): MmlCompileResult {
         if (document.dialectVersion == 2) return compileV2(document)
+        return compileV1(document)
+    }
+
+    private fun compileV1(document: MmlDocument): MmlCompileResult {
         val diagnostics = mutableListOf<MmlDiagnostic>()
         var eqIndex = 0
         while (eqIndex < document.eqBands.size) {
@@ -54,56 +53,177 @@ object MmlCompiler {
             return MmlCompileResult.Failure(diagnostics)
         }
         val barTicks = (scaledBarTicks / document.barDenominator).toInt()
-        val lanes = arrayOfNulls<Lane>(MmlChannelId.R.ordinal)
-        var percussion: Lane? = null
-        var ssgTracks = 0
-        var sequencerEvents = 0
+        val builder = CompiledOpnaSongBuilder(
+            dialectVersion = document.dialectVersion,
+            bpm = document.bpm,
+            beatsPerBar = document.barNumerator,
+            lfoRate = document.lfoRate,
+            fm3Extended = false
+        )
+        var fmChannel = 0
+        var ssgChannel = 0
+        var sequencerCost = 0
         var trackIndex = 0
         while (trackIndex < document.tracks.size) {
             val track = document.tracks[trackIndex]
+            if (track.commands.isEmpty()) {
+                trackIndex++
+                continue
+            }
             if (track.channel != MmlChannelId.R && track.channel.ordinal > MmlChannelId.E.ordinal && track.commands.isNotEmpty()) {
                 val first = track.commands[0]
                 diagnostics.add(MmlDiagnostic(first.line, first.column, "Channels F-I and C1-C4 require #MML 2"))
                 trackIndex++
                 continue
             }
-            val built = compileTrack(track, document.bpm, barTicks, diagnostics)
-            if (built != null) {
-                if (track.channel == MmlChannelId.R) {
-                    percussion = built.lane
-                    sequencerEvents += built.noteCount
-                } else {
-                    lanes[track.channel.ordinal] = built.lane
-                    sequencerEvents += built.noteCount * 2
-                    if (built.lane.timbre == TimbreRef.SSG_HARMONY_SQUARE) ssgTracks++
-                }
+            val patchId = firstPatch(track)
+            val assignedChannel = when {
+                track.channel == MmlChannelId.R -> 0
+                OpnaPatchBank.isSsg(patchId) -> ssgChannel++
+                else -> fmChannel++
             }
+            sequencerCost += compileV1Track(track, barTicks, patchId, assignedChannel, builder, diagnostics)
             trackIndex++
         }
-        if (ssgTracks > 3) diagnostics.add(MmlDiagnostic(1, 1, "MML uses more than the three available SSG channels"))
-        if (sequencerEvents > OpnaSequencer.MAX_EVENTS) {
+        if (ssgChannel > AudioLaws.SSG_CHANNELS) diagnostics.add(MmlDiagnostic(1, 1, "MML uses more than the three available SSG channels"))
+        if (fmChannel > AudioLaws.FM_CHANNELS) diagnostics.add(MmlDiagnostic(1, 1, "MML uses more than the six available FM channels"))
+        if (sequencerCost > OpnaSequencer.MAX_EVENTS) {
             diagnostics.add(MmlDiagnostic(1, 1, "Expanded song exceeds OpnaSequencer.MAX_EVENTS"))
         }
         if (diagnostics.isNotEmpty()) return MmlCompileResult.Failure(diagnostics)
 
-        val emptyFm = Lane(emptyList(), TimbreRef.FM_LLS_AT54, LaneMode.MONO_RETRIGGER)
-        val emptySsg = Lane(emptyList(), TimbreRef.SSG_HARMONY_SQUARE, LaneMode.SSG_MONO)
-        val emptyDrums = Lane(emptyList(), TimbreRef.DRUM_HAT, LaneMode.DRUM)
+        val program = builder.build()
         return MmlCompileResult.Success(
             ArrangementLanes(
-                lead = lanes[0] ?: emptyFm,
-                harmony = lanes[1] ?: emptySsg,
-                bass = lanes[2] ?: emptyFm,
-                percussion = percussion ?: emptyDrums,
                 tempoBpm = document.bpm,
                 keyRootMidi = DEFAULT_KEY_ROOT_MIDI,
-                auxiliary = lanes[3],
                 routing = ArrangementRouting.MML_LOGICAL_TRACKS,
                 beatsPerBar = document.barNumerator,
                 eqBands = document.eqBands.map { it.band },
-                additional = lanes[4]
-            )
+                compiledOpnaSong = program
+            ),
+            sharedSsgWarnings(program)
         )
+    }
+
+    private fun compileV1Track(
+        track: MmlTrack,
+        barTicks: Int,
+        initialPatchId: Int,
+        channelIndex: Int,
+        builder: CompiledOpnaSongBuilder,
+        diagnostics: MutableList<MmlDiagnostic>
+    ): Int {
+        if (track.commands.isEmpty()) return 0
+        val isRhythm = track.channel == MmlChannelId.R
+        val isSsg = OpnaPatchBank.isSsg(initialPatchId)
+        var octave = DEFAULT_OCTAVE
+        var defaultLength = DEFAULT_LENGTH
+        var volume = DEFAULT_VOLUME
+        var patchId = -1
+        var tick = 0L
+        var sawEvent = false
+        var sequencerCost = 0
+        var i = 0
+        while (i < track.commands.size) {
+            val command = track.commands[i]
+            when (command) {
+                is MmlCommand.Instrument -> {
+                    val selected = OpnaPatchBank.idForName(command.value)
+                    val valid = if (isRhythm) command.value == "drum" else selected >= 0
+                    if (!valid) {
+                        diagnostics.add(MmlDiagnostic(command.line, command.column, "Instrument @${command.value} is invalid for channel ${track.channel}"))
+                    } else if (patchId >= 0 && patchId != selected) {
+                        diagnostics.add(MmlDiagnostic(command.line, command.column, "Instrument changes require #MML 2"))
+                    } else if (!isRhythm && OpnaPatchBank.isSsg(selected) != isSsg) {
+                        diagnostics.add(MmlDiagnostic(command.line, command.column, "Instrument family cannot change within a channel"))
+                    } else {
+                        patchId = selected
+                    }
+                }
+                is MmlCommand.Volume -> {
+                    if (command.value !in 0..15) diagnostics.add(MmlDiagnostic(command.line, command.column, "Volume must be v0..v15"))
+                    else volume = command.value
+                }
+                is MmlCommand.Octave -> {
+                    if (command.value !in 0..8) diagnostics.add(MmlDiagnostic(command.line, command.column, "Octave must be o0..o8"))
+                    else octave = command.value
+                }
+                is MmlCommand.DefaultLength -> {
+                    if (!isValidLength(command.denominator)) diagnostics.add(MmlDiagnostic(command.line, command.column, "Length must be 1, 2, 4, 8, or 16"))
+                    else defaultLength = command.denominator
+                }
+                is MmlCommand.OctaveShift -> {
+                    val shifted = octave + command.delta
+                    if (shifted !in 0..8) diagnostics.add(MmlDiagnostic(command.line, command.column, "Octave shift leaves o0..o8"))
+                    else octave = shifted
+                }
+                is MmlCommand.Note -> {
+                    sawEvent = true
+                    if (command.dotted || command.link != MmlCommand.LINK_NONE) {
+                        diagnostics.add(MmlDiagnostic(command.line, command.column, "Dots, ties, and slurs require #MML 2"))
+                    }
+                    if (isRhythm) {
+                        diagnostics.add(MmlDiagnostic(command.line, command.column, "Pitched notes are not allowed on channel R"))
+                    } else {
+                        val duration = durationTicks(command.denominator, defaultLength, command.line, command.column, diagnostics)
+                        val midi = midiFor(command.letter, command.accidental, octave)
+                        if (patchId < 0) diagnostics.add(MmlDiagnostic(command.line, command.column, "Channel ${track.channel} requires an instrument before its first event"))
+                        else if (midi !in 0..127) diagnostics.add(MmlDiagnostic(command.line, command.column, "Note is outside MIDI range 0..127"))
+                        else if (duration > 0) {
+                            val type = if (isSsg) CompiledOpnaSong.SSG_NOTE else CompiledOpnaSong.FM_NOTE
+                            if (!builder.add(type, tick, duration, duration, channelIndex, -1, midi, -1, (volume * 127 + 7) / 15, patchId, 0, 0, -1, -1, 0)) {
+                                diagnostics.add(MmlDiagnostic(command.line, command.column, "Compiled OPNA event capacity exceeded"))
+                            }
+                            sequencerCost += 2
+                            tick += duration
+                        }
+                    }
+                }
+                is MmlCommand.Rest -> {
+                    sawEvent = true
+                    if (command.dotted) diagnostics.add(MmlDiagnostic(command.line, command.column, "Dotted rests require #MML 2"))
+                    tick += durationTicks(command.denominator, defaultLength, command.line, command.column, diagnostics)
+                }
+                is MmlCommand.Drum -> {
+                    sawEvent = true
+                    if (command.dotted || command.kind == 't' || command.kind == 'y' || command.kind == 'i') {
+                        diagnostics.add(MmlDiagnostic(command.line, command.column, "Extended rhythm syntax requires #MML 2"))
+                    }
+                    if (!isRhythm) diagnostics.add(MmlDiagnostic(command.line, command.column, "Drum tokens are only allowed on channel R"))
+                    else {
+                        val duration = durationTicks(command.denominator, defaultLength, command.line, command.column, diagnostics)
+                        val kind = drumKind(command.kind)
+                        if (duration > 0 && kind != null) {
+                            builder.add(CompiledOpnaSong.RHYTHM_SHOT, tick, duration, 0, 0, -1, kind.ordinal, -1, (volume * 127 + 7) / 15, -1, 0, 0, 0, 0, 0)
+                            sequencerCost++
+                            tick += duration
+                        }
+                    }
+                }
+                is MmlCommand.Bar -> if (tick == 0L || tick % barTicks != 0L) {
+                    diagnostics.add(MmlDiagnostic(command.line, command.column, "Bar line does not fall on a complete #BAR boundary"))
+                }
+                else -> diagnostics.add(MmlDiagnostic(command.line, command.column, "Command requires #MML 2"))
+            }
+            i++
+        }
+        if (sawEvent && tick % barTicks != 0L) {
+            val last = track.commands[track.commands.size - 1]
+            diagnostics.add(MmlDiagnostic(last.line, last.column, "Final bar is incomplete"))
+        }
+        return sequencerCost
+    }
+
+    private fun firstPatch(track: MmlTrack): Int {
+        if (track.channel == MmlChannelId.R) return -1
+        var i = 0
+        while (i < track.commands.size) {
+            val command = track.commands[i]
+            if (command is MmlCommand.Instrument) return OpnaPatchBank.idForName(command.value)
+            i++
+        }
+        return -1
     }
 
     private fun compileV2(document: MmlDocument): MmlCompileResult {
@@ -179,22 +299,13 @@ object MmlCompiler {
                 )
             )
         }
-        val emptyFm = Lane(emptyList(), TimbreRef.FM_LLS_AT54, LaneMode.MONO_RETRIGGER)
-        val emptySsg = Lane(emptyList(), TimbreRef.SSG_HARMONY_SQUARE, LaneMode.SSG_MONO)
-        val emptyDrums = Lane(emptyList(), TimbreRef.DRUM_HAT, LaneMode.DRUM)
         return MmlCompileResult.Success(
             ArrangementLanes(
-                lead = emptyFm,
-                harmony = emptyFm,
-                bass = emptyFm,
-                percussion = emptyDrums,
                 tempoBpm = document.bpm,
                 keyRootMidi = DEFAULT_KEY_ROOT_MIDI,
-                auxiliary = emptySsg,
                 routing = ArrangementRouting.MML_LOGICAL_TRACKS,
                 beatsPerBar = document.barNumerator,
                 eqBands = document.eqBands.map { it.band },
-                additional = null,
                 compiledOpnaSong = program
             ),
             sharedSsgWarnings(program)
@@ -576,140 +687,6 @@ object MmlCompiler {
         else -> null
     }
 
-    private data class BuiltTrack(val lane: Lane, val noteCount: Int)
-
-    private fun compileTrack(
-        track: MmlTrack,
-        bpm: Float,
-        barTicks: Int,
-        diagnostics: MutableList<MmlDiagnostic>
-    ): BuiltTrack? {
-        if (track.commands.isEmpty()) return null
-        val notes = mutableListOf<ToneSpec>()
-        var octave = DEFAULT_OCTAVE
-        var defaultLength = DEFAULT_LENGTH
-        var volume = DEFAULT_VOLUME
-        var timbre: TimbreRef? = null
-        var sawEvent = false
-        var tick = 0L
-        var noteCount = 0
-        var i = 0
-        while (i < track.commands.size) {
-            val command = track.commands[i]
-            when (command) {
-                is MmlCommand.Instrument -> {
-                    if (sawEvent) {
-                        diagnostics.add(MmlDiagnostic(command.line, command.column, "Instrument must be set before the first event and cannot change"))
-                    } else {
-                        val mapped = mapTimbre(track.channel, command.value)
-                        if (mapped == null) diagnostics.add(MmlDiagnostic(command.line, command.column, "Instrument @${command.value} is invalid for channel ${track.channel}"))
-                        else if (timbre != null && timbre != mapped) diagnostics.add(MmlDiagnostic(command.line, command.column, "Only one instrument is allowed per channel"))
-                        else timbre = mapped
-                    }
-                }
-                is MmlCommand.Volume -> {
-                    if (command.value !in 0..15) diagnostics.add(MmlDiagnostic(command.line, command.column, "Volume must be v0..v15"))
-                    else volume = command.value
-                }
-                is MmlCommand.Octave -> {
-                    if (command.value !in 0..8) diagnostics.add(MmlDiagnostic(command.line, command.column, "Octave must be o0..o8"))
-                    else octave = command.value
-                }
-                is MmlCommand.DefaultLength -> {
-                    if (!isValidLength(command.denominator)) diagnostics.add(MmlDiagnostic(command.line, command.column, "Length must be 1, 2, 4, 8, or 16"))
-                    else defaultLength = command.denominator
-                }
-                is MmlCommand.OctaveShift -> {
-                    val shifted = octave + command.delta
-                    if (shifted !in 0..8) diagnostics.add(MmlDiagnostic(command.line, command.column, "Octave shift leaves o0..o8"))
-                    else octave = shifted
-                }
-                is MmlCommand.Note -> {
-                    sawEvent = true
-                    if (command.dotted || command.link != MmlCommand.LINK_NONE) {
-                        diagnostics.add(MmlDiagnostic(command.line, command.column, "Dots, ties, and slurs require #MML 2"))
-                    }
-                    if (track.channel == MmlChannelId.R) {
-                        diagnostics.add(MmlDiagnostic(command.line, command.column, "Pitched notes are not allowed on channel R"))
-                    } else {
-                        val durationTicks = durationTicks(command.denominator, defaultLength, command.line, command.column, diagnostics)
-                        if (durationTicks > 0) {
-                            val midi = midiFor(command.letter, command.accidental, octave)
-                            if (midi !in 0..127) diagnostics.add(MmlDiagnostic(command.line, command.column, "Note is outside MIDI range 0..127"))
-                            else {
-                                notes.add(toneFor(midiNoteToFreq(midi), tick, durationTicks, bpm, volume, toneType(timbre), false))
-                                noteCount++
-                            }
-                            tick += durationTicks
-                        }
-                    }
-                }
-                is MmlCommand.Rest -> {
-                    sawEvent = true
-                    if (command.dotted) diagnostics.add(MmlDiagnostic(command.line, command.column, "Dotted rests require #MML 2"))
-                    val durationTicks = durationTicks(command.denominator, defaultLength, command.line, command.column, diagnostics)
-                    if (durationTicks > 0) tick += durationTicks
-                }
-                is MmlCommand.Drum -> {
-                    sawEvent = true
-                    if (command.dotted || command.kind == 't' || command.kind == 'y' || command.kind == 'i') {
-                        diagnostics.add(MmlDiagnostic(command.line, command.column, "Extended rhythm syntax requires #MML 2"))
-                    }
-                    if (track.channel != MmlChannelId.R) {
-                        diagnostics.add(MmlDiagnostic(command.line, command.column, "Drum tokens are only allowed on channel R"))
-                    } else {
-                        val durationTicks = durationTicks(command.denominator, defaultLength, command.line, command.column, diagnostics)
-                        if (durationTicks > 0) {
-                            val freq = if (command.kind == 'k') -1f else if (command.kind == 'h') 8000f else 3000f
-                            val type = if (command.kind == 'k') "kick" else if (command.kind == 'h') "hat" else "snare"
-                            notes.add(toneFor(freq, tick, durationTicks, bpm, volume, type, false))
-                            noteCount++
-                            tick += durationTicks
-                        }
-                    }
-                }
-                is MmlCommand.Bar -> {
-                    if (tick == 0L || tick % barTicks != 0L) {
-                        diagnostics.add(MmlDiagnostic(command.line, command.column, "Bar line does not fall on a complete #BAR boundary"))
-                    }
-                }
-                is MmlCommand.FineVolume,
-                is MmlCommand.RelativeVolume,
-                is MmlCommand.Gate,
-                is MmlCommand.Pan,
-                is MmlCommand.Polyphony,
-                is MmlCommand.Detune,
-                is MmlCommand.Tempo,
-                is MmlCommand.HardwareLfo,
-                is MmlCommand.Chord,
-                is MmlCommand.Portamento -> {
-                    diagnostics.add(MmlDiagnostic(command.line, command.column, "Command requires #MML 2"))
-                }
-            }
-            i++
-        }
-        if (sawEvent && tick % barTicks != 0L) {
-            val last = track.commands[track.commands.size - 1]
-            diagnostics.add(MmlDiagnostic(last.line, last.column, "Final bar is incomplete"))
-        }
-        if (sawEvent && timbre == null) {
-            val first = track.commands[0]
-            diagnostics.add(MmlDiagnostic(first.line, first.column, "Channel ${track.channel} requires an instrument before its first event"))
-        }
-        val resolvedTimbre = timbre ?: if (track.channel == MmlChannelId.R) TimbreRef.DRUM_HAT else TimbreRef.FM_LLS_AT54
-        val mode = if (track.channel == MmlChannelId.R) LaneMode.DRUM else if (resolvedTimbre == TimbreRef.SSG_HARMONY_SQUARE) LaneMode.SSG_MONO else LaneMode.MONO_RETRIGGER
-        return BuiltTrack(Lane(notes, resolvedTimbre, mode), noteCount)
-    }
-
-    private fun toneFor(freq: Float, startTick: Long, durationTicks: Int, bpm: Float, volume: Int, type: String, adsr: Boolean): ToneSpec {
-        val startMs = ticksToMs(startTick, bpm)
-        val endMs = ticksToMs(startTick + durationTicks, bpm)
-        return ToneSpec(freq, startMs, endMs - startMs, volume / 15f, type, adsr)
-    }
-
-    private fun ticksToMs(ticks: Long, bpm: Float): Int =
-        (ticks.toDouble() * 60000.0 / (bpm.toDouble() * TICKS_PER_QUARTER)).toInt()
-
     private fun durationTicks(value: Int?, defaultValue: Int, line: Int, column: Int, diagnostics: MutableList<MmlDiagnostic>): Int {
         val denominator = value ?: defaultValue
         if (!isValidLength(denominator)) {
@@ -734,17 +711,4 @@ object MmlCompiler {
         return (octave + 1) * 12 + semitone + accidental
     }
 
-    private fun mapTimbre(channel: MmlChannelId, value: String): TimbreRef? {
-        if (channel == MmlChannelId.R) return if (value == "drum") TimbreRef.DRUM_HAT else null
-        return when (value) {
-            "54" -> TimbreRef.FM_LLS_AT54
-            "74" -> TimbreRef.FM_LLS_AT74
-            "99" -> TimbreRef.FM_LLS_AT99
-            "181" -> TimbreRef.FM_LLS_AT181
-            "square" -> TimbreRef.SSG_HARMONY_SQUARE
-            else -> null
-        }
-    }
-
-    private fun toneType(timbre: TimbreRef?): String = if (timbre == TimbreRef.SSG_HARMONY_SQUARE) "square" else "fm"
 }
