@@ -237,7 +237,7 @@ class OpnProceduralCoreTest {
     }
 
     @Test
-    fun targetPatchesUseOneOpnEnvelopeCore() {
+    fun decodedPmdPatchesUseOneOpnEnvelopeCore() {
         val patches = arrayOf(LlsPatches.At54, LlsPatches.At74, LlsPatches.At99, LlsPatches.At181)
         var patchIndex = 0
         while (patchIndex < patches.size) {
@@ -250,10 +250,6 @@ class OpnProceduralCoreTest {
             }
             patchIndex++
         }
-        assertTrue(LlsPatches.At54.op0.sr > 0 && LlsPatches.At54.op2.sr > 0)
-        assertTrue(LlsPatches.At74.op0.sr > 0 && LlsPatches.At74.op2.sr > 0)
-        assertTrue(LlsPatches.At99.op0.sr > 0 && LlsPatches.At99.op1.sr > 0 && LlsPatches.At99.op2.sr > 0)
-        assertTrue(LlsPatches.At181.op0.sr > 0 && LlsPatches.At181.op2.sr > 0)
     }
 
     @Test

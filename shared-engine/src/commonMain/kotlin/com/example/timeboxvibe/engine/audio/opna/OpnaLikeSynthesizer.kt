@@ -175,8 +175,8 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             offset += chunkFrames
             remaining -= chunkFrames
         }
-        applyGainAndClamp(buffer, frames)
         masterEq.processMono(buffer, frames)
+        applyGainAndClamp(buffer, frames)
     }
 
     fun render(buffer: FloatArray, frames: Int, sequencer: OpnaSequencer, currentSampleOffset: Long) {
@@ -194,8 +194,8 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             remaining -= chunkFrames
             sampleOffset += chunkFrames
         }
-        applyGainAndClamp(buffer, frames)
         masterEq.processMono(buffer, frames)
+        applyGainAndClamp(buffer, frames)
     }
 
     fun renderStereo(stereoBuffer: FloatArray, frames: Int) {
@@ -209,8 +209,8 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             remaining -= chunkFrames
         }
         if (enableStereoResonator) stereoResonator.process(stereoBuffer, frames)
-        applyGainAndClampStereo(stereoBuffer, frames)
         masterEq.processStereo(stereoBuffer, frames)
+        applyGainAndClampStereo(stereoBuffer, frames)
     }
 
     fun renderStereo(stereoBuffer: FloatArray, frames: Int, sequencer: OpnaSequencer, currentSampleOffset: Long) {
@@ -229,8 +229,8 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             sampleOffset += chunkFrames
         }
         if (enableStereoResonator) stereoResonator.process(stereoBuffer, frames)
-        applyGainAndClampStereo(stereoBuffer, frames)
         masterEq.processStereo(stereoBuffer, frames)
+        applyGainAndClampStereo(stereoBuffer, frames)
     }
 
     private fun renderSegment(buffer: FloatArray, startFrame: Int, frames: Int) {

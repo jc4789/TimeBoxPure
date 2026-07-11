@@ -175,7 +175,6 @@ object SoundPreviewPlayer {
             val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
 
             synth.enableOutputFilter = true
-            synth.enableStereoResonator = true
             synth.configureMasterEq(arrangement.eqBands)
             var i = 0
             while (i < synth.fm.size) {
@@ -193,8 +192,8 @@ object SoundPreviewPlayer {
 
             if (maxDurationMs <= 0L) return@Runnable
 
-            val minBufferSize = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
-            val audioTrackBufferSize = maxOf(minBufferSize, chunkSize * 8 * 2)
+            val minBufferSize = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+            val audioTrackBufferSize = maxOf(minBufferSize, chunkSize * 8)
 
             val audioTrack = try {
                 val builder = AudioTrack.Builder()
@@ -208,7 +207,7 @@ object SoundPreviewPlayer {
                         AudioFormat.Builder()
                             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                             .setSampleRate(sampleRate)
-                            .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                             .build()
                     )
                     .setBufferSizeInBytes(audioTrackBufferSize)
@@ -239,8 +238,8 @@ object SoundPreviewPlayer {
                 return@Runnable
             }
 
-            val floatBuffer = FloatArray(chunkSize * 2)
-            val shortBuffer = ShortArray(chunkSize * 2)
+            val floatBuffer = FloatArray(chunkSize)
+            val shortBuffer = ShortArray(chunkSize)
             var currentSampleOffset = 0L
             val songLenSamples = sequencer.loopLengthSamples()
             var lastUnderrunCount = 0
@@ -267,16 +266,13 @@ object SoundPreviewPlayer {
                             framesRemaining
                         }
 
-                        synth.renderStereo(floatBuffer, framesToRender, sequencer, renderOffset)
+                        synth.render(floatBuffer, framesToRender, sequencer, renderOffset)
 
                         var k = 0
                         while (k < framesToRender) {
-                            val source = k * 2
-                            val destination = (framesFilled + k) * 2
-                            val left = floatBuffer[source]
-                            val right = floatBuffer[source + 1]
-                            shortBuffer[destination] = (left * 32767f).coerceIn(-32768f, 32767f).toInt().toShort()
-                            shortBuffer[destination + 1] = (right * 32767f).coerceIn(-32768f, 32767f).toInt().toShort()
+                            val sample = floatBuffer[k]
+                            shortBuffer[framesFilled + k] =
+                                (sample * 32767f).coerceIn(-32768f, 32767f).toInt().toShort()
                             k++
                         }
 
@@ -289,7 +285,7 @@ object SoundPreviewPlayer {
                         }
                     }
 
-                    val written = audioTrack.write(shortBuffer, 0, totalSamples * 2, AudioTrack.WRITE_BLOCKING)
+                    val written = audioTrack.write(shortBuffer, 0, totalSamples, AudioTrack.WRITE_BLOCKING)
                     if (written < 0) {
                         break
                     }

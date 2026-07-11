@@ -96,14 +96,15 @@ class OpnaStereoTest {
         first.fm[0].noteOn(69)
         second.fm[0].noteOn(69)
 
-        val firstOutput = FloatArray(4_096 * 2)
-        val secondOutput = FloatArray(4_096 * 2)
-        first.renderStereo(firstOutput, 4_096)
-        second.renderStereo(secondOutput, 4_096)
+        val renderFrames = 8_192
+        val firstOutput = FloatArray(renderFrames * 2)
+        val secondOutput = FloatArray(renderFrames * 2)
+        first.renderStereo(firstOutput, renderFrames)
+        second.renderStereo(secondOutput, renderFrames)
 
         var reflectedRight = 0f
-        var frame = sampleRate * 60 / 1_000
-        while (frame < 4_096) {
+        var frame = sampleRate * 110 / 1_000
+        while (frame < renderFrames) {
             reflectedRight += abs(firstOutput[frame * 2 + 1])
             frame++
         }

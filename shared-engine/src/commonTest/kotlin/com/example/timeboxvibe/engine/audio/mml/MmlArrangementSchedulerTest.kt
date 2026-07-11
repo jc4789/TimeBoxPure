@@ -25,14 +25,14 @@ class MmlArrangementSchedulerTest {
         MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
 
         val firstFm = findFirstEvent(sequencer, SequencerEvent.FM_ON)
-        val expectedLeadGain = 90f / 127f * MmlArrangementScheduler.MIX_GAIN
+        val expectedLeadGain = 78f / 127f * MmlArrangementScheduler.MIX_GAIN
         assertEquals(expectedLeadGain, firstFm.velocity, 0.0001f)
         assertEquals(-1f, firstFm.attack)
         assertEquals(-1f, firstFm.release)
-        assertEquals(com.example.timeboxvibe.engine.audio.opna.LlsPatches.At54, firstFm.patch)
+        assertEquals(com.example.timeboxvibe.engine.audio.opna.LlsPatches.At74, firstFm.patch)
 
         val firstSsg = findFirstEvent(sequencer, SequencerEvent.SSG_ON)
-        val expectedSsgGain = 82f / 127f * MmlArrangementScheduler.MIX_GAIN
+        val expectedSsgGain = 70f / 127f * MmlArrangementScheduler.MIX_GAIN
         assertEquals(expectedSsgGain, firstSsg.velocity, 0.0001f)
         assertEquals(-1f, firstSsg.attack)
         assertEquals(-1f, firstSsg.release)
@@ -52,11 +52,12 @@ class MmlArrangementSchedulerTest {
 
         MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
 
-        assertEquals(416, countEvents(sequencer, SequencerEvent.FM_ON, 0))
-        assertEquals(416, countEvents(sequencer, SequencerEvent.FM_ON, 1))
-        assertEquals(192, countEvents(sequencer, SequencerEvent.FM_ON, 2))
-        assertEquals(208, countEvents(sequencer, SequencerEvent.FM_ON, 3))
-        assertEquals(772, countEvents(sequencer, SequencerEvent.SSG_ON, 0))
+        assertEquals(493, countEvents(sequencer, SequencerEvent.FM_ON, 0))
+        assertEquals(216, countEvents(sequencer, SequencerEvent.FM_ON, 1))
+        assertEquals(216, countEvents(sequencer, SequencerEvent.FM_ON, 2))
+        assertEquals(576, countEvents(sequencer, SequencerEvent.FM_ON, 3))
+        assertEquals(585, countEvents(sequencer, SequencerEvent.FM_ON, 4))
+        assertEquals(718, countEvents(sequencer, SequencerEvent.SSG_ON, 0))
         assertEquals(0, countEvents(sequencer, SequencerEvent.SSG_ON, 1))
         assertEquals(0, countEvents(sequencer, SequencerEvent.SSG_ON, 2))
     }
@@ -120,7 +121,7 @@ class MmlArrangementSchedulerTest {
     }
 
     @Test
-    fun restIsSilentAfterExpectedReleaseTail() {
+    fun restContainsOnlyTheAuthenticPatchReleaseTailBeforeNextNote() {
         val arrangement = assertIs<MmlCompileResult.Success>(
             MmlCompiler.compile(
                 "#BPM 120\n#BAR 4/4\nA @54 v15 o4 l4 c r d2 |"
@@ -138,41 +139,42 @@ class MmlArrangementSchedulerTest {
         val silentRestRms = rms(buffer, sampleRate * 520 / 1000, sampleRate * 980 / 1000)
         val nextNoteRms = rms(buffer, sampleRate * 1020 / 1000, sampleRate * 1200 / 1000)
         assertTrue(releaseTailRms > silentRestRms, "Release tail should decay before the rest: tail=$releaseTailRms rest=$silentRestRms")
-        assertTrue(silentRestRms < 0.005f, "Rest should be silent after release: rms=$silentRestRms")
+        assertTrue(silentRestRms < 0.02f, "Authentic PMD patch release tail is excessive: rms=$silentRestRms")
+        assertTrue(silentRestRms < nextNoteRms * 0.5f, "Release tail masks the next articulation: rest=$silentRestRms next=$nextNoteRms")
         assertTrue(nextNoteRms > 0.01f, "The note after the rest should retrigger: rms=$nextNoteRms")
     }
 
     @Test
-    fun productionStereoBenchmarkIsAudibleFromTheFirstBlock() {
+    fun productionMonoBenchmarkIsAudibleFromTheFirstBlock() {
         val arrangement = requireDemoArrangement()
         val sampleRate = 48_000
         val synth = OpnaLikeSynthesizer(sampleRate)
         synth.enableOutputFilter = true
-        synth.enableStereoResonator = true
+        synth.configureMasterEq(arrangement.eqBands)
         val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
         MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
         val frames = sampleRate / 10
-        val stereo = FloatArray(frames * 2)
-        synth.renderStereo(stereo, frames, sequencer, 0L)
+        val mono = FloatArray(frames)
+        synth.render(mono, frames, sequencer, 0L)
 
         var energy = 0.0
         var i = 0
-        while (i < stereo.size) {
-            val sample = stereo[i].toDouble()
+        while (i < mono.size) {
+            val sample = mono[i].toDouble()
             energy += sample * sample
             i++
         }
-        val firstBlockRms = sqrt(energy / stereo.size).toFloat()
+        val firstBlockRms = sqrt(energy / mono.size).toFloat()
         assertTrue(firstBlockRms > 0.005f, "Benchmark still has a silent opening: rms=$firstBlockRms")
     }
 
     @Test
-    fun productionStereoMixKeepsHighBandBelowHalfOfEnergy() {
+    fun productionMonoMixKeepsBandsAndHeadroomControlled() {
         val arrangement = requireDemoArrangement()
         val sampleRate = 48_000
         val synth = OpnaLikeSynthesizer(sampleRate)
         synth.enableOutputFilter = true
-        synth.enableStereoResonator = true
+        synth.configureMasterEq(arrangement.eqBands)
         var voice = 0
         while (voice < synth.fm.size) {
             synth.fm[voice].enableOversampling = true
@@ -181,16 +183,18 @@ class MmlArrangementSchedulerTest {
         val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
         MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
         val frames = sampleRate * 4
-        val stereo = FloatArray(frames * 2)
         val mono = FloatArray(frames)
-        synth.renderStereo(stereo, frames, sequencer, 0L)
-        var frame = 0
-        while (frame < frames) {
-            mono[frame] = (stereo[frame * 2] + stereo[frame * 2 + 1]) * 0.5f
-            frame++
-        }
+        synth.render(mono, frames, sequencer, 0L)
         val highBandRatio = highBandEnergyRatio(mono, sampleRate)
-        assertTrue(highBandRatio < 0.50, "High-band energy is still overpowering: ratio=$highBandRatio")
+        val midBandRatio = midBandEnergyRatio(mono, sampleRate)
+        val lowBandRatio = lowBandEnergyRatio(mono, sampleRate)
+        val presenceBandRatio = bandEnergyRatio(mono, sampleRate, 2_000.0, 3_200.0)
+        assertTrue(lowBandRatio < 0.75, "Production mix is still low-band dominated: ratio=$lowBandRatio")
+        assertTrue(midBandRatio > 0.25, "Production mix still lacks mid-band support: ratio=$midBandRatio")
+        assertTrue(presenceBandRatio < 0.05, "2-3 kHz presence band is still concentrated: ratio=$presenceBandRatio")
+        assertTrue(highBandRatio < 0.08, "High-band energy is still overpowering: ratio=$highBandRatio")
+        assertTrue(synth.preClampPeak < OpnaLikeSynthesizer.SOFT_CLIP_KNEE, "Production mix reaches distortion knee: peak=${synth.preClampPeak}")
+        assertEquals(0, synth.preClampKneeCrossings, "Production mix should not distort in the measured passage")
     }
 
     @Test
@@ -257,10 +261,11 @@ class MmlArrangementSchedulerTest {
         val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
         MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
         val expected = arrayOf(
-            com.example.timeboxvibe.engine.audio.opna.LlsPatches.At54,
             com.example.timeboxvibe.engine.audio.opna.LlsPatches.At74,
+            com.example.timeboxvibe.engine.audio.opna.LlsPatches.At181,
+            com.example.timeboxvibe.engine.audio.opna.LlsPatches.At181,
             com.example.timeboxvibe.engine.audio.opna.LlsPatches.At99,
-            com.example.timeboxvibe.engine.audio.opna.LlsPatches.At181
+            com.example.timeboxvibe.engine.audio.opna.LlsPatches.At99
         )
         var channel = 0
         while (channel < expected.size) {
@@ -270,6 +275,18 @@ class MmlArrangementSchedulerTest {
             assertEquals(-1f, event.release)
             channel++
         }
+        val channel3At54 = findFirstPatchEvent(
+            sequencer,
+            channel = 3,
+            patch = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At54,
+            afterSample = -1L
+        )
+        findFirstPatchEvent(
+            sequencer,
+            channel = 3,
+            patch = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At99,
+            afterSample = channel3At54.sampleTime
+        )
     }
 
     @Test
@@ -390,6 +407,46 @@ class MmlArrangementSchedulerTest {
         return if (totalEnergy > 0.0) lowEnergy / totalEnergy else 0.0
     }
 
+    private fun midBandEnergyRatio(buffer: FloatArray, sampleRate: Int): Double {
+        val lowDecay = kotlin.math.exp(-2.0 * kotlin.math.PI * 250.0 / sampleRate.toDouble())
+        val highDecay = kotlin.math.exp(-2.0 * kotlin.math.PI * 2_500.0 / sampleRate.toDouble())
+        var lowPass = 0.0
+        var highPassBoundary = 0.0
+        var midEnergy = 0.0
+        var totalEnergy = 0.0
+        var i = 0
+        while (i < buffer.size) {
+            val sample = buffer[i].toDouble()
+            lowPass = (1.0 - lowDecay) * sample + lowDecay * lowPass
+            highPassBoundary = (1.0 - highDecay) * sample + highDecay * highPassBoundary
+            val mid = highPassBoundary - lowPass
+            midEnergy += mid * mid
+            totalEnergy += sample * sample
+            i++
+        }
+        return if (totalEnergy > 0.0) midEnergy / totalEnergy else 0.0
+    }
+
+    private fun bandEnergyRatio(buffer: FloatArray, sampleRate: Int, lowHz: Double, highHz: Double): Double {
+        val lowDecay = kotlin.math.exp(-2.0 * kotlin.math.PI * lowHz / sampleRate.toDouble())
+        val highDecay = kotlin.math.exp(-2.0 * kotlin.math.PI * highHz / sampleRate.toDouble())
+        var belowLow = 0.0
+        var belowHigh = 0.0
+        var bandEnergy = 0.0
+        var totalEnergy = 0.0
+        var i = 0
+        while (i < buffer.size) {
+            val sample = buffer[i].toDouble()
+            belowLow = (1.0 - lowDecay) * sample + lowDecay * belowLow
+            belowHigh = (1.0 - highDecay) * sample + highDecay * belowHigh
+            val band = belowHigh - belowLow
+            bandEnergy += band * band
+            totalEnergy += sample * sample
+            i++
+        }
+        return if (totalEnergy > 0.0) bandEnergy / totalEnergy else 0.0
+    }
+
     private fun requireDemoArrangement(): ArrangementLanes {
         val result = MmlSongBank.senbonzakuraDemoResult
         assertTrue(result is MmlCompileResult.Success)
@@ -414,6 +471,23 @@ class MmlArrangementSchedulerTest {
             i++
         }
         error("No sequencer event of type $type on channel $channel")
+    }
+
+    private fun findFirstPatchEvent(
+        sequencer: OpnaSequencer,
+        channel: Int,
+        patch: com.example.timeboxvibe.engine.audio.opna.FmPatch,
+        afterSample: Long
+    ): SequencerEvent {
+        var i = 0
+        while (i < sequencer.eventCount) {
+            val event = sequencer.events[i]
+            if (event.type == SequencerEvent.FM_ON && event.channel == channel &&
+                event.patch == patch && event.sampleTime > afterSample
+            ) return event
+            i++
+        }
+        error("No FM event for channel $channel with requested patch after $afterSample")
     }
 
     private fun ticksToSamples(ticks: Long, bpm: Float, sampleRate: Int): Long =
