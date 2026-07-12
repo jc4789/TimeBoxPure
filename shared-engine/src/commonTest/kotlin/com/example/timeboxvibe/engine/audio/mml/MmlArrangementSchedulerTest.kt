@@ -32,7 +32,7 @@ class MmlArrangementSchedulerTest {
         assertEquals(com.example.timeboxvibe.engine.audio.opna.LlsPatches.At74, firstFm.patch)
 
         val firstSsg = findFirstEvent(sequencer, SequencerEvent.SSG_ON)
-        val expectedSsgGain = 70f / 127f * MmlArrangementScheduler.MIX_GAIN
+        val expectedSsgGain = 40f / 127f * MmlArrangementScheduler.MIX_GAIN
         assertEquals(expectedSsgGain, firstSsg.velocity, 0.0001f)
         assertEquals(-1f, firstSsg.attack)
         assertEquals(-1f, firstSsg.release)
@@ -57,8 +57,8 @@ class MmlArrangementSchedulerTest {
         assertEquals(205, countEvents(sequencer, SequencerEvent.FM_ON, 2))
         assertEquals(570, countEvents(sequencer, SequencerEvent.FM_ON, 3))
         assertEquals(570, countEvents(sequencer, SequencerEvent.FM_ON, 4))
-        assertEquals(710, countEvents(sequencer, SequencerEvent.SSG_ON, 0))
-        assertEquals(0, countEvents(sequencer, SequencerEvent.SSG_ON, 1))
+        assertEquals(712, countEvents(sequencer, SequencerEvent.SSG_ON, 0))
+        assertEquals(710, countEvents(sequencer, SequencerEvent.SSG_ON, 1))
         assertEquals(0, countEvents(sequencer, SequencerEvent.SSG_ON, 2))
     }
 

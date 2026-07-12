@@ -131,7 +131,7 @@ R @drum v11 l8
 
 ; 52 bars / 77.64 seconds. The discarded three-bar test intro stays removed.
 ; Authentic coordinated ST02.M86 lanes, source clocks 288..<5280 (three-bar cut).
-; PMD channel balance is retained at 64% to fit the clean-room mixer headroom.
+; FM is retained at 64%; the two summed SSG lanes use 37% to fit clean-room mixer headroom.
 A @74 V78 q0 o3 e-8 b-8 a-8 b-8 f+8 b-8 f8 b-8 e-8 b-8 a-8 b-8 f+8 b-8 f8 b-8 e-8 b-8 a-8 b-8 f+8 b-8 f8 b-8 e-8 b-8
     a-8 b-8 f+8 b-8 f8 b-8 e-8 b-8 a-8 b-8 f+8 b-8 f8 b-8 o2 b8 o3 f+8 f8 f+8 e-8 f+8 c+8 f+8 o2 b8 o3 f+8 f8 f+8 d8
     e-8 b-8 f8 e-8 b-8 a-8 b-8 f+8 b-8 f8 b-8 e-8 b-8 a-8 b-8 f+8 b-8 f8 b-8 o2 b8 o3 f+8 f8 f+8 e-8 f+8 c+8 f+8 o2
@@ -236,14 +236,49 @@ E r8 r1 @99 V71 q40 o4 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 V
     c16 f16 f16 o5 e-16 b-16 o6 e-16 e-16 o5 e-16 b-16 o6 e-16 e-16 o5 f16 o6 c16 f16 f16 o5 f16 o6 c16 f16 f16 q0
     o5 b-2. b-4 r1
 
-G @square r8 r1 V70 q0 o4 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r16. b-16 e-16 f16 f+16 b-16 e-16 f16
+G @square r8 r1 V40 q0 o5 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 o4 b-16 e-16 f16 f+16 b-16 e-16 f16
+    f+16 b-16 e-16 f16 f+16 o5 c+16 e-16 o4 b-16 e-16 b-16 e-16 f16 f+16 b-16 e-16 f16 f+16 b-16 e-16 o5 c+16 e-16
+    o4 b-16 a-16 f+16 f16 o3 b16 b16 o4 f+16 o3 b16 b16 o4 c+16 e-16 f+16 o3 b16 b16 o4 f+16 o3 b16 b16 o4 c+16 e-16
+    f+16 d16 e-16 f16 o3 b-16 o4 d16 e-16 f16 o3 b-16 o4 d16 e-16 f16 o3 b-16 b-16 o4 a-16 f+16 f16 b-16 e-16 f16
+    f+16 b-16 e-16 f16 f+16 b-16 e-16 f16 f+16 o5 c+16 e-16 o4 b-16 e-16 b-16 e-16 f16 f+16 b-16 e-16 f16 f+16 b-16
+    e-16 o5 c+16 e-16 o4 b-16 a-16 f+16 f16 o3 b16 b16 o4 f+16 o3 b16 b16 o4 c+16 e-16 f+16 o3 b16 b16 o4 f+16 o3
+    b16 b16 o4 c+16 e-16 f+16 d16 e-16 f16 o3 b-16 o4 d16 e-16 f16 o3 b-16 o4 d16 e-16 f16 o3 b-16 b-16 o4 a-16 f+16
+    f16 V46 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 c+8 e-8 f8 a-8
+    d8 e-8 f8 a-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 c+8 e-8
+    f8 a-8 d8 e-8 f8 a-8 V44 q40 b-16 b-16 o5 e-16 e-16 e-16 e-16 o4 b-16 b-16 b-16 b-16 o5 e-16 e-16 e-16 e-16 e-16
+    e-16 o4 b-16 b-16 o5 e-16 e-16 e-16 e-16 o4 b-16 b-16 b-16 b-16 o5 e-16 e-16 e-16 e-16 e-16 e-16 o4 b-16 b-16 o5
+    e-16 e-16 e-16 e-16 o4 b-16 b-16 b-16 b-16 o5 e-16 e-16 e-16 e-16 e-16 e-16 o4 b-16 b-16 o5 e-16 e-16 e-16 e-16
+    o4 b-16 b-16 b-16 b-16 o5 e-16 e-16 e-16 e-16 e-16 e-16 o4 b-16 o5 e-16 f16 o4 b-16 b-16 o5 e-16 f16 o4 b-16
+    b-16 o5 e-16 f16 o4 b-16 b-16 o5 e-16 f16 o4 b-16 b-16 o5 e-16 f16 o4 b-16 b-16 o5 e-16 f16 o4 b-16 b-16 o5 e-16
+    f16 o4 b-16 b-16 o5 e-16 f16 o4 b-16 b-16 o5 e-16 f16 o4 b-16 b-16 o5 e-16 f16 o4 b-16 b-16 o5 e-16 f16 o4 b-16
+    b-16 o5 e-16 f16 o4 b-16 b-16 o5 e-16 f16 o4 b-16 b-16 o5 e-16 f16 o4 b-16 b-16 o5 e-16 f16 o4 b-16 b-16 o5 e-16
+    f16 o4 b-16 b-16 b-16 o5 e-16 e-16 e-16 e-16 o4 b-16 b-16 b-16 b-16 o5 e-16 e-16 e-16 e-16 e-16 e-16 o4 b-16
+    b-16 o5 e-16 e-16 e-16 e-16 o4 b-16 b-16 b-16 b-16 o5 e-16 e-16 e-16 e-16 e-16 e-16 o4 b-16 b-16 o5 e-16 e-16
+    e-16 e-16 o4 b-16 b-16 b-16 b-16 o5 e-16 e-16 e-16 e-16 e-16 e-16 o4 b-16 b-16 o5 e-16 e-16 e-16 e-16 o4 b-16
+    b-16 b-16 b-16 o5 e-16 e-16 e-16 e-16 e-16 e-16 o4 b-16 o5 e-16 f16 o4 b-16 b-16 o5 e-16 f16 o4 b-16 b-16 o5
+    e-16 f16 o4 b-16 b-16 o5 e-16 f16 o4 b-16 b-16 o5 e-16 f16 o4 b-16 b-16 o5 e-16 f16 o4 b-16 b-16 o5 e-16 f16 o4
+    b-16 b-16 o5 e-16 f16 o4 b-16 o5 d16 e-16 f16 b-16 d16 e-16 f16 b-16 d16 e-16 f16 b-16 d16 e-16 f16 b-16 d16
+    e-16 f16 b-16 d16 e-16 f16 b-16 d16 e-16 f16 b-16 d16 e-16 f16 b-16 o3 b-16 o4 e-16 g16 g16 o3 b-16 o4 e-16 g16
+    g16 c16 f16 a16 a16 c16 f16 a16 a16 d16 g16 b-16 b-16 d16 g16 b-16 b-16 d16 g16 b-16 b-16 c16 f16 a16 a16 o3
+    b-16 o4 e-16 g16 g16 o3 b-16 o4 e-16 g16 g16 c16 f16 a16 a16 c16 f16 a16 a16 d16 g16 b-16 b-16 d16 g16 b-16 b-16
+    d16 g16 b-16 b-16 c16 f16 a16 a16 o3 b-16 o4 e-16 g16 g16 o3 b-16 o4 e-16 g16 g16 c16 f16 a16 a16 c16 f16 a16
+    a16 d16 g16 b-16 b-16 d16 g16 b-16 b-16 d16 g16 b-16 b-16 c16 f16 a16 a16 o3 b-16 o4 e-16 g16 g16 o3 b-16 o4
+    e-16 g16 g16 c16 f16 a16 a16 c16 f16 a16 a16 d16 g16 b-16 b-16 d16 g16 b-16 b-16 d16 g16 b-16 b-16 c16 f16 a16
+    a16 o3 b-16 o4 e-16 g16 g16 o3 b-16 o4 e-16 g16 g16 c16 f16 a16 a16 c16 f16 a16 a16 d16 g16 b-16 b-16 d16 g16
+    b-16 b-16 d16 g16 b-16 b-16 c16 f16 a16 a16 o3 b-16 o4 e-16 g16 g16 o3 b-16 o4 e-16 g16 g16 c16 f16 a16 a16 c16
+    f16 a16 a16 d16 g16 b-16 b-16 d16 g16 b-16 b-16 d16 g16 b-16 b-16 c16 f16 a16 a16 o3 b-16 o4 e-16 g16 g16 o3
+    b-16 o4 e-16 g16 g16 c16 f16 a16 a16 c16 f16 a16 a16 d16 g16 b-16 b-16 d16 g16 b-16 b-16 d16 g16 b-16 b-16 c16
+    f16 a16 a16 o3 b-16 o4 e-16 g16 g16 o3 b-16 o4 e-16 g16 g16 c16 f16 a16 a16 c16 f16 a16 a16 d16 g16 b-16 b-16
+    d16 g16 b-16 b-16 d16 g16 b-16 b-16 d16 g16 b-16 b-16 r1
+
+H @square r8 r1 V40 q0 o4 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r16. b-16 e-16 f16 f+16 b-16 e-16 f16
     f+16 b-16 e-16 f16 f+16 o5 c+16 e-16 o4 b-16 e-16 b-16 e-16 f16 f+16 b-16 e-16 f16 f+16 b-16 e-16 o5 c+16 e-16
     o4 b-16 a-16 f+16 f16 o3 b16 b16 o4 f+16 o3 b16 b16 o4 c+16 e-16 f+16 o3 b16 b16 o4 f+16 o3 b16 b16 o4 c+16 e-16
     f+16 o3 b16 b16 o4 f+16 o3 b16 b16 o4 c+16 e-16 f+16 d16 e-16 f16 o3 b-16 b-16 o4 a-16 f+16 f16 b-16 e-16 f16
     f+16 b-16 e-16 f16 f+16 b-16 e-16 f16 f+16 o5 c+16 e-16 o4 b-16 e-16 b-16 e-16 f16 f+16 b-16 e-16 f16 f+16 b-16
     e-16 o5 c+16 e-16 o4 b-16 a-16 f+16 f16 o3 b16 b16 o4 f+16 o3 b16 b16 o4 c+16 e-16 f+16 o3 b16 b16 o4 f+16 o3
     b16 b16 o4 c+16 e-16 f+16 o3 b16 b16 o4 f+16 o3 b16 b16 o4 c+16 e-16 f+16 d16 e-16 f16 o3 b-16 b-16 o4 a-16 f+32
-    r8. V76 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 c+8 e-8 f8 a-8
+    r8. V44 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 c+8 e-8 f8 a-8
     d8 e-8 f8 a-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 c+8 e-8
     f8 a-8 d8 e-8 f16 q40 f+16 f+16 b-16 b-16 b-16 b-16 f+16 f+16 f+16 f+16 b-16 b-16 b-16 b-16 b-16 b-16 f+16 f+16
     b-16 b-16 b-16 b-16 f+16 f+16 a-16 a-16 b-16 b-16 b-16 b-16 b-16 b-16 f+16 f+16 b-16 b-16 b-16 b-16 f+16 f+16
@@ -256,14 +291,14 @@ G @square r8 r1 V70 q0 o4 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r
     b-16 b-16 b-16 b-16 f+16 f+16 b-16 b-16 b-16 b-16 f+16 f+16 f+16 f+16 b-16 b-16 b-16 b-16 b-16 b-16 f+16 f+16
     b-16 b-16 b-16 b-16 f+16 f+16 f+16 f+16 b-16 b-16 b-16 b-16 b-16 b-16 f+16 f+16 b-16 b-16 b-16 b-16 f+16 f+16
     a-16 a-16 b-16 b-16 b-16 b-16 b-16 b-16 f+16 f+16 b-16 b-16 b-16 b-16 f+16 f+16 f+16 f+16 b-16 b-16 b-16 b-16
-    b-16 b-16 f+16 f+16 b-16 b-16 b-16 b-16 f+16 f+16 f+16 f+16 b-16 b-16 b-16 b-16 b-16 b-16 V70 o3 e-16 b-16 o4
+    b-16 b-16 f+16 f+16 b-16 b-16 b-16 b-16 f+16 f+16 f+16 f+16 b-16 b-16 b-16 b-16 b-16 b-16 V40 o3 e-16 b-16 o4
     e-16 e-16 o3 e-16 b-16 o4 e-16 e-16 o3 f16 o4 c16 f16 f16 o3 f16 o4 c16 f16 f16 o3 g16 o4 d16 g16 g16 o3 g16 o4
     d16 g16 g16 o3 g16 o4 d16 g16 g16 o3 f16 o4 c16 f16 f16 o3 e-16 b-16 o4 e-16 e-16 o3 e-16 b-16 o4 e-16 e-16 o3
     f16 o4 c16 f16 f16 o3 f16 o4 c16 f16 f16 o3 g16 o4 d16 g16 g16 o3 g16 o4 d16 g16 g16 o3 g16 o4 d16 g16 g16 o3
     f16 o4 c16 f16 f16 o3 e-16 b-16 o4 e-16 e-16 o3 e-16 b-16 o4 e-16 e-16 o3 f16 o4 c16 f16 f16 o3 f16 o4 c16 f16
     f16 o3 g16 o4 d16 g16 g16 o3 g16 o4 d16 g16 g16 o3 g16 o4 d16 g16 g16 o3 f16 o4 c16 f16 f16 o3 e-16 b-16 o4 e-16
     e-16 o3 e-16 b-16 o4 e-16 e-16 o3 f16 o4 c16 f16 f16 o3 f16 o4 c16 f16 f16 o3 g16 o4 d16 g16 g16 o3 g16 o4 d16
-    g16 g16 o3 g16 o4 d16 g16 g16 o3 f16 o4 c16 f16 f16 V76 e-16 b-16 o5 e-16 e-16 o4 e-16 b-16 o5 e-16 e-16 o4 f16
+    g16 g16 o3 g16 o4 d16 g16 g16 o3 f16 o4 c16 f16 f16 V44 e-16 b-16 o5 e-16 e-16 o4 e-16 b-16 o5 e-16 e-16 o4 f16
     o5 c16 f16 f16 o4 f16 o5 c16 f16 f16 o4 g16 o5 d16 g16 g16 o4 g16 o5 d16 g16 g16 o4 g16 o5 d16 g16 g16 o4 f16 o5
     c16 f16 f16 o4 e-16 b-16 o5 e-16 e-16 o4 e-16 b-16 o5 e-16 e-16 o4 f16 o5 c16 f16 f16 o4 f16 o5 c16 f16 f16 o4
     g16 o5 d16 g16 g16 o4 g16 o5 d16 g16 g16 o4 g16 o5 d16 g16 g16 o4 f16 o5 c16 f16 f16 o4 e-16 b-16 o5 e-16 e-16

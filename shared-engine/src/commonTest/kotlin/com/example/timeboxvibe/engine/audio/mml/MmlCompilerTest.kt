@@ -142,9 +142,9 @@ class MmlCompilerTest {
         assertEquals(ArrangementRouting.MML_LOGICAL_TRACKS, arrangement.routing)
         val program = requireNotNull(arrangement.compiledOpnaSong)
         assertEquals(2, program.dialectVersion)
-        assertEquals(3_152, program.eventCount)
+        assertEquals(3_864, program.eventCount)
         assertEquals(2_037, countEvents(program, CompiledOpnaSong.FM_NOTE))
-        assertEquals(710, countEvents(program, CompiledOpnaSong.SSG_NOTE))
+        assertEquals(1_422, countEvents(program, CompiledOpnaSong.SSG_NOTE))
         assertEquals(405, countEvents(program, CompiledOpnaSong.RHYTHM_SHOT))
         assertEquals(0L, program.startTick[0])
         assertEquals(240L, program.startTick[1])
@@ -172,8 +172,10 @@ class MmlCompilerTest {
         assertEvent(program, 919, 12_720L, 240, 74, OpnaPatchBank.FM_AT99, 200)
         assertEvent(program, 2_035, 96_000L, 1_440, 82, OpnaPatchBank.FM_AT99, 1_440)
         assertEvent(program, 2_036, 97_440L, 480, 82, OpnaPatchBank.FM_AT99, 480)
-        assertEvent(program, 2_171, 21_060L, 60, 66, OpnaPatchBank.SSG_SQUARE, 60)
-        assertEvent(program, 2_172, 21_480L, 240, 63, OpnaPatchBank.SSG_SQUARE, 240)
+        assertEvent(program, 2_171, 20_880L, 120, 66, OpnaPatchBank.SSG_SQUARE, 120)
+        assertEvent(program, 2_172, 21_000L, 120, 65, OpnaPatchBank.SSG_SQUARE, 120)
+        assertEvent(program, 2_883, 21_060L, 60, 66, OpnaPatchBank.SSG_SQUARE, 60)
+        assertEvent(program, 2_884, 21_480L, 240, 63, OpnaPatchBank.SSG_SQUARE, 240)
     }
 
     @Test

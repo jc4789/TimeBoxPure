@@ -172,6 +172,7 @@ def decode_pmd(channel_index):
     default_shift = 0
     part_loop = None
     tie = False
+    previous_midi = None
     events = []
     while tick < WINDOW_END:
         command = data[pointer]
@@ -179,8 +180,9 @@ def decode_pmd(channel_index):
         if command < 0x80:
             duration = data[pointer]
             pointer += 1
-            midi = pmd_pitch(command, shift, default_shift)
+            midi = previous_midi if command & 0x0F == 0x0C else pmd_pitch(command, shift, default_shift)
             if midi is not None:
+                previous_midi = midi
                 if events and tie and events[-1][2] == midi and events[-1][0] + events[-1][1] == tick:
                     previous = events[-1]
                     events[-1] = (previous[0], previous[1] + duration, midi, previous[3], False, previous[5], previous[6])
@@ -225,6 +227,11 @@ def decode_pmd(channel_index):
             volume = max(0, volume - (4 if channel_index < 6 else 1))
         elif command == 0xFC:
             pointer += 2 if data[pointer] >= 0xFB else 1
+        elif command == 0xC0:
+            special = data[pointer]
+            pointer += 1
+            if special >= 0xF5:
+                pointer += 1
         elif command == 0xF9:
             target = struct.unpack_from("<H", data, pointer)[0]
             data[target + 1] = 0
@@ -318,9 +325,9 @@ def pitch_text(midi):
 
 
 def scaled_volume(channel, pmd_volume):
-    if channel == "G":
+    if channel in "GHI":
         fine = (pmd_volume * 127 + 7) // 15
-        return fine * 64 // 100
+        return fine * 37 // 100
     return pmd_volume * 64 // 100
 
 
@@ -336,10 +343,11 @@ def append_span(tokens, ticks, note=None):
 
 def render_track(channel, source_channel):
     events = decode_pmd(source_channel)
-    tokens = ["@square"] if channel == "G" else []
+    is_ssg = channel in "GHI"
+    tokens = ["@square"] if is_ssg else []
     cursor = 0
     octave = None
-    patch = "square" if channel == "G" else None
+    patch = "square" if is_ssg else None
     volume = None
     gate_tail = None
     for event in events:
@@ -382,7 +390,7 @@ def render_track(channel, source_channel):
 def generated_production_tracks():
     return "\n\n".join(
         render_track(channel, source_channel)
-        for channel, source_channel in (("A", 0), ("B", 1), ("C", 2), ("D", 3), ("E", 4), ("G", 7))
+        for channel, source_channel in (("A", 0), ("B", 1), ("C", 2), ("D", 3), ("E", 4), ("G", 6), ("H", 7))
     )
 
 
@@ -411,7 +419,7 @@ def main():
         return
     tracks = production_tracks()
     failed = False
-    for channel, source_channel in (("A", 0), ("B", 1), ("C", 2), ("D", 3), ("E", 4), ("G", 7)):
+    for channel, source_channel in (("A", 0), ("B", 1), ("C", 2), ("D", 3), ("E", 4), ("G", 6), ("H", 7)):
         actual, total_ticks = parse_mml(tracks[channel])
         expected = decode_pmd(source_channel)
         mismatches = []
