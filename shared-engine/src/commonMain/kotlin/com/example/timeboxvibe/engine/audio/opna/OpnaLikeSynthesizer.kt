@@ -5,7 +5,7 @@ import com.example.timeboxvibe.engine.audio.midiToFreq
 import com.example.timeboxvibe.engine.SongEqBand
 
 class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
-    internal val mixer = OpnaMixer(sampleRate)
+    internal val mixer = OpnaMixer()
     private val ssgShared = SsgSharedState(sampleRate)
     val ssg: Array<SsgVoice> = Array(AudioLaws.SSG_CHANNELS) { SsgVoice(it, ssgShared, sampleRate) }
     val fm: Array<Fm4OpVoice> = Array(AudioLaws.FM_RENDER_VOICES) { Fm4OpVoice(sampleRate) }
@@ -19,6 +19,10 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private val fmActiveNoteId = IntArray(AudioLaws.FM_RENDER_VOICES) { FM_VOICE_FREE }
     private val ssgActiveNoteId = IntArray(AudioLaws.SSG_CHANNELS) { -1 }
     private val fm3ActiveNoteId = IntArray(AudioLaws.FM_OPERATORS) { -1 }
+    private var rhythmMasterLevel = RHYTHM_DEFAULT_MASTER_LEVEL
+    private val rhythmVoiceLevel = IntArray(RHYTHM_VOICE_COUNT) { RHYTHM_DEFAULT_VOICE_LEVEL }
+    private val rhythmVoicePan = IntArray(RHYTHM_VOICE_COUNT)
+    private var ssgDrumTriggerCount = 0
     private val tempMonoBuffer = FloatArray(sampleRate)
 
     private var filterStateL: Float = 0f
@@ -28,6 +32,11 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     var filterAlpha: Float = 0.50f
     var enableOutputFilter: Boolean = true
     var enableStereoResonator: Boolean = false
+    var outputProfile: OpnaOutputProfile = OpnaOutputProfile.TIMEBOX_LEGACY
+        set(value) {
+            field = value
+            mixer.applyProfile(value)
+        }
 
     init {
         OpnLogTables.warmUp()
@@ -112,7 +121,52 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         }
     }
 
+    internal fun rhythmShot(mask: Int) {
+        var voice = 0
+        while (voice < RHYTHM_VOICE_COUNT) {
+            if ((mask and (1 shl voice)) != 0) {
+                val kind = rhythmDrumKind(voice)
+                refreshRhythmGain(voice)
+                drums.setPan(kind, rhythmVoicePan[voice])
+                triggerRhythmKind(kind)
+            }
+            voice++
+        }
+    }
+
+    internal fun rhythmDump(mask: Int) {
+        var voice = 0
+        while (voice < RHYTHM_VOICE_COUNT) {
+            if ((mask and (1 shl voice)) != 0) drums.dump(rhythmDrumKind(voice))
+            voice++
+        }
+    }
+
+    internal fun setRhythmMasterLevel(value: Int, relative: Boolean) {
+        rhythmMasterLevel = if (relative) (rhythmMasterLevel + value).coerceIn(0, 63) else value.coerceIn(0, 63)
+        refreshRhythmGains()
+    }
+
+    internal fun setRhythmVoiceLevel(voice: Int, value: Int, relative: Boolean) {
+        if (voice !in rhythmVoiceLevel.indices) return
+        rhythmVoiceLevel[voice] = if (relative) (rhythmVoiceLevel[voice] + value).coerceIn(0, 31) else value.coerceIn(0, 31)
+        refreshRhythmGain(voice)
+    }
+
+    internal fun setRhythmVoicePan(voice: Int, pan: Int) {
+        if (voice !in rhythmVoicePan.indices) return
+        rhythmVoicePan[voice] = pan.coerceIn(0, 2)
+        drums.setPan(rhythmDrumKind(voice), rhythmVoicePan[voice])
+    }
+
+    internal fun rhythmMasterLevelSnapshot(): Int = rhythmMasterLevel
+    internal fun rhythmVoiceLevelSnapshot(voice: Int): Int = rhythmVoiceLevel[voice.coerceIn(0, rhythmVoiceLevel.lastIndex)]
+    internal fun rhythmVoicePanSnapshot(voice: Int): Int = rhythmVoicePan[voice.coerceIn(0, rhythmVoicePan.lastIndex)]
+
+    internal fun ssgDrumTriggerCountSnapshot(): Int = ssgDrumTriggerCount
+
     fun allNotesOff() {
+        ssgShared.reset()
         var i = 0
         while (i < ssg.size) {
             ssg[i].reset()
@@ -126,7 +180,6 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             i++
         }
         drums.stopAll()
-        ssgShared.reset()
         i = 0
         while (i < fm3ActiveNoteId.size) {
             fm3ActiveNoteId[i] = -1
@@ -135,6 +188,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     }
 
     fun reset() {
+        ssgShared.reset()
         var i = 0
         while (i < ssg.size) {
             ssg[i].reset()
@@ -148,7 +202,8 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             i++
         }
         drums.reset()
-        ssgShared.reset()
+        resetRhythmControls()
+        ssgDrumTriggerCount = 0
         i = 0
         while (i < fm3ActiveNoteId.size) {
             fm3ActiveNoteId[i] = -1
@@ -198,6 +253,22 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         applyGainAndClamp(buffer, frames)
     }
 
+    fun render(buffer: FloatArray, frames: Int, player: CompiledOpnaPlayer, currentSampleOffset: Long) {
+        buffer.fill(0f)
+        var offset = 0
+        var remaining = frames
+        var sampleOffset = currentSampleOffset
+        while (remaining > 0) {
+            val chunkFrames = minOf(remaining, MAX_FRAMES_PER_CHUNK)
+            player.renderMono(this, buffer, offset, chunkFrames, sampleOffset)
+            offset += chunkFrames
+            remaining -= chunkFrames
+            sampleOffset += chunkFrames
+        }
+        masterEq.processMono(buffer, frames)
+        applyGainAndClamp(buffer, frames)
+    }
+
     fun renderStereo(stereoBuffer: FloatArray, frames: Int) {
         stereoBuffer.fill(0f)
         var offset = 0
@@ -233,11 +304,38 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         applyGainAndClampStereo(stereoBuffer, frames)
     }
 
+    fun renderStereo(
+        stereoBuffer: FloatArray,
+        frames: Int,
+        player: CompiledOpnaPlayer,
+        currentSampleOffset: Long
+    ) {
+        stereoBuffer.fill(0f)
+        var offset = 0
+        var remaining = frames
+        var sampleOffset = currentSampleOffset
+        while (remaining > 0) {
+            val chunkFrames = minOf(remaining, MAX_FRAMES_PER_CHUNK)
+            player.renderStereo(this, stereoBuffer, offset, chunkFrames, sampleOffset)
+            offset += chunkFrames
+            remaining -= chunkFrames
+            sampleOffset += chunkFrames
+        }
+        if (enableStereoResonator) stereoResonator.process(stereoBuffer, frames)
+        masterEq.processStereo(stereoBuffer, frames)
+        applyGainAndClampStereo(stereoBuffer, frames)
+    }
+
     private fun renderSegment(buffer: FloatArray, startFrame: Int, frames: Int) {
         if (frames <= 0) return
         lfo.prepare(frames)
-        ssgShared.prepare(frames)
         var i = 0
+        while (i < ssg.size) {
+            ssg[i].prepareSoftwareLfo(frames)
+            i++
+        }
+        ssgShared.prepare(frames)
+        i = 0
         while (i < ssg.size) {
             ssg[i].render(buffer, frames, sampleRate, mixer.ssgGain, startFrame, sharedPrepared = true)
             i++
@@ -253,9 +351,14 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private fun renderStereoSegment(stereoBuffer: FloatArray, startFrame: Int, frames: Int) {
         if (frames <= 0) return
         lfo.prepare(frames)
+        var i = 0
+        while (i < ssg.size) {
+            ssg[i].prepareSoftwareLfo(frames)
+            i++
+        }
         ssgShared.prepare(frames)
 
-        var i = 0
+        i = 0
         while (i < ssg.size) {
             ensureTempBuffer(frames)
             tempMonoBuffer.fill(0f, 0, frames)
@@ -275,6 +378,14 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         }
 
         drums.renderStereo(stereoBuffer, frames, sampleRate, mixer.rhythmGain, startFrame)
+    }
+
+    internal fun renderTimelineMonoSegment(buffer: FloatArray, startFrame: Int, frames: Int) {
+        renderSegment(buffer, startFrame, frames)
+    }
+
+    internal fun renderTimelineStereoSegment(buffer: FloatArray, startFrame: Int, frames: Int) {
+        renderStereoSegment(buffer, startFrame, frames)
     }
 
     private fun ensureTempBuffer(frames: Int) {
@@ -301,8 +412,8 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                 rightGain = 1f
             }
             else -> {
-                leftGain = 0.707f
-                rightGain = 0.707f
+                leftGain = 1f
+                rightGain = 1f
             }
         }
         var i = 0
@@ -464,7 +575,6 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                     val selectedPatch = event.ssgPatch
                     if (selectedPatch != null) voice.applyPatch(selectedPatch)
                     voice.setPan(event.pan)
-                    voice.duty = event.duty
                     val frequency = OpnPitch.applyCents(midiToFreq(event.midi), event.detuneCents)
                     voice.setPitchRamp(
                         if (event.targetMidi >= 0) OpnPitch.applyCents(midiToFreq(event.targetMidi), event.detuneCents) else 0f,
@@ -483,10 +593,46 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                 }
             }
             SequencerEvent.DRUM -> triggerDrum(event.midi, event.velocity, event.pan)
-            SequencerEvent.FM3_OPERATOR_ON -> {
-                val op = event.operator.coerceIn(0, AudioLaws.FM_OPERATORS - 1)
+            SequencerEvent.SSG_DRUM -> {
+                ssgDrumTriggerCount++
+                triggerDrum(event.midi, event.velocity, 0)
+            }
+            in SequencerEvent.FM_SLOT_DETUNE_ABSOLUTE..SequencerEvent.FM_SLOT_KEY_ON_DELAY -> {
+                if (event.channel in fm.indices) {
+                    val voice = fm[event.channel]
+                    when (event.type) {
+                        SequencerEvent.FM_SLOT_DETUNE_ABSOLUTE -> voice.setSlotDetune(event.slotMask, event.controlValue, false)
+                        SequencerEvent.FM_SLOT_DETUNE_RELATIVE -> voice.setSlotDetune(event.slotMask, event.controlValue, true)
+                        SequencerEvent.FM_TL_ABSOLUTE -> voice.setOperatorTl(event.slotMask, event.controlValue, false)
+                        SequencerEvent.FM_TL_RELATIVE -> voice.setOperatorTl(event.slotMask, event.controlValue, true)
+                        SequencerEvent.FM_FEEDBACK_ABSOLUTE -> voice.setFeedback(event.controlValue, false)
+                        SequencerEvent.FM_FEEDBACK_RELATIVE -> voice.setFeedback(event.controlValue, true)
+                        SequencerEvent.FM_SLOT_KEY_ON_DELAY -> voice.setSlotKeyOnDelay(event.slotMask, event.controlValue)
+                    }
+                }
+            }
+            SequencerEvent.FM3_PATCH -> {
                 val selectedPatch = event.patch
-                if (selectedPatch != null) fm[2].applyPatch(selectedPatch)
+                if (selectedPatch != null) fm[2].applyPatchToSlots(selectedPatch, event.slotMask)
+            }
+            in SequencerEvent.SOFTWARE_LFO_DEFINE..SequencerEvent.SOFTWARE_LFO_DEPTH -> {
+                handleSequencerSoftwareLfoControl(event)
+            }
+            in SequencerEvent.RHYTHM_CONTROL_SHOT..SequencerEvent.RHYTHM_VOICE_PAN -> {
+                when (event.type) {
+                    SequencerEvent.RHYTHM_CONTROL_SHOT -> rhythmShot(event.slotMask)
+                    SequencerEvent.RHYTHM_CONTROL_DUMP -> rhythmDump(event.slotMask)
+                    SequencerEvent.RHYTHM_MASTER_ABSOLUTE -> setRhythmMasterLevel(event.controlValue, false)
+                    SequencerEvent.RHYTHM_MASTER_RELATIVE -> setRhythmMasterLevel(event.controlValue, true)
+                    SequencerEvent.RHYTHM_VOICE_LEVEL_ABSOLUTE -> setRhythmVoiceLevel(event.channel, event.controlValue, false)
+                    SequencerEvent.RHYTHM_VOICE_LEVEL_RELATIVE -> setRhythmVoiceLevel(event.channel, event.controlValue, true)
+                    SequencerEvent.RHYTHM_VOICE_PAN -> setRhythmVoicePan(event.channel, event.controlValue)
+                }
+            }
+            SequencerEvent.FM3_OPERATOR_ON -> {
+                val mask = event.slotMask and 15
+                val selectedPatch = event.patch
+                if (selectedPatch != null && event.operator < 0) fm[2].applyPatchToSlots(selectedPatch, mask)
                 fm[2].setPerformanceControls(
                     event.pan,
                     event.detuneCents,
@@ -496,17 +642,372 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                     -1,
                     0
                 )
-                fm[2].noteOnOperator(op, event.midi, event.targetMidi, event.slideFrames)
+                fm[2].noteOnSlots(mask, event.midi, event.targetMidi, event.slideFrames, event.detuneCents)
                 fm[2].noteGain = event.velocity
-                fm3ActiveNoteId[op] = event.noteId
-            }
-            SequencerEvent.FM3_OPERATOR_OFF -> {
-                val op = event.operator.coerceIn(0, AudioLaws.FM_OPERATORS - 1)
-                if (fm3ActiveNoteId[op] == event.noteId) {
-                    fm[2].noteOffOperator(op)
-                    fm3ActiveNoteId[op] = -1
+                var op = 0
+                while (op < AudioLaws.FM_OPERATORS) {
+                    if ((mask and (1 shl op)) != 0) fm3ActiveNoteId[op] = event.noteId
+                    op++
                 }
             }
+            SequencerEvent.FM3_OPERATOR_OFF -> {
+                val mask = event.slotMask and 15
+                var releaseMask = 0
+                var op = 0
+                while (op < AudioLaws.FM_OPERATORS) {
+                    if ((mask and (1 shl op)) != 0 && fm3ActiveNoteId[op] == event.noteId) {
+                        releaseMask = releaseMask or (1 shl op)
+                        fm3ActiveNoteId[op] = -1
+                    }
+                    op++
+                }
+                fm[2].noteOffSlots(releaseMask)
+            }
+        }
+    }
+
+    internal fun handleTimelineEvent(timeline: CompiledOpnaTimeline, index: Int) {
+        when (timeline.eventType[index]) {
+            CompiledOpnaTimeline.TEMPO -> {
+                val bpmMilli = timeline.controlValues[index * CompiledOpnaTimeline.CONTROL_STRIDE]
+                var channel = 0
+                while (channel < ssg.size) {
+                    ssg[channel].setSoftwareEnvelopeTempo(bpmMilli, timeline.pmdClocksPerQuarter)
+                    ssg[channel].setSoftwareLfoTempo(bpmMilli, timeline.pmdClocksPerQuarter)
+                    channel++
+                }
+                channel = 0
+                while (channel < fm.size) {
+                    fm[channel].setSoftwareLfoTempo(bpmMilli, timeline.pmdClocksPerQuarter)
+                    channel++
+                }
+            }
+            CompiledOpnaTimeline.SSG_ENVELOPE_DEFINE -> {
+                val channel = timeline.channel[index]
+                if (channel >= 0 && channel < ssg.size) {
+                    val base = index * CompiledOpnaTimeline.CONTROL_STRIDE
+                    ssg[channel].configureSoftwareEnvelope(
+                        timeline.controlValues[base],
+                        timeline.controlValues[base + 1],
+                        timeline.controlValues[base + 2],
+                        timeline.controlValues[base + 3],
+                        timeline.controlValues[base + 4],
+                        timeline.controlValues[base + 5],
+                        timeline.controlValues[base + 6]
+                    )
+                }
+            }
+            CompiledOpnaTimeline.SSG_ENVELOPE_MODE -> {
+                val channel = timeline.channel[index]
+                if (channel >= 0 && channel < ssg.size) {
+                    ssg[channel].setSoftwareEnvelopeClockMode(
+                        timeline.controlValues[index * CompiledOpnaTimeline.CONTROL_STRIDE]
+                    )
+                }
+            }
+            in CompiledOpnaTimeline.SOFTWARE_LFO_DEFINE..CompiledOpnaTimeline.SOFTWARE_LFO_DEPTH -> {
+                handleSoftwareLfoControl(timeline, index)
+            }
+            in CompiledOpnaTimeline.FM_SLOT_DETUNE_ABSOLUTE..CompiledOpnaTimeline.FM_SLOT_KEY_ON_DELAY -> {
+                handleFmSlotControl(timeline, index)
+            }
+            CompiledOpnaTimeline.FM3_PATCH -> {
+                val patch = OpnaPatchBank.fmPatch(timeline.patchId[index])
+                if (patch != null) fm[2].applyPatchToSlots(patch, timeline.slotMask[index])
+            }
+            in CompiledOpnaTimeline.RHYTHM_CONTROL_SHOT..CompiledOpnaTimeline.RHYTHM_VOICE_PAN -> {
+                handleRhythmControl(
+                    timeline.eventType[index], timeline.channel[index], timeline.slotMask[index],
+                    timeline.controlValues[index * CompiledOpnaTimeline.CONTROL_STRIDE]
+                )
+            }
+            CompiledOpnaTimeline.FM_ON -> {
+                val channel = timeline.channel[index]
+                if (channel >= 0 && channel < fm.size) {
+                    val voice = fm[channel]
+                    val patch = OpnaPatchBank.fmPatch(timeline.patchId[index])
+                    if (patch != null) voice.applyPatch(patch)
+                    voice.setPerformanceControls(
+                        timeline.pan[index],
+                        timeline.detuneCents[index],
+                        timeline.pms[index],
+                        timeline.ams[index],
+                        timeline.lfoDelayFrames[index],
+                        timeline.targetMidi[index],
+                        timeline.slideFrames[index]
+                    )
+                    voice.noteOnScheduled(timeline.midi[index], -1f, -1f, -1f, -1f)
+                    voice.noteGain = timeline.velocity[index]
+                    fmActiveNoteId[channel] = timeline.noteId[index]
+                }
+            }
+            CompiledOpnaTimeline.FM_OFF -> {
+                val channel = timeline.channel[index]
+                if (channel >= 0 && channel < fm.size &&
+                    fmActiveNoteId[channel] == timeline.noteId[index]
+                ) {
+                    fm[channel].noteOff()
+                    fmActiveNoteId[channel] = FM_VOICE_FREE
+                }
+            }
+            CompiledOpnaTimeline.FM_POLY_ON -> {
+                val voiceIndex = availablePolyVoice(timeline.channel[index])
+                if (voiceIndex >= 0) {
+                    val voice = fm[voiceIndex]
+                    val patch = OpnaPatchBank.fmPatch(timeline.patchId[index])
+                    if (patch != null) voice.applyPatch(patch)
+                    voice.setPerformanceControls(
+                        timeline.pan[index],
+                        timeline.detuneCents[index],
+                        timeline.pms[index],
+                        timeline.ams[index],
+                        timeline.lfoDelayFrames[index],
+                        -1,
+                        0
+                    )
+                    voice.noteOnScheduled(timeline.midi[index], -1f, -1f, -1f, -1f)
+                    voice.noteGain = timeline.velocity[index]
+                    fmActiveNoteId[voiceIndex] = timeline.noteId[index]
+                }
+            }
+            CompiledOpnaTimeline.FM_POLY_OFF -> {
+                var voiceIndex = 0
+                while (voiceIndex < fmActiveNoteId.size) {
+                    if (fmActiveNoteId[voiceIndex] == timeline.noteId[index]) {
+                        fm[voiceIndex].noteOff()
+                        fmActiveNoteId[voiceIndex] = FM_VOICE_RELEASING
+                        break
+                    }
+                    voiceIndex++
+                }
+            }
+            CompiledOpnaTimeline.SSG_ON -> {
+                val channel = timeline.channel[index]
+                if (channel >= 0 && channel < ssg.size) {
+                    val voice = ssg[channel]
+                    val patch = OpnaPatchBank.ssgPatch(timeline.patchId[index])
+                    if (patch != null) voice.applyPatch(patch)
+                    voice.setPan(timeline.pan[index])
+                    val frequency = OpnPitch.applyCents(
+                        midiToFreq(timeline.midi[index]),
+                        timeline.detuneCents[index]
+                    )
+                    voice.setPitchRamp(
+                        if (timeline.targetMidi[index] >= 0) {
+                            OpnPitch.applyCents(
+                                midiToFreq(timeline.targetMidi[index]),
+                                timeline.detuneCents[index]
+                            )
+                        } else {
+                            0f
+                        },
+                        timeline.slideFrames[index]
+                    )
+                    voice.noteOn(frequency)
+                    voice.noteGain = timeline.velocity[index]
+                    ssgActiveNoteId[channel] = timeline.noteId[index]
+                }
+            }
+            CompiledOpnaTimeline.SSG_OFF -> {
+                val channel = timeline.channel[index]
+                if (channel >= 0 && channel < ssg.size &&
+                    ssgActiveNoteId[channel] == timeline.noteId[index]
+                ) {
+                    ssg[channel].noteOff()
+                    ssgActiveNoteId[channel] = -1
+                }
+            }
+            CompiledOpnaTimeline.DRUM_SHOT -> triggerDrum(
+                timeline.midi[index],
+                timeline.velocity[index],
+                timeline.pan[index]
+            )
+            CompiledOpnaTimeline.SSG_DRUM_SHOT -> {
+                ssgDrumTriggerCount++
+                triggerDrum(timeline.midi[index], timeline.velocity[index], timeline.pan[index])
+            }
+            CompiledOpnaTimeline.FM3_OPERATOR_ON -> {
+                val mask = timeline.slotMask[index] and 15
+                val patch = OpnaPatchBank.fmPatch(timeline.patchId[index])
+                if (patch != null && timeline.operator[index] < 0) fm[2].applyPatchToSlots(patch, mask)
+                fm[2].setPerformanceControls(
+                    timeline.pan[index],
+                    timeline.detuneCents[index],
+                    timeline.pms[index],
+                    timeline.ams[index],
+                    timeline.lfoDelayFrames[index],
+                    -1,
+                    0
+                )
+                fm[2].noteOnSlots(
+                    mask,
+                    timeline.midi[index],
+                    timeline.targetMidi[index],
+                    timeline.slideFrames[index],
+                    timeline.detuneCents[index]
+                )
+                fm[2].noteGain = timeline.velocity[index]
+                var operator = 0
+                while (operator < AudioLaws.FM_OPERATORS) {
+                    if ((mask and (1 shl operator)) != 0) fm3ActiveNoteId[operator] = timeline.noteId[index]
+                    operator++
+                }
+            }
+            CompiledOpnaTimeline.FM3_OPERATOR_OFF -> {
+                val mask = timeline.slotMask[index] and 15
+                var releaseMask = 0
+                var operator = 0
+                while (operator < AudioLaws.FM_OPERATORS) {
+                    if ((mask and (1 shl operator)) != 0 && fm3ActiveNoteId[operator] == timeline.noteId[index]) {
+                        releaseMask = releaseMask or (1 shl operator)
+                        fm3ActiveNoteId[operator] = -1
+                    }
+                    operator++
+                }
+                fm[2].noteOffSlots(releaseMask)
+            }
+        }
+    }
+
+    private fun handleSoftwareLfoControl(timeline: CompiledOpnaTimeline, eventIndex: Int) {
+        val channel = timeline.channel[eventIndex]
+        val family = timeline.operator[eventIndex]
+        val base = eventIndex * CompiledOpnaTimeline.CONTROL_STRIDE
+        val lfoIndex = timeline.controlValues[base]
+        if (family == 0 && channel in fm.indices) {
+            val voice = fm[channel]
+            when (timeline.eventType[eventIndex]) {
+                CompiledOpnaTimeline.SOFTWARE_LFO_DEFINE -> voice.configureSoftwareLfo(
+                    lfoIndex, timeline.controlValues[base + 1], timeline.controlValues[base + 2],
+                    timeline.controlValues[base + 3], timeline.controlValues[base + 4]
+                )
+                CompiledOpnaTimeline.SOFTWARE_LFO_SWITCH -> voice.setSoftwareLfoSwitch(lfoIndex, timeline.controlValues[base + 1])
+                CompiledOpnaTimeline.SOFTWARE_LFO_WAVE -> voice.setSoftwareLfoWaveform(lfoIndex, timeline.controlValues[base + 1])
+                CompiledOpnaTimeline.SOFTWARE_LFO_CLOCK -> voice.setSoftwareLfoClockMode(lfoIndex, timeline.controlValues[base + 1])
+                CompiledOpnaTimeline.SOFTWARE_LFO_TL_MASK -> voice.setSoftwareLfoTlMask(lfoIndex, timeline.controlValues[base + 1])
+                CompiledOpnaTimeline.SOFTWARE_LFO_DEPTH -> voice.setSoftwareLfoDepthEvolution(
+                    lfoIndex, timeline.controlValues[base + 1], timeline.controlValues[base + 2],
+                    timeline.controlValues[base + 3]
+                )
+            }
+        } else if (family == 1 && channel in ssg.indices) {
+            val voice = ssg[channel]
+            when (timeline.eventType[eventIndex]) {
+                CompiledOpnaTimeline.SOFTWARE_LFO_DEFINE -> voice.configureSoftwareLfo(
+                    lfoIndex, timeline.controlValues[base + 1], timeline.controlValues[base + 2],
+                    timeline.controlValues[base + 3], timeline.controlValues[base + 4]
+                )
+                CompiledOpnaTimeline.SOFTWARE_LFO_SWITCH -> voice.setSoftwareLfoSwitch(lfoIndex, timeline.controlValues[base + 1])
+                CompiledOpnaTimeline.SOFTWARE_LFO_WAVE -> voice.setSoftwareLfoWaveform(lfoIndex, timeline.controlValues[base + 1])
+                CompiledOpnaTimeline.SOFTWARE_LFO_CLOCK -> voice.setSoftwareLfoClockMode(lfoIndex, timeline.controlValues[base + 1])
+                CompiledOpnaTimeline.SOFTWARE_LFO_DEPTH -> voice.setSoftwareLfoDepthEvolution(
+                    lfoIndex, timeline.controlValues[base + 1], timeline.controlValues[base + 2],
+                    timeline.controlValues[base + 3]
+                )
+            }
+        }
+    }
+
+    private fun handleSequencerSoftwareLfoControl(event: SequencerEvent) {
+        if (event.operator == 0 && event.channel in fm.indices) {
+            val voice = fm[event.channel]
+            when (event.type) {
+                SequencerEvent.SOFTWARE_LFO_DEFINE -> voice.configureSoftwareLfo(
+                    event.midi, event.controlValue, event.controlValue2, event.controlValue3, event.controlValue4
+                )
+                SequencerEvent.SOFTWARE_LFO_SWITCH -> voice.setSoftwareLfoSwitch(event.midi, event.controlValue)
+                SequencerEvent.SOFTWARE_LFO_WAVE -> voice.setSoftwareLfoWaveform(event.midi, event.controlValue)
+                SequencerEvent.SOFTWARE_LFO_CLOCK -> voice.setSoftwareLfoClockMode(event.midi, event.controlValue)
+                SequencerEvent.SOFTWARE_LFO_TL_MASK -> voice.setSoftwareLfoTlMask(event.midi, event.controlValue)
+                SequencerEvent.SOFTWARE_LFO_DEPTH -> voice.setSoftwareLfoDepthEvolution(
+                    event.midi, event.controlValue, event.controlValue2, event.controlValue3
+                )
+            }
+        } else if (event.operator == 1 && event.channel in ssg.indices) {
+            val voice = ssg[event.channel]
+            when (event.type) {
+                SequencerEvent.SOFTWARE_LFO_DEFINE -> voice.configureSoftwareLfo(
+                    event.midi, event.controlValue, event.controlValue2, event.controlValue3, event.controlValue4
+                )
+                SequencerEvent.SOFTWARE_LFO_SWITCH -> voice.setSoftwareLfoSwitch(event.midi, event.controlValue)
+                SequencerEvent.SOFTWARE_LFO_WAVE -> voice.setSoftwareLfoWaveform(event.midi, event.controlValue)
+                SequencerEvent.SOFTWARE_LFO_CLOCK -> voice.setSoftwareLfoClockMode(event.midi, event.controlValue)
+                SequencerEvent.SOFTWARE_LFO_DEPTH -> voice.setSoftwareLfoDepthEvolution(
+                    event.midi, event.controlValue, event.controlValue2, event.controlValue3
+                )
+            }
+        }
+    }
+
+    private fun handleFmSlotControl(timeline: CompiledOpnaTimeline, eventIndex: Int) {
+        val channel = timeline.channel[eventIndex]
+        if (channel !in fm.indices) return
+        val voice = fm[channel]
+        val mask = timeline.slotMask[eventIndex] and 15
+        val value = timeline.controlValues[eventIndex * CompiledOpnaTimeline.CONTROL_STRIDE]
+        when (timeline.eventType[eventIndex]) {
+            CompiledOpnaTimeline.FM_SLOT_DETUNE_ABSOLUTE -> voice.setSlotDetune(mask, value, relative = false)
+            CompiledOpnaTimeline.FM_SLOT_DETUNE_RELATIVE -> voice.setSlotDetune(mask, value, relative = true)
+            CompiledOpnaTimeline.FM_TL_ABSOLUTE -> voice.setOperatorTl(mask, value, relative = false)
+            CompiledOpnaTimeline.FM_TL_RELATIVE -> voice.setOperatorTl(mask, value, relative = true)
+            CompiledOpnaTimeline.FM_FEEDBACK_ABSOLUTE -> voice.setFeedback(value, relative = false)
+            CompiledOpnaTimeline.FM_FEEDBACK_RELATIVE -> voice.setFeedback(value, relative = true)
+            CompiledOpnaTimeline.FM_SLOT_KEY_ON_DELAY -> voice.setSlotKeyOnDelay(mask, value)
+        }
+    }
+
+    private fun handleRhythmControl(type: Int, voice: Int, mask: Int, value: Int) {
+        when (type) {
+            CompiledOpnaTimeline.RHYTHM_CONTROL_SHOT -> rhythmShot(mask)
+            CompiledOpnaTimeline.RHYTHM_CONTROL_DUMP -> rhythmDump(mask)
+            CompiledOpnaTimeline.RHYTHM_MASTER_ABSOLUTE -> setRhythmMasterLevel(value, false)
+            CompiledOpnaTimeline.RHYTHM_MASTER_RELATIVE -> setRhythmMasterLevel(value, true)
+            CompiledOpnaTimeline.RHYTHM_VOICE_LEVEL_ABSOLUTE -> setRhythmVoiceLevel(voice, value, false)
+            CompiledOpnaTimeline.RHYTHM_VOICE_LEVEL_RELATIVE -> setRhythmVoiceLevel(voice, value, true)
+            CompiledOpnaTimeline.RHYTHM_VOICE_PAN -> setRhythmVoicePan(voice, value)
+        }
+    }
+
+    private fun resetRhythmControls() {
+        rhythmMasterLevel = RHYTHM_DEFAULT_MASTER_LEVEL
+        var voice = 0
+        while (voice < RHYTHM_VOICE_COUNT) {
+            rhythmVoiceLevel[voice] = RHYTHM_DEFAULT_VOICE_LEVEL
+            rhythmVoicePan[voice] = 0
+            voice++
+        }
+    }
+
+    private fun refreshRhythmGains() {
+        var voice = 0
+        while (voice < RHYTHM_VOICE_COUNT) {
+            refreshRhythmGain(voice)
+            voice++
+        }
+    }
+
+    private fun refreshRhythmGain(voice: Int) {
+        val gain = rhythmMasterLevel.toFloat() / 63f * rhythmVoiceLevel[voice].toFloat() / 31f
+        drums.setGain(rhythmDrumKind(voice), gain)
+    }
+
+    private fun rhythmDrumKind(voice: Int): ProceduralDrums.DrumKind = when (voice) {
+        0 -> ProceduralDrums.DrumKind.KICK
+        1 -> ProceduralDrums.DrumKind.SNARE
+        2 -> ProceduralDrums.DrumKind.CYMBAL
+        3 -> ProceduralDrums.DrumKind.HAT
+        4 -> ProceduralDrums.DrumKind.TOM
+        else -> ProceduralDrums.DrumKind.RIMSHOT
+    }
+
+    private fun triggerRhythmKind(kind: ProceduralDrums.DrumKind) {
+        when (kind) {
+            ProceduralDrums.DrumKind.KICK -> drums.triggerKick()
+            ProceduralDrums.DrumKind.SNARE -> drums.triggerSnare()
+            ProceduralDrums.DrumKind.CYMBAL -> drums.triggerCymbal()
+            ProceduralDrums.DrumKind.HAT -> drums.triggerHat()
+            ProceduralDrums.DrumKind.TOM -> drums.triggerTom(150f)
+            ProceduralDrums.DrumKind.RIMSHOT -> drums.triggerRimshot()
         }
     }
 
@@ -641,6 +1142,9 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     }
 
     companion object {
+        private const val RHYTHM_VOICE_COUNT = 6
+        private const val RHYTHM_DEFAULT_MASTER_LEVEL = 48
+        private const val RHYTHM_DEFAULT_VOICE_LEVEL = 31
         private const val FM_VOICE_FREE = -1
         private const val FM_VOICE_RELEASING = -2
         const val MAX_FRAMES_PER_CHUNK = 1024

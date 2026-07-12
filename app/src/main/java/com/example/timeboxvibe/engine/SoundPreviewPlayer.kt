@@ -11,7 +11,6 @@ import com.example.timeboxvibe.engine.SongCatalog
 import com.example.timeboxvibe.engine.SongPlayback
 import com.example.timeboxvibe.engine.audio.mml.MmlArrangementScheduler
 import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
-import com.example.timeboxvibe.engine.audio.opna.OpnaSequencer
 import kotlin.math.exp
 import kotlin.math.sin
 
@@ -172,7 +171,6 @@ object SoundPreviewPlayer {
             val chunkSize = 1024
 
             val synth = OpnaLikeSynthesizer(sampleRate)
-            val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
 
             synth.enableOutputFilter = true
             synth.configureMasterEq(arrangement.eqBands)
@@ -182,8 +180,7 @@ object SoundPreviewPlayer {
                 i++
             }
 
-            MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
-            sequencer.sortEvents()
+            val player = MmlArrangementScheduler.createPlayer(arrangement, synth, sampleRate)
 
             val compiled = requireNotNull(arrangement.compiledOpnaSong) {
                 "Catalog playback requires the unified MML event program"
@@ -241,7 +238,7 @@ object SoundPreviewPlayer {
             val floatBuffer = FloatArray(chunkSize)
             val shortBuffer = ShortArray(chunkSize)
             var currentSampleOffset = 0L
-            val songLenSamples = sequencer.loopLengthSamples()
+            val songLenSamples = player.loopLengthSamples
             var lastUnderrunCount = 0
 
             try {
@@ -266,7 +263,7 @@ object SoundPreviewPlayer {
                             framesRemaining
                         }
 
-                        synth.render(floatBuffer, framesToRender, sequencer, renderOffset)
+                        synth.render(floatBuffer, framesToRender, player, renderOffset)
 
                         var k = 0
                         while (k < framesToRender) {
@@ -279,8 +276,7 @@ object SoundPreviewPlayer {
                         framesFilled += framesToRender
                         renderOffset += framesToRender
                         if (looping && renderOffset == songLenSamples) {
-                            sequencer.resetPlaybackCursor()
-                            synth.allNotesOff()
+                            player.reset(synth)
                             renderOffset = 0L
                         }
                     }

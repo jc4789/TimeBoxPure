@@ -1,5 +1,7 @@
 package com.example.timeboxvibe.engine.audio
 
+import kotlin.math.pow
+
 internal object AudioLaws {
     const val FM_CHANNELS: Int = 6
     // Authored polyphonic chords retain the six OPNA control parts while using
@@ -13,6 +15,9 @@ internal object AudioLaws {
     // and resonant field instead of occupying the whole spectral foreground.
     const val FM_BUS_GAIN: Float = 0.86f
     const val SSG_GAIN_DB: Float = -6f
+    val SSG_LEGACY_BUS_GAIN: Float = 10f.pow(SSG_GAIN_DB / 20f)
+    // Initial PC-9801-86 analog-balance hypothesis; selectable, never song-selected.
+    const val PC9801_86_SSG_TO_FM_RATIO: Float = 0.25f
     // Keeps simultaneous kick/snare/hat below the chip output knee at legal velocity.
     const val RHYTHM_BUS_GAIN: Float = 0.40f
     // Fixed chip summing reserve before the unchanged application master gain.

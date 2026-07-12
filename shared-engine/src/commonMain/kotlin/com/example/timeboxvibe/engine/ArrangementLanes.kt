@@ -17,7 +17,7 @@ data class SongEqBand(
     val q: Float
 )
 
-/** Metadata wrapper for the one fixed-capacity MML event program. */
+/** Metadata wrapper for one exact-size authored MML event program. */
 data class ArrangementLanes(
     val tempoBpm: Float,
     val keyRootMidi: Int,

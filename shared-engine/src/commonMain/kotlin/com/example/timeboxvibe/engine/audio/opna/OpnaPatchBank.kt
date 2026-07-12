@@ -1,5 +1,7 @@
 package com.example.timeboxvibe.engine.audio.opna
 
+import com.example.timeboxvibe.engine.audio.mml.LogoSongPatchBank
+
 /** Curated, named instruments for authored OPNA music. */
 object OpnaPatchBank {
     const val FM_AT54 = 0
@@ -15,6 +17,7 @@ object OpnaPatchBank {
     const val FM_PIANO = 10
     const val FM_STRINGS = 11
     const val FM_EFFECT = 12
+    const val FM_LOGO_AT79 = 13
 
     const val SSG_SQUARE = 32
     const val SSG_LEAD = 33
@@ -22,6 +25,8 @@ object OpnaPatchBank {
     const val SSG_NOISE = 35
     const val SSG_ENVELOPE = 36
     const val SSG_LLS_SQUARE = 37
+    const val SSG_NOISE_SLOW = 38
+    const val SSG_ENVELOPE_ALT = 39
 
     val Pc98Brass = FmPatch(
         algorithm = 4, feedback = 4,
@@ -64,16 +69,9 @@ object OpnaPatchBank {
     private val Bass = SsgPatch(fixedLevel = 12)
     private val Noise = SsgPatch(toneEnabled = false, noiseEnabled = true, fixedLevel = 10, noisePeriod = 8)
     private val Envelope = SsgPatch(fixedLevel = 15, envelopeEnabled = true, envelopeShape = 10, envelopePeriod = 1536)
-    private const val LLS_PMD_BPM = 160.73f
-    private const val PMD_CLOCKS_PER_QUARTER = 24f
-    private val LlsSquare = SsgPatch(
-        fixedLevel = 12,
-        softwareEnvelopeClockHz = LLS_PMD_BPM * PMD_CLOCKS_PER_QUARTER / 60f,
-        softwareEnvelopeAttackTicks = 2,
-        softwareEnvelopeDecayLevel = -1,
-        softwareEnvelopeSustainTicks = 24,
-        softwareEnvelopeReleaseTicks = 1
-    )
+    private val LlsSquare = SsgPatch(fixedLevel = 12)
+    private val NoiseSlow = SsgPatch(toneEnabled = false, noiseEnabled = true, fixedLevel = 10, noisePeriod = 16)
+    private val EnvelopeAlt = SsgPatch(fixedLevel = 15, envelopeEnabled = true, envelopeShape = 12, envelopePeriod = 1024)
 
     fun idForName(name: String): Int = when (name.lowercase()) {
         "54" -> FM_AT54
@@ -89,17 +87,20 @@ object OpnaPatchBank {
         "piano" -> FM_PIANO
         "strings" -> FM_STRINGS
         "effect" -> FM_EFFECT
+        "logo79" -> FM_LOGO_AT79
         "square" -> SSG_SQUARE
         "ssg_lead" -> SSG_LEAD
         "ssg_bass" -> SSG_BASS
         "ssg_noise" -> SSG_NOISE
         "ssg_envelope" -> SSG_ENVELOPE
         "lls_square" -> SSG_LLS_SQUARE
+        "ssg_noise_slow" -> SSG_NOISE_SLOW
+        "ssg_envelope_alt" -> SSG_ENVELOPE_ALT
         else -> -1
     }
 
-    fun isFm(id: Int): Boolean = id in FM_AT54..FM_EFFECT
-    fun isSsg(id: Int): Boolean = id in SSG_SQUARE..SSG_LLS_SQUARE
+    fun isFm(id: Int): Boolean = id in FM_AT54..FM_LOGO_AT79
+    fun isSsg(id: Int): Boolean = id in SSG_SQUARE..SSG_ENVELOPE_ALT
 
     fun fmPatch(id: Int): FmPatch? = when (id) {
         FM_AT54 -> LlsPatches.At54
@@ -115,6 +116,7 @@ object OpnaPatchBank {
         FM_PIANO -> Pc98Piano
         FM_STRINGS -> Pc98Strings
         FM_EFFECT -> Pc98Effect
+        FM_LOGO_AT79 -> LogoSongPatchBank.At79
         else -> null
     }
 
@@ -125,6 +127,8 @@ object OpnaPatchBank {
         SSG_NOISE -> Noise
         SSG_ENVELOPE -> Envelope
         SSG_LLS_SQUARE -> LlsSquare
+        SSG_NOISE_SLOW -> NoiseSlow
+        SSG_ENVELOPE_ALT -> EnvelopeAlt
         else -> null
     }
 }

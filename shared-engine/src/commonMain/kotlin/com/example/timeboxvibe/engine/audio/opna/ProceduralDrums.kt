@@ -155,6 +155,47 @@ class ProceduralDrums(private val configuredSampleRate: Int = 48_000) {
         }
     }
 
+    fun setGain(kind: DrumKind, gain: Float) {
+        val value = gain.coerceAtLeast(0f)
+        when (kind) {
+            DrumKind.KICK -> kickGain = value
+            DrumKind.SNARE -> snareGain = value
+            DrumKind.HAT -> hatGain = value
+            DrumKind.TOM -> tomGain = value
+            DrumKind.CYMBAL -> cymbalGain = value
+            DrumKind.RIMSHOT -> rimGain = value
+        }
+    }
+
+    fun dump(kind: DrumKind) {
+        when (kind) {
+            DrumKind.KICK -> kickState = IDLE
+            DrumKind.SNARE -> snareState = IDLE
+            DrumKind.HAT -> hatState = IDLE
+            DrumKind.TOM -> tomState = IDLE
+            DrumKind.CYMBAL -> cymbalState = IDLE
+            DrumKind.RIMSHOT -> rimState = IDLE
+        }
+    }
+
+    internal fun stateSnapshot(kind: DrumKind): Int = when (kind) {
+        DrumKind.KICK -> kickState
+        DrumKind.SNARE -> snareState
+        DrumKind.HAT -> hatState
+        DrumKind.TOM -> tomState
+        DrumKind.CYMBAL -> cymbalState
+        DrumKind.RIMSHOT -> rimState
+    }
+
+    internal fun gainSnapshot(kind: DrumKind): Float = when (kind) {
+        DrumKind.KICK -> kickGain
+        DrumKind.SNARE -> snareGain
+        DrumKind.HAT -> hatGain
+        DrumKind.TOM -> tomGain
+        DrumKind.CYMBAL -> cymbalGain
+        DrumKind.RIMSHOT -> rimGain
+    }
+
     fun stopAll() {
         reset()
     }

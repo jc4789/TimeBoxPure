@@ -100,9 +100,15 @@ internal object OpnPitch {
         return frequencyHz * scale.toFloat() / CENT_SCALE_ONE.toFloat()
     }
 
-    fun phaseStep29(packedPitch: Int, spec: OperatorSpec, renderRate: Int, cents: Int = 0): UInt {
+    fun phaseStep29(
+        packedPitch: Int,
+        spec: OperatorSpec,
+        renderRate: Int,
+        cents: Int = 0,
+        fnumOffset: Int = 0
+    ): UInt {
         val block = block(packedPitch)
-        val fnum = fnum(packedPitch)
+        val fnum = (fnum(packedPitch) + fnumOffset).coerceIn(0, FNUM_MASK)
         val keyCode = keyCode(block, fnum)
         var opnStep = (((fnum shl 1) shl block) ushr 2)
         opnStep = (opnStep + detuneAdjustment(spec.detune, keyCode)) and PHASE_STEP_MASK

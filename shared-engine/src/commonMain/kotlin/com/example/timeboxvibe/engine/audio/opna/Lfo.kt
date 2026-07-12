@@ -11,14 +11,9 @@ class Lfo(private val sampleRate: Int = 48_000) {
         private const val TABLE_BITS = 10
         private const val TABLE_SIZE = 1 shl TABLE_BITS
         private const val TABLE_SHIFT = 32 - TABLE_BITS
-        private const val WAVE_SCALE = 1024
-        private const val PHASE_SCALE = 4_294_967_296.0
-
-        // YM2608 hardware LFO rates, represented in millihertz.
-        private val RATE_MILLIHERTZ = intArrayOf(3_980, 5_560, 6_020, 6_370, 6_880, 9_630, 48_100, 72_200)
         private val SINE_Q10 = IntArray(TABLE_SIZE) { i ->
             val angle = i.toDouble() * kotlin.math.PI * 2.0 / TABLE_SIZE.toDouble()
-            (kotlin.math.sin(angle) * WAVE_SCALE.toDouble()).toInt()
+            (kotlin.math.sin(angle) * OpnaLfoLaws.WAVE_SCALE.toDouble()).toInt()
         }
     }
 
@@ -26,13 +21,22 @@ class Lfo(private val sampleRate: Int = 48_000) {
     private val amBuffer = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
     private var phase: UInt = 0u
     private var phaseStep: UInt = 0u
+    private var phaseRemainderStep: Long = 0L
+    private var phaseRemainder: Long = 0L
+    private val phaseDenominator = sampleRate.coerceAtLeast(1).toLong() *
+        OpnaLfoLaws.MILLIHERTZ_PER_HERTZ
 
     var enabled: Boolean = false
+        set(value) {
+            if (field != value) resetPhase()
+            field = value
+        }
     var rate: Int = 0
         set(value) {
             field = value.coerceIn(0, 7)
-            val hz = RATE_MILLIHERTZ[field].toDouble() / 1000.0
-            phaseStep = (hz * PHASE_SCALE / sampleRate.coerceAtLeast(1).toDouble()).toLong().toUInt()
+            val numerator = OpnaLfoLaws.rateMilliHertz(field).toLong() * OpnaLfoLaws.PHASE_CYCLE
+            phaseStep = (numerator / phaseDenominator).toUInt()
+            phaseRemainderStep = numerator % phaseDenominator
         }
 
     init {
@@ -47,8 +51,13 @@ class Lfo(private val sampleRate: Int = 48_000) {
                 val index = (phase shr TABLE_SHIFT).toInt()
                 val signed = SINE_Q10[index]
                 pmBuffer[i] = signed
-                amBuffer[i] = (signed + WAVE_SCALE) shr 1
+                amBuffer[i] = (signed + OpnaLfoLaws.WAVE_SCALE) shr 1
                 phase += phaseStep
+                phaseRemainder += phaseRemainderStep
+                if (phaseRemainder >= phaseDenominator) {
+                    phase++
+                    phaseRemainder -= phaseDenominator
+                }
             } else {
                 pmBuffer[i] = 0
                 amBuffer[i] = 0
@@ -59,14 +68,21 @@ class Lfo(private val sampleRate: Int = 48_000) {
 
     internal fun pmAt(frame: Int): Int = pmBuffer[frame]
     internal fun amAt(frame: Int): Int = amBuffer[frame]
+    internal fun phaseSnapshot(): UInt = phase
+    internal fun phaseRemainderSnapshot(): Long = phaseRemainder
 
     fun reset() {
-        phase = 0u
+        resetPhase()
         var i = 0
         while (i < pmBuffer.size) {
             pmBuffer[i] = 0
             amBuffer[i] = 0
             i++
         }
+    }
+
+    private fun resetPhase() {
+        phase = 0u
+        phaseRemainder = 0L
     }
 }

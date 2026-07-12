@@ -247,24 +247,19 @@ class OpnaFmCoreTest {
     }
 
     @Test
-    fun ssgDutyCycleAppliedAtEventTime() {
+    fun ssgEventsAlwaysUseTheQuantizedFixedDutyHardwareTone() {
         val sampleRate = AudioLaws.SAMPLE_RATE
         val synth = OpnaLikeSynthesizer(sampleRate)
         val seq = OpnaSequencer(sampleRate, 120f)
 
-        // Schedule two SSG notes with different duty cycles
-        seq.noteSsgRaw(0, 69, 0L, sampleRate.toLong() / 2, 0.7f, 0.25f)
-        seq.noteSsgRaw(0, 72, sampleRate.toLong() / 2, sampleRate.toLong() / 2, 0.7f, 0.5f)
+        seq.noteSsgRaw(0, 69, 0L, sampleRate.toLong() / 2, 0.7f)
+        seq.noteSsgRaw(0, 72, sampleRate.toLong() / 2, sampleRate.toLong() / 2, 0.7f)
 
         val buffer = FloatArray(sampleRate)
         synth.render(buffer, sampleRate, seq, 0L)
 
-        // Verify the SSG voice duty was updated during playback
-        // The last note should have set duty to 0.5f
-        assertTrue(
-            abs(synth.ssg[0].duty - 0.5f) < 0.001f,
-            "SSG duty should be 0.5f after playback, got ${synth.ssg[0].duty}"
-        )
+        assertTrue(buffer.any { it != 0f })
+        assertTrue(synth.ssg[0].tonePeriodSnapshot() == SsgHardwareLaws.nearestTonePeriod(523.2511306))
     }
 
     @Test

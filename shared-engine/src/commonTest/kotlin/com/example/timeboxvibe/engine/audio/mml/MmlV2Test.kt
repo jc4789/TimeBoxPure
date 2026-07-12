@@ -1,14 +1,17 @@
 package com.example.timeboxvibe.engine.audio.mml
 
 import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaSong
+import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaTimeline
 import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
 import com.example.timeboxvibe.engine.audio.opna.OpnaSequencer
+import com.example.timeboxvibe.engine.audio.opna.PmdPerformanceLaws
 import com.example.timeboxvibe.engine.audio.opna.SequencerEvent
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertContentEquals
 import kotlin.test.assertTrue
 
 class MmlV2Test {
@@ -40,8 +43,8 @@ class MmlV2Test {
     }
 
     @Test
-    fun fixedGateTailPreservesPmdStyleAbsoluteKeyOffTiming() {
-        val source = "#MML 2\n#BPM 120\n#BAR 4/4\nA @54 Q8 q40 o4 c4 d4 e2 |"
+    fun sourceClockGateTailPreservesPmdStyleAbsoluteKeyOffTiming() {
+        val source = "#MML 2\n#BPM 120\n#PMDCLOCK 24\n#BAR 4/4\nA @54 Q8 q2 o4 c4 d4 e2 |"
         val program = assertNotNull(
             assertIs<MmlCompileResult.Success>(MmlCompiler.compile(source)).arrangement.compiledOpnaSong
         )
@@ -50,6 +53,90 @@ class MmlV2Test {
         assertEquals(440, program.gateTick[0])
         assertEquals(440, program.gateTick[1])
         assertEquals(920, program.gateTick[2])
+    }
+
+    @Test
+    fun gateRandomRangeIsDeterministicInclusiveAndHonorsMinimum() {
+        val source = """
+            #MML 2
+            #BPM 120
+            #PMDCLOCK 24
+            #BAR 4/4
+            A @54 Q8 q1-3,2 o4 l16 c c c c c c c c c c c c c c c c |
+        """.trimIndent()
+        val first = assertNotNull(
+            assertIs<MmlCompileResult.Success>(MmlCompiler.compile(source)).arrangement.compiledOpnaSong
+        )
+        val second = assertNotNull(
+            assertIs<MmlCompileResult.Success>(MmlCompiler.compile(source)).arrangement.compiledOpnaSong
+        )
+
+        assertContentEquals(first.gateTick, second.gateTick)
+        assertTrue(first.gateTailClocks.any { it == 1 })
+        assertTrue(first.gateTailClocks.any { it == 3 })
+        var i = 0
+        while (i < first.eventCount) {
+            assertTrue(first.gateTick[i] in 60..100)
+            assertTrue(first.gateMinimumClocks[i] == 2)
+            i++
+        }
+    }
+
+    @Test
+    fun qZeroPercentGateTiesAndSlursResolveBeforeTimelineOrdering() {
+        val source = """
+            #MML 2
+            #BPM 120
+            #PMDCLOCK 24
+            #BAR 4/4
+            A @54 Q4 q0 o4 c8&c8 d4&& e4 Q%128 f4 |
+        """.trimIndent()
+        val arrangement = assertIs<MmlCompileResult.Success>(MmlCompiler.compile(source)).arrangement
+        val program = assertNotNull(arrangement.compiledOpnaSong)
+        assertEquals(4, program.eventCount)
+        assertEquals(480, program.durationTick[0])
+        assertEquals(240, program.gateTick[0])
+        assertEquals(480, program.gateTick[1])
+        assertEquals(240, program.gateTick[2])
+        assertEquals(240, program.gateTick[3])
+
+        val player = MmlArrangementScheduler.createPlayer(arrangement, OpnaLikeSynthesizer(8_000), 8_000)
+        val boundary = 8_000L
+        var off = -1
+        var on = -1
+        var i = 0
+        while (i < player.eventCount) {
+            if (player.timeline.sampleTime[i] == boundary) {
+                if (player.timeline.eventType[i] == CompiledOpnaTimeline.FM_OFF) off = i
+                if (player.timeline.eventType[i] == CompiledOpnaTimeline.FM_ON) on = i
+            }
+            i++
+        }
+        assertTrue(off >= 0 && on > off)
+    }
+
+    @Test
+    fun softwareEnvelopeDefinitionsRemainOrderedPartControls() {
+        val source = """
+            #MML 2
+            #BPM 120
+            #BAR 4/4
+            G @square E2,-1,24,1 EX1 o4 c2 EX0 E31,20,10,5,7,3 d2 |
+        """.trimIndent()
+        val program = assertNotNull(
+            assertIs<MmlCompileResult.Success>(MmlCompiler.compile(source)).arrangement.compiledOpnaSong
+        )
+        assertEquals(6, program.eventCount)
+        assertEquals(CompiledOpnaSong.SSG_ENVELOPE_DEFINE, program.eventType[0])
+        assertEquals(CompiledOpnaSong.SSG_ENVELOPE_MODE, program.eventType[1])
+        assertEquals(CompiledOpnaSong.SSG_NOTE, program.eventType[2])
+        assertEquals(CompiledOpnaSong.SSG_ENVELOPE_MODE, program.eventType[3])
+        assertEquals(CompiledOpnaSong.SSG_ENVELOPE_DEFINE, program.eventType[4])
+        assertEquals(CompiledOpnaSong.SSG_NOTE, program.eventType[5])
+        assertEquals(PmdPerformanceLaws.ENVELOPE_LEGACY, program.envelopeFormat[0])
+        assertEquals(PmdPerformanceLaws.ENVELOPE_EXTENDED, program.envelopeFormat[4])
+        assertEquals(7, program.envelopeSustainLevel[4])
+        assertEquals(3, program.envelopeAttackLevel[4])
     }
 
     @Test
@@ -217,6 +304,30 @@ class MmlV2Test {
         val secondOn = sequencer.events.first { it.type == SequencerEvent.FM_ON && it.sampleTime > 0L }
         assertEquals(48_000L, secondOn.sampleTime)
         assertEquals(72_000L, sequencer.customLoopLength)
+    }
+
+    @Test
+    fun decimalTempoAndChangesUseExactRationalSampleBoundaries() {
+        val source = """
+            #MML 2
+            #BPM 160.73
+            #BAR 4/4
+            A @lead o4 c4 T121 d4 T137 e4 f4 |
+        """.trimIndent()
+        val arrangement = assertIs<MmlCompileResult.Success>(MmlCompiler.compile(source)).arrangement
+        val player = MmlArrangementScheduler.createPlayer(arrangement, OpnaLikeSynthesizer(48_000), 48_000)
+        val onSamples = LongArray(4)
+        var onCount = 0
+        var i = 0
+        while (i < player.eventCount) {
+            if (player.timeline.eventType[i] == CompiledOpnaTimeline.FM_ON) {
+                onSamples[onCount++] = player.timeline.sampleTime[i]
+            }
+            i++
+        }
+        assertEquals(4, onCount)
+        assertContentEquals(longArrayOf(0L, 17_918L, 41_719L, 62_741L), onSamples)
+        assertEquals(83_763L, player.loopLengthSamples)
     }
 
     private fun count(sequencer: OpnaSequencer, type: Int): Int {

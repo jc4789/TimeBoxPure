@@ -60,7 +60,7 @@ class OpnRateEnvelope {
                 val interval = 1L shl (11 - group)
                 if ((counter and (interval - 1L)) != 0L) return 0
                 val ordinal = ((counter / interval) - 1L).toInt() and 7
-                return if (distributedPulse(ordinal, 4 + fraction)) 1 else 0
+                return if (lowRatePulse(ordinal, fraction)) 1 else 0
             }
 
             val base = 1 shl (group - 12)
@@ -71,6 +71,13 @@ class OpnRateEnvelope {
 
         private fun distributedPulse(ordinal: Int, pulsesPerEight: Int): Boolean {
             return (ordinal + 1) * pulsesPerEight / 8 != ordinal * pulsesPerEight / 8
+        }
+
+        private fun lowRatePulse(ordinal: Int, fraction: Int): Boolean = when (fraction) {
+            0 -> (ordinal and 1) != 0
+            1 -> ordinal == 1 || ordinal == 3 || ordinal == 4 || ordinal == 5 || ordinal == 7
+            2 -> ordinal != 0 && ordinal != 4
+            else -> ordinal != 0
         }
     }
 
@@ -122,7 +129,12 @@ class OpnRateEnvelope {
     }
 
     fun noteOff() {
-        if (stage != OFF) stage = RELEASE
+        if (stage != OFF) {
+            if (ssgEgShape != 0 && stage != RELEASE) attenuation = currentAttenuation()
+            ssgEgInverted = false
+            ssgEgHolding = false
+            stage = RELEASE
+        }
     }
 
     fun reset() {

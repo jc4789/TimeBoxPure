@@ -29,3 +29,19 @@ Suggested Codex workflow:
 3. Run the matching tool.
 4. Fix `ERROR`.
 5. Review or justify `WARN`.
+
+## Offline PMD corpus audit
+
+`pmd_corpus_audit.py` uses THTK to extract only requested `.M86`/`.M26` files
+into an OS temporary directory. It inventories playable PMD parts, rhythm
+pattern tables, command usage, normalized note/state traces, and the production
+Bad Apple lane comparison. Extracted music is never written into the project.
+
+Example for the supplied TH04 archives:
+
+```powershell
+python tools/pmd_corpus_audit.py --thdat "D:\Programes\ym2608-info\thtk-bin-12\thdat.exe" --archive "D:\Shit Games\PC-98 Games\The Touhou98 Experience v3.0.0\(TH04) Touhou Gensoukyou ~ Lotus Land Story\disks\main\th04plus\幻想郷ED.DAT" --archive "D:\Shit Games\PC-98 Games\The Touhou98 Experience v3.0.0\(TH04) Touhou Gensoukyou ~ Lotus Land Story\disks\main\th04plus\東方幻想.郷" --trace-song ST00.M86 --trace-song ST02.M86 --trace-song ST03.M86 --trace-song STAFF.M86 --bad-apple-audit --json-out build\reports\pmd-corpus\th04.json --csv-out build\reports\pmd-corpus\unsupported.csv --strict
+```
+
+JSON/CSV outputs are offline build reports. They are not runtime assets and
+must not be copied into application resources.

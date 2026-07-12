@@ -5,7 +5,9 @@ import com.example.timeboxvibe.engine.ArrangementLanes
 object MmlSongBank {
     const val SENBONZAKURA_DEMO_KEY = "synth-mml-senbonzakura-demo"
     const val RIN_TO_SHITE_KEY = "synth-mml-rin-to-shite-saku-hana-no-gotoku"
+    const val LLS_LOGO_KEY = "synth-mml-lls-logo"
     const val RIN_TO_SHITE_MML = RIN_TO_SHITE_MML_SOURCE
+    const val LLS_LOGO_MML = LOGO_M86_MML_SOURCE
 
     const val BAD_APPLE_LLS_MIGRATION_FIXTURE_MML = """
 #BPM 160.73
@@ -123,6 +125,7 @@ R @drum v11 l8
     const val BAD_APPLE_LLS_MML = """
 #MML 2
 #BPM 160.73
+#PMDCLOCK 24
 #BAR 4/4
 #LFO 5
 #EQ peak 180 -2.0 0.70
@@ -142,7 +145,7 @@ A @74 V78 q0 o3 e-8 b-8 a-8 b-8 f+8 b-8 f8 b-8 e-8 b-8 a-8 b-8 f+8 b-8 f8 b-8 e-
     a-8 e-8 b-8 e-8 b-8 e-8 b-8 e-8 b-8 e-8 b-8 e-8 b-8 e-8 b-8 c+8 a-8 o2 b8 o3 f+8 o2 b8 o3 f+8 o2 b8 o3 f+8 o2 b8
     o3 f+8 c+8 a-8 c+8 a-8 c+8 a-8 c+8 a-8 e-8 b-8 e-8 b-8 e-8 b-8 e-8 b-8 e-8 b-8 e-8 b-8 e-8 b-8 c+8 a-8 o2 b8 o3
     f+8 o2 b8 o3 f+8 o2 b8 o3 f+8 o2 b8 o3 f+8 c+8 a-8 c+8 a-8 c+8 a-8 c+8 a-8 d8 b-8 d8 b-8 d8 b-8 d8 b-8 d8 b-8 d8
-    b-8 d8 b-8 d8 b-8 V81 q20 e-8 b-8 e-16 e-16 b-16 e-16 e-16 e-16 f16 f16 o4 c16 o3 f16 f16 o4 c16 o3 g8 o4 d8 o3
+    b-8 d8 b-8 d8 b-8 V81 q1 e-8 b-8 e-16 e-16 b-16 e-16 e-16 e-16 f16 f16 o4 c16 o3 f16 f16 o4 c16 o3 g8 o4 d8 o3
     g16 o4 d16 o3 g16 g16 g16 g16 o4 d16 o3 g16 f16 f16 o4 c16 o3 f16 e-8 b-8 e-16 e-16 b-16 e-16 e-16 e-16 f16 f16
     o4 c16 o3 f16 f16 o4 c16 o3 g16 g16 o4 d16 o3 g16 g16 o4 d16 o3 g16 g16 g16 g16 o4 d16 o3 g16 f16 f16 o4 c16 o3
     f16 e-8 b-8 e-16 e-16 b-16 e-16 e-16 e-16 f16 f16 o4 c16 o3 f16 f16 o4 c16 o3 g8 o4 d8 o3 g16 o4 d16 o3 g16 g16
@@ -175,7 +178,7 @@ C r1. r1. @181 V71 q0 o2 e-2& e-1. o1 b1. o2 d2 e-2& e-1. o1 b1. b-2 @99 V78 o4 
     o4 b-8 o5 g4 g8 a8 b-8 g8 d4 g4 d8 g8 o6 c8 o5 b-2 a8 g8 d8 o4 b-8 o5 g8 d4 g4 o4 b-8 o5 d8 f8 g8 d8 o4 b-8 o5
     g4 g8 a8 b-8 g8 d4 g4 d8 g8 a8 b-2. b-4 r1
 
-D r8 r1 @99 V71 q40 o5 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 V73 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8
+D r8 r1 @99 V71 q2 o5 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 V73 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8
     r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 d8 r8 d8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8
     e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 d8 r8 d8 r8 V72 o4 e-8 r8 e-8 r8 e-8 r8 e-8 r8
     e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 d8 r8 d8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8
@@ -205,7 +208,7 @@ D r8 r1 @99 V71 q40 o5 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 V
     g16 b-16 b-16 d16 g16 b-16 b-16 d16 g16 b-16 b-16 c16 f16 a16 a16 o4 b-16 o5 e-16 g16 g16 o4 b-16 o5 e-16 g16
     g16 c16 f16 a16 a16 c16 f16 a16 a16 q0 o4 b-2. b-4 r1
 
-E r8 r1 @99 V71 q40 o4 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 V73 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8
+E r8 r1 @99 V71 q2 o4 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 V73 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8
     r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8
     r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 V72 b-8 r8 b-8 r8 b-8 r8 b-8 r8
     b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8
@@ -236,7 +239,7 @@ E r8 r1 @99 V71 q40 o4 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 V
     c16 f16 f16 o5 e-16 b-16 o6 e-16 e-16 o5 e-16 b-16 o6 e-16 e-16 o5 f16 o6 c16 f16 f16 o5 f16 o6 c16 f16 f16 q0
     o5 b-2. b-4 r1
 
-G @lls_square r8 r1 V40 q0 o5 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 o4 b-16 e-16 f16 f+16 b-16 e-16
+G @lls_square EX0 E2,-1,24,1 r8 r1 V40 q0 o5 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 o4 b-16 e-16 f16 f+16 b-16 e-16
     f16 f+16 b-16 e-16 f16 f+16 o5 c+16 e-16 o4 b-16 e-16 b-16 e-16 f16 f+16 b-16 e-16 f16 f+16 b-16 e-16 o5 c+16
     e-16 o4 b-16 a-16 f+16 f16 o3 b16 b16 o4 f+16 o3 b16 b16 o4 c+16 e-16 f+16 o3 b16 b16 o4 f+16 o3 b16 b16 o4 c+16
     e-16 f+16 d16 e-16 f16 o3 b-16 o4 d16 e-16 f16 o3 b-16 o4 d16 e-16 f16 o3 b-16 b-16 o4 a-16 f+16 f16 b-16 e-16
@@ -245,7 +248,7 @@ G @lls_square r8 r1 V40 q0 o5 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e
     o3 b16 b16 o4 c+16 e-16 f+16 d16 e-16 f16 o3 b-16 o4 d16 e-16 f16 o3 b-16 o4 d16 e-16 f16 o3 b-16 b-16 o4 a-16
     f+16 f16 V46 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 c+8 e-8
     f8 a-8 d8 e-8 f8 a-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8
-    c+8 e-8 f8 a-8 d8 e-8 f8 a-8 V44 q40 b-16 b-16 o5 e-16 e-16 e-16 e-16 o4 b-16 b-16 b-16 b-16 o5 e-16 e-16 e-16
+    c+8 e-8 f8 a-8 d8 e-8 f8 a-8 V44 q2 b-16 b-16 o5 e-16 e-16 e-16 e-16 o4 b-16 b-16 b-16 b-16 o5 e-16 e-16 e-16
     e-16 e-16 e-16 o4 b-16 b-16 o5 e-16 e-16 e-16 e-16 o4 b-16 b-16 b-16 b-16 o5 e-16 e-16 e-16 e-16 e-16 e-16 o4
     b-16 b-16 o5 e-16 e-16 e-16 e-16 o4 b-16 b-16 b-16 b-16 o5 e-16 e-16 e-16 e-16 e-16 e-16 o4 b-16 b-16 o5 e-16
     e-16 e-16 e-16 o4 b-16 b-16 b-16 b-16 o5 e-16 e-16 e-16 e-16 e-16 e-16 o4 b-16 o5 e-16 f16 o4 b-16 b-16 o5 e-16
@@ -271,7 +274,7 @@ G @lls_square r8 r1 V40 q0 o5 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e-8 r8 e
     f16 a16 a16 o3 b-16 o4 e-16 g16 g16 o3 b-16 o4 e-16 g16 g16 c16 f16 a16 a16 c16 f16 a16 a16 d16 g16 b-16 b-16
     d16 g16 b-16 b-16 d16 g16 b-16 b-16 d16 g16 b-16 b-16 r1
 
-H @lls_square r8 r1 V40 q0 o4 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r16. b-16 e-16 f16 f+16 b-16 e-16
+H @lls_square EX0 E2,-1,24,1 r8 r1 V40 q0 o4 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r16. b-16 e-16 f16 f+16 b-16 e-16
     f16 f+16 b-16 e-16 f16 f+16 o5 c+16 e-16 o4 b-16 e-16 b-16 e-16 f16 f+16 b-16 e-16 f16 f+16 b-16 e-16 o5 c+16
     e-16 o4 b-16 a-16 f+16 f16 o3 b16 b16 o4 f+16 o3 b16 b16 o4 c+16 e-16 f+16 o3 b16 b16 o4 f+16 o3 b16 b16 o4 c+16
     e-16 f+16 o3 b16 b16 o4 f+16 o3 b16 b16 o4 c+16 e-16 f+16 d16 e-16 f16 o3 b-16 b-16 o4 a-16 f+16 f16 b-16 e-16
@@ -280,7 +283,7 @@ H @lls_square r8 r1 V40 q0 o4 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b
     o3 b16 b16 o4 c+16 e-16 f+16 o3 b16 b16 o4 f+16 o3 b16 b16 o4 c+16 e-16 f+16 d16 e-16 f16 o3 b-16 b-16 o4 a-16
     f+32 r8. V44 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 c+8 e-8
     f8 a-8 d8 e-8 f8 a-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8 e-8 f8 f+8 b-8
-    c+8 e-8 f8 a-8 d8 e-8 f16 q40 f+16 f+16 b-16 b-16 b-16 b-16 f+16 f+16 f+16 f+16 b-16 b-16 b-16 b-16 b-16 b-16
+    c+8 e-8 f8 a-8 d8 e-8 f16 q2 f+16 f+16 b-16 b-16 b-16 b-16 f+16 f+16 f+16 f+16 b-16 b-16 b-16 b-16 b-16 b-16
     f+16 f+16 b-16 b-16 b-16 b-16 f+16 f+16 a-16 a-16 b-16 b-16 b-16 b-16 b-16 b-16 f+16 f+16 b-16 b-16 b-16 b-16
     f+16 f+16 f+16 f+16 b-16 b-16 b-16 b-16 b-16 b-16 f+16 f+16 b-16 b-16 b-16 b-16 f+16 f+16 f+16 f+16 b-16 b-16
     b-16 b-16 b-16 b-16 f+16 f+16 b-16 b-16 b-16 b-16 f+16 f+16 f+16 f+16 b-16 b-16 b-16 b-16 b-16 b-16 f+16 f+16
@@ -322,11 +325,13 @@ k h s h k h s h | k h s h k h s h | k h s h k h s h | k h s h k r s h |
 
     val senbonzakuraDemoResult: MmlCompileResult = MmlCompiler.compile(BAD_APPLE_LLS_MML)
     val rinToShiteResult: MmlCompileResult = MmlCompiler.compile(RIN_TO_SHITE_MML)
+    val llsLogoResult: MmlCompileResult = MmlCompiler.compile(LLS_LOGO_MML)
 
     fun getArrangement(key: String, volume: Float): ArrangementLanes? {
         val result = when (key) {
             SENBONZAKURA_DEMO_KEY -> senbonzakuraDemoResult
             RIN_TO_SHITE_KEY -> rinToShiteResult
+            LLS_LOGO_KEY -> llsLogoResult
             else -> return null
         }
 

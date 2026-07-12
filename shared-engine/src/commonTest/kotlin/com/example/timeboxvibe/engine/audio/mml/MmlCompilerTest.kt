@@ -142,7 +142,8 @@ class MmlCompilerTest {
         assertEquals(ArrangementRouting.MML_LOGICAL_TRACKS, arrangement.routing)
         val program = requireNotNull(arrangement.compiledOpnaSong)
         assertEquals(2, program.dialectVersion)
-        assertEquals(3_864, program.eventCount)
+        assertEquals(3_868, program.eventCount)
+        assertEquals(3_864, countMusicalEvents(program))
         assertEquals(2_037, countEvents(program, CompiledOpnaSong.FM_NOTE))
         assertEquals(1_422, countEvents(program, CompiledOpnaSong.SSG_NOTE))
         assertEquals(405, countEvents(program, CompiledOpnaSong.RHYTHM_SHOT))
@@ -172,10 +173,10 @@ class MmlCompilerTest {
         assertEvent(program, 919, 12_720L, 240, 74, OpnaPatchBank.FM_AT99, 200)
         assertEvent(program, 2_035, 96_000L, 1_440, 82, OpnaPatchBank.FM_AT99, 1_440)
         assertEvent(program, 2_036, 97_440L, 480, 82, OpnaPatchBank.FM_AT99, 480)
-        assertEvent(program, 2_171, 20_880L, 120, 66, OpnaPatchBank.SSG_LLS_SQUARE, 120)
-        assertEvent(program, 2_172, 21_000L, 120, 65, OpnaPatchBank.SSG_LLS_SQUARE, 120)
-        assertEvent(program, 2_883, 21_060L, 60, 66, OpnaPatchBank.SSG_LLS_SQUARE, 60)
-        assertEvent(program, 2_884, 21_480L, 240, 63, OpnaPatchBank.SSG_LLS_SQUARE, 240)
+        assertEvent(program, 2_173, 20_880L, 120, 66, OpnaPatchBank.SSG_LLS_SQUARE, 120)
+        assertEvent(program, 2_174, 21_000L, 120, 65, OpnaPatchBank.SSG_LLS_SQUARE, 120)
+        assertEvent(program, 2_887, 21_060L, 60, 66, OpnaPatchBank.SSG_LLS_SQUARE, 60)
+        assertEvent(program, 2_888, 21_480L, 240, 63, OpnaPatchBank.SSG_LLS_SQUARE, 240)
     }
 
     @Test
@@ -240,13 +241,43 @@ class MmlCompilerTest {
     }
 
     @Test
-    fun expandedSongCannotSilentlyOverflowSequencerCapacity() {
-        val result = MmlCompiler.compile(
+    fun overlappingSharedSsgRegisterRequestsProduceSpecificWarnings() {
+        val noise = assertIs<MmlCompileResult.Success>(
+            MmlCompiler.compile(
+                "#MML 2\n#BPM 120\n#BAR 4/4\n" +
+                    "G @ssg_noise o4 l1 c |\nH @ssg_noise_slow o4 l1 e |"
+            )
+        )
+        assertTrue(noise.warnings.any { it.reason.contains("noise periods") })
+
+        val envelope = assertIs<MmlCompileResult.Success>(
+            MmlCompiler.compile(
+                "#MML 2\n#BPM 120\n#BAR 4/4\n" +
+                    "G @ssg_envelope o4 l1 c |\nH @ssg_envelope_alt o4 l1 e |"
+            )
+        )
+        assertTrue(envelope.warnings.any { it.reason.contains("hardware envelopes") })
+    }
+
+    @Test
+    fun songAboveFormer4096LimitUsesExactAuthoredAndRuntimeArrays() {
+        val result = assertIs<MmlCompileResult.Success>(MmlCompiler.compile(
             "#BPM 120\n#BAR 4/4\n" +
                 "A @54 o4 l16 [c c c c c c c c c c c c c c c c |]257"
-        )
-        val failure = assertIs<MmlCompileResult.Failure>(result)
-        assertTrue(failure.diagnostics.any { it.reason.contains("MAX_EVENTS") })
+        ))
+        val program = result.arrangement.compiledOpnaSong
+        assertEquals(4_112, program.eventCount)
+        assertEquals(program.eventCount, program.eventType.size)
+        assertEquals(program.eventCount, program.startTick.size)
+        assertEquals(program.eventCount, program.patchId.size)
+
+        val synth = OpnaLikeSynthesizer(8_000)
+        val player = MmlArrangementScheduler.createPlayer(result.arrangement, synth, 8_000)
+        assertEquals(8_225, player.eventCount)
+        assertTrue(player.eventCount > OpnaSequencer.MAX_EVENTS)
+        val prefix = FloatArray(1_024)
+        synth.render(prefix, prefix.size, player, 0L)
+        assertTrue(prefix.any { it != 0f })
     }
 
     @Test
@@ -272,6 +303,16 @@ class MmlCompilerTest {
         var i = 0
         while (i < program.eventCount) {
             if (program.eventType[i] == type) count++
+            i++
+        }
+        return count
+    }
+
+    private fun countMusicalEvents(program: CompiledOpnaSong): Int {
+        var count = 0
+        var i = 0
+        while (i < program.eventCount) {
+            if (program.eventType[i] <= CompiledOpnaSong.FM_POLY_NOTE) count++
             i++
         }
         return count

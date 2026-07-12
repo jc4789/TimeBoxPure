@@ -42,7 +42,7 @@ class SongCatalogTest {
 
     @Test
     fun catalogIsMmlOnlyAndRetiredIdsFallBack() {
-        assertEquals(2, SongCatalog.all.size)
+        assertEquals(3, SongCatalog.all.size)
         assertEquals(MmlSongBank.SENBONZAKURA_DEMO_KEY, SongCatalog.DEFAULT_FOCUS_ID)
         assertEquals(MmlSongBank.SENBONZAKURA_DEMO_KEY, SongCatalog.DEFAULT_RELAX_ID)
         assertEquals(
@@ -50,6 +50,7 @@ class SongCatalogTest {
             assertNotNull(SongCatalog.byId(MmlSongBank.SENBONZAKURA_DEMO_KEY)).displayTitle
         )
         assertEquals("RIN TO SHITE", assertNotNull(SongCatalog.byId(MmlSongBank.RIN_TO_SHITE_KEY)).displayTitle)
+        assertEquals("LOTUS LAND STORY / LOGO", assertNotNull(SongCatalog.byId(MmlSongBank.LLS_LOGO_KEY)).displayTitle)
         assertNull(SongCatalog.byId("oriental"))
         assertNull(SongCatalog.byId("synth-chime"))
         assertNull(SongCatalog.byId("synth-victory"))
@@ -71,6 +72,14 @@ class SongCatalogTest {
     fun newSongFactoryUsesItsCachedCompilation() {
         val compiled = assertIs<MmlCompileResult.Success>(MmlSongBank.rinToShiteResult)
         val song = assertNotNull(SongCatalog.byId(MmlSongBank.RIN_TO_SHITE_KEY))
+        val playback = assertIs<SongPlayback.Arrangement>(song.buildPlayback(1f))
+        assertSame(compiled.arrangement, playback.lanes)
+    }
+
+    @Test
+    fun logoFactoryUsesItsCachedCompilation() {
+        val compiled = assertIs<MmlCompileResult.Success>(MmlSongBank.llsLogoResult)
+        val song = assertNotNull(SongCatalog.byId(MmlSongBank.LLS_LOGO_KEY))
         val playback = assertIs<SongPlayback.Arrangement>(song.buildPlayback(1f))
         assertSame(compiled.arrangement, playback.lanes)
     }

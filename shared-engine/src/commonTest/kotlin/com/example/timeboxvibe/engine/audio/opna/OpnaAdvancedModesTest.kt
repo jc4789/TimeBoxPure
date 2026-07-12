@@ -82,8 +82,10 @@ class OpnaAdvancedModesTest {
         val sharedB = SsgSharedState(48_000)
         val voiceA = SsgVoice(0, sharedA, 48_000)
         SsgVoice(0, sharedB, 48_000)
-        sharedA.configureEnvelope(shape = 10, period = 1, restart = true)
-        sharedB.configureEnvelope(shape = 10, period = 1, restart = true)
+        sharedA.writeEnvelopePeriod(1)
+        sharedA.writeEnvelopeShape(10)
+        sharedB.writeEnvelopePeriod(1)
+        sharedB.writeEnvelopeShape(10)
         sharedA.prepare(257)
         sharedB.prepare(257)
 

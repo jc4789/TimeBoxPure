@@ -1,6 +1,11 @@
 package com.example.timeboxvibe.engine.audio.opna
 
+import com.example.timeboxvibe.engine.audio.mml.MmlArrangementScheduler
+import com.example.timeboxvibe.engine.audio.mml.MmlCompileResult
+import com.example.timeboxvibe.engine.audio.mml.MmlCompiler
+import java.lang.management.ManagementFactory
 import org.junit.Test
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class OpnaNoAllocHotPathTest {
@@ -45,5 +50,40 @@ class OpnaNoAllocHotPathTest {
         val diff = memAfter - memBefore
 
         assertTrue(diff <= 1024, "Hot path allocated memory: $diff bytes")
+    }
+
+    @Test
+    fun compiledPlayerDoesNotAllocateInHotPath() {
+        val arrangement = assertIs<MmlCompileResult.Success>(
+            MmlCompiler.compile(
+                "#MML 2\n#BPM 120\n#PMDCLOCK 24\n#BAR 4/4\n" +
+                    "A @54 Q7 o4 l4 c d e f |\n" +
+                    "G @square EX0 E2,-1,8,1 Q8 o5 l4 c d e f |"
+            )
+        ).arrangement
+        val synth = OpnaLikeSynthesizer(44_100)
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, 44_100)
+        val buffer = FloatArray(1024)
+        var i = 0
+        while (i < 500) {
+            player.reset(synth)
+            synth.render(buffer, buffer.size, player, 0L)
+            i++
+        }
+
+        val allocationBean = ManagementFactory.getThreadMXBean() as com.sun.management.ThreadMXBean
+        allocationBean.isThreadAllocatedMemoryEnabled = true
+        val threadId = Thread.currentThread().id
+        val before = allocationBean.getThreadAllocatedBytes(threadId)
+
+        i = 0
+        while (i < 1000) {
+            player.reset(synth)
+            synth.render(buffer, buffer.size, player, 0L)
+            i++
+        }
+
+        val after = allocationBean.getThreadAllocatedBytes(threadId)
+        assertTrue(after - before <= 1024, "Compiled player hot path allocated ${after - before} bytes")
     }
 }
