@@ -405,6 +405,7 @@ object MmlCompiler {
         var defaultLength = DEFAULT_LENGTH
         var fineVolume = 127
         var gateEighths = 8
+        var fixedGateTailTicks = 0
         var patchId = if (isFm3Operator) channelCPatch else -1
         var pan = 0
         var detuneCents = 0
@@ -456,6 +457,13 @@ object MmlCompiler {
                 is MmlCommand.Gate -> {
                     if (command.eighths !in 0..8) diagnostics.add(MmlDiagnostic(command.line, command.column, "Gate must be Q0..Q8"))
                     else gateEighths = command.eighths
+                }
+                is MmlCommand.FixedGateTail -> {
+                    if (command.ticks !in 0..WHOLE_NOTE_TICKS) {
+                        diagnostics.add(MmlDiagnostic(command.line, command.column, "Fixed gate tail must be q0..q$WHOLE_NOTE_TICKS ticks"))
+                    } else {
+                        fixedGateTailTicks = command.ticks
+                    }
                 }
                 is MmlCommand.Pan -> {
                     pan = when (command.value) {
@@ -521,7 +529,11 @@ object MmlCompiler {
                         if (midi !in 0..127) diagnostics.add(MmlDiagnostic(command.line, command.column, "Note is outside MIDI range 0..127"))
                         else if (patchId < 0) diagnostics.add(MmlDiagnostic(command.line, command.column, "Channel ${track.channel} requires a named instrument before its first note"))
                         else if (totalDuration > 0) {
-                            val gate = if (link == MmlCommand.LINK_SLUR) totalDuration else totalDuration * gateEighths / 8
+                            val gate = if (link == MmlCommand.LINK_SLUR) {
+                                totalDuration
+                            } else {
+                                (totalDuration * gateEighths / 8 - fixedGateTailTicks).coerceAtLeast(0)
+                            }
                             val type = when {
                                 isFm3Operator -> CompiledOpnaSong.FM3_OPERATOR_NOTE
                                 isSsg -> CompiledOpnaSong.SSG_NOTE
@@ -552,7 +564,7 @@ object MmlCompiler {
                         if (patchId < 0) {
                             diagnostics.add(MmlDiagnostic(command.line, command.column, "A chord requires a named FM instrument"))
                         } else if (duration > 0) {
-                            val gate = duration * gateEighths / 8
+                            val gate = (duration * gateEighths / 8 - fixedGateTailTicks).coerceAtLeast(0)
                             var pitchIndex = 0
                             while (pitchIndex < command.pitches.size) {
                                 val pitch = command.pitches[pitchIndex]
@@ -599,7 +611,8 @@ object MmlCompiler {
                             val type = if (isSsg) CompiledOpnaSong.SSG_NOTE else if (isFm3Operator) CompiledOpnaSong.FM3_OPERATOR_NOTE else CompiledOpnaSong.FM_NOTE
                             val channelIndex = if (isSsg) track.channel.ordinal - MmlChannelId.G.ordinal else if (isFm3Operator) 2 else track.channel.ordinal
                             val operatorIndex = if (isFm3Operator) track.channel.ordinal - MmlChannelId.C1.ordinal else -1
-                            builder.add(type, tick, duration, duration * gateEighths / 8, channelIndex, operatorIndex, fromMidi, toMidi, fineVolume, patchId, pan, detuneCents, pms, ams, lfoDelayTicks)
+                            val gate = (duration * gateEighths / 8 - fixedGateTailTicks).coerceAtLeast(0)
+                            builder.add(type, tick, duration, gate, channelIndex, operatorIndex, fromMidi, toMidi, fineVolume, patchId, pan, detuneCents, pms, ams, lfoDelayTicks)
                             sequencerCost += 2
                             tick += duration
                         }

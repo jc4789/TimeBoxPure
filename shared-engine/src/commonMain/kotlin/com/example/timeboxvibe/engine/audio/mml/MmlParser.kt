@@ -28,6 +28,7 @@ sealed class MmlCommand(open val line: Int, open val column: Int) {
     data class Rest(val denominator: Int?, override val line: Int, override val column: Int, val dotted: Boolean = false) : MmlCommand(line, column)
     data class Drum(val kind: Char, val denominator: Int?, override val line: Int, override val column: Int, val dotted: Boolean = false) : MmlCommand(line, column)
     data class Gate(val eighths: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
+    data class FixedGateTail(val ticks: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
     data class Pan(val value: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
     data class Polyphony(val enabled: Boolean, override val line: Int, override val column: Int) : MmlCommand(line, column)
     data class Detune(val cents: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
@@ -366,7 +367,7 @@ object MmlParser {
                     output.add(MmlCommand.Polyphony(text[i] == '1', source.lineAt(tokenStart), source.columnAt(tokenStart)))
                     i++
                 }
-            } else if (raw == 'Q' || c == 'p' || raw == 'D' || raw == 'T') {
+            } else if (raw == 'Q' || raw == 'q' || c == 'p' || raw == 'D' || raw == 'T') {
                 val tokenStart = i
                 i++
                 var sign = 1
@@ -381,6 +382,8 @@ object MmlParser {
                     diagnostics.add(MmlDiagnostic(source.lineAt(tokenStart), source.columnAt(tokenStart), "Command $raw requires an integer"))
                 } else if (raw == 'Q') {
                     output.add(MmlCommand.Gate(value * sign, source.lineAt(tokenStart), source.columnAt(tokenStart)))
+                } else if (raw == 'q') {
+                    output.add(MmlCommand.FixedGateTail(value * sign, source.lineAt(tokenStart), source.columnAt(tokenStart)))
                 } else if (raw == 'D') {
                     output.add(MmlCommand.Detune(value * sign, source.lineAt(tokenStart), source.columnAt(tokenStart)))
                 } else if (raw == 'T') {

@@ -52,12 +52,12 @@ class MmlArrangementSchedulerTest {
 
         MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
 
-        assertEquals(493, countEvents(sequencer, SequencerEvent.FM_ON, 0))
-        assertEquals(216, countEvents(sequencer, SequencerEvent.FM_ON, 1))
-        assertEquals(216, countEvents(sequencer, SequencerEvent.FM_ON, 2))
-        assertEquals(576, countEvents(sequencer, SequencerEvent.FM_ON, 3))
-        assertEquals(585, countEvents(sequencer, SequencerEvent.FM_ON, 4))
-        assertEquals(718, countEvents(sequencer, SequencerEvent.SSG_ON, 0))
+        assertEquals(487, countEvents(sequencer, SequencerEvent.FM_ON, 0))
+        assertEquals(205, countEvents(sequencer, SequencerEvent.FM_ON, 1))
+        assertEquals(205, countEvents(sequencer, SequencerEvent.FM_ON, 2))
+        assertEquals(570, countEvents(sequencer, SequencerEvent.FM_ON, 3))
+        assertEquals(570, countEvents(sequencer, SequencerEvent.FM_ON, 4))
+        assertEquals(710, countEvents(sequencer, SequencerEvent.SSG_ON, 0))
         assertEquals(0, countEvents(sequencer, SequencerEvent.SSG_ON, 1))
         assertEquals(0, countEvents(sequencer, SequencerEvent.SSG_ON, 2))
     }

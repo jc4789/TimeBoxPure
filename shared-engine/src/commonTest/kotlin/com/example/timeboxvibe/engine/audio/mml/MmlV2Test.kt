@@ -40,6 +40,19 @@ class MmlV2Test {
     }
 
     @Test
+    fun fixedGateTailPreservesPmdStyleAbsoluteKeyOffTiming() {
+        val source = "#MML 2\n#BPM 120\n#BAR 4/4\nA @54 Q8 q40 o4 c4 d4 e2 |"
+        val program = assertNotNull(
+            assertIs<MmlCompileResult.Success>(MmlCompiler.compile(source)).arrangement.compiledOpnaSong
+        )
+
+        assertEquals(480, program.durationTick[0])
+        assertEquals(440, program.gateTick[0])
+        assertEquals(440, program.gateTick[1])
+        assertEquals(920, program.gateTick[2])
+    }
+
+    @Test
     fun v2SchedulesAndRendersDeterministically() {
         val arrangement = assertIs<MmlCompileResult.Success>(MmlCompiler.compile(expressiveSource)).arrangement
         val sampleRate = 48_000

@@ -13,6 +13,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private val opState: Array<OperatorState> = Array(AudioLaws.FM_OPERATORS) { OperatorState() }
     private var patch: FmPatch? = null
     private var hasPitch: Boolean = false
+    private var keyDown: Boolean = false
     private var packedPitch: Int = 0
     private var op0Feedback1: Int = 0
     private var op0Feedback2: Int = 0
@@ -134,6 +135,9 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         return (envelope.stage shl 10) or envelope.attenuation
     }
 
+    internal fun operatorPhaseSnapshot(opIdx: Int): UInt =
+        opState[opIdx.coerceIn(0, AudioLaws.FM_OPERATORS - 1)].phase
+
     internal fun releaseFinished(): Boolean {
         var opIndex = 0
         while (opIndex < AudioLaws.FM_OPERATORS) {
@@ -211,6 +215,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         release: Float
     ) {
         specialMode = false
+        val wasKeyDown = keyDown
         val p = patch
         var isActiveRetrigger = false
         if (p != null) {
@@ -243,20 +248,19 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         var i = 0
         while (i < AudioLaws.FM_OPERATORS) {
             val op = opState[i]
-            if (isActiveRetrigger) {
-                op.opnEnvelope.noteOn(retrigger = true)
-            } else {
+            if (!wasKeyDown) {
                 op.phase = 0u
                 op.prevOutput = 0
-                op.opnEnvelope.noteOn(retrigger = false)
+                op.opnEnvelope.noteOn(retrigger = isActiveRetrigger)
             }
             i++
         }
-        if (!isActiveRetrigger) {
+        if (!wasKeyDown) {
             op0Feedback1 = 0
             op0Feedback2 = 0
             lowPassPrev = 0f
         }
+        keyDown = true
     }
 
     private fun isCarrier(opIdx: Int, algorithm: Int): Boolean {
@@ -270,6 +274,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     }
 
     fun noteOff() {
+        keyDown = false
         var i = 0
         while (i < AudioLaws.FM_OPERATORS) {
             opState[i].opnEnvelope.noteOff()
@@ -317,6 +322,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     internal fun clearActiveNote() {
         hasPitch = false
+        keyDown = false
         packedPitch = 0
         op0Feedback1 = 0
         op0Feedback2 = 0
@@ -338,6 +344,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     fun reset() {
         hasPitch = false
+        keyDown = false
         packedPitch = 0
         op0Feedback1 = 0
         op0Feedback2 = 0

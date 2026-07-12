@@ -81,19 +81,19 @@
 - The TH04 archive and `ST02.M86` were decoded by offline tooling only. No archive bytes, PMD binary, extracted asset, or runtime file access was added to the project.
 - Current source window is PMD clocks `288..<5280`, retaining the requested three-bar cut and 52-bar runtime.
 - A-E are coordinated source-derived FM1-FM5:
-  - A / FM1: 493 notes, `@74` harmonic bed.
-  - B / FM2: 216 notes, upper melody/doubling; begins on `@181`, then changes to `@99`.
-  - C / FM3: 216 notes, lower melody/doubling; begins on `@181`, then changes to `@99`.
-  - D / FM4: 576 notes with source `@99 -> @54 -> @99` transitions.
-  - E / FM5: 585 notes with source `@99 -> @54 -> @99` transitions.
-- G contains 718 source-derived SSG2 notes on the clean-room square voice.
+  - A / FM1: 487 notes, `@74` harmonic bed.
+  - B / FM2: 205 notes, upper melody/doubling; begins on `@181`, then changes to `@99`.
+  - C / FM3: 205 notes, lower melody/doubling; begins on `@181`, then changes to `@99`.
+  - D / FM4: 570 notes with source `@99 -> @54 -> @99` transitions.
+  - E / FM5: 570 notes with source `@99 -> @54 -> @99` transitions.
+- G contains 710 source-derived SSG2 notes on the clean-room square voice.
 - PMD FM/SSG channel balance is uniformly mapped to 64% before `MmlArrangementScheduler.MIX_GAIN = 0.75f`.
 - R remains the existing 405-shot procedural rhythm approximation.
 - SSG1 is not included. Its PSG envelope/command stream has not yet been decoded safely.
 - The original cut is still ambiguous: the source has a 192-clock/two-bar leading opening, while the current duration edit removes 288 clocks/three bars (about 4.48 seconds). Change this only as an explicit musical decision.
 - `BAD_APPLE_LLS_MIGRATION_FIXTURE_MML` is an old headerless parser/migration fixture, not production song truth.
-- Current compiled size is 3209 primitive events: 2086 FM notes, 718 SSG notes, and 405 rhythm shots.
-- This is a source-coordinated reconstruction, not a complete or bit-authentic PMD claim. SSG1, original rhythm semantics, PMD articulation/ties/software LFO, and the final cut decision remain unresolved.
+- Current compiled size is 3152 primitive events: 2037 FM notes, 710 SSG notes, and 405 rhythm shots.
+- This is a source-coordinated reconstruction, not a complete or bit-authentic PMD claim. Exact decoded note timing, ties, mid-track patches, volume changes, and fixed PMD key-off tails are preserved for the included lanes. SSG1, original rhythm semantics, random/percentage Q, software LFO, and the final cut decision remain unresolved.
 
 ## Current Listening Risks
 

@@ -171,6 +171,27 @@ class OpnaFmCoreTest {
     }
 
     @Test
+    fun freshKeyOnDuringReleaseRestartsOperatorPhase() {
+        val voice = Fm4OpVoice(AudioLaws.SAMPLE_RATE)
+        voice.applyPatch(LlsPatches.At99)
+        voice.noteOn(60)
+        voice.render(FloatArray(257), 257, AudioLaws.SAMPLE_RATE, 1f)
+        assertTrue(voice.operatorPhaseSnapshot(0) != 0u, "The first note must advance operator phase")
+
+        voice.noteOff()
+        voice.noteOn(64)
+
+        var operator = 0
+        while (operator < AudioLaws.FM_OPERATORS) {
+            assertTrue(
+                voice.operatorPhaseSnapshot(operator) == 0u,
+                "A new OPN key-on must restart operator $operator phase even while its envelope is releasing"
+            )
+            operator++
+        }
+    }
+
+    @Test
     fun algorithm7Headroom() {
         val sampleRate = AudioLaws.SAMPLE_RATE
         val synth = OpnaLikeSynthesizer(sampleRate)

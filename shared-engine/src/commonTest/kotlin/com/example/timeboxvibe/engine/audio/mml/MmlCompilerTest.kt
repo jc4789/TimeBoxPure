@@ -142,9 +142,9 @@ class MmlCompilerTest {
         assertEquals(ArrangementRouting.MML_LOGICAL_TRACKS, arrangement.routing)
         val program = requireNotNull(arrangement.compiledOpnaSong)
         assertEquals(2, program.dialectVersion)
-        assertEquals(3_209, program.eventCount)
-        assertEquals(2_086, countEvents(program, CompiledOpnaSong.FM_NOTE))
-        assertEquals(718, countEvents(program, CompiledOpnaSong.SSG_NOTE))
+        assertEquals(3_152, program.eventCount)
+        assertEquals(2_037, countEvents(program, CompiledOpnaSong.FM_NOTE))
+        assertEquals(710, countEvents(program, CompiledOpnaSong.SSG_NOTE))
         assertEquals(405, countEvents(program, CompiledOpnaSong.RHYTHM_SHOT))
         assertEquals(0L, program.startTick[0])
         assertEquals(240L, program.startTick[1])
@@ -160,6 +160,20 @@ class MmlCompilerTest {
         assertEquals(2_400f, arrangement.eqBands[2].frequencyHz)
         assertEquals(52L * 4L * MmlCompiler.TICKS_PER_QUARTER, program.durationTicks)
         assertTrue(program.durationMilliseconds() in 77_500L..77_800L)
+    }
+
+    @Test
+    fun badAppleDecodedPmdCheckpointsStayAlignedPastFormerCorruptionPoints() {
+        val arrangement = assertIs<MmlCompileResult.Success>(MmlSongBank.senbonzakuraDemoResult).arrangement
+        val program = requireNotNull(arrangement.compiledOpnaSong)
+
+        assertEvent(program, 134, 32_160L, 240, 49, OpnaPatchBank.FM_AT74, 240)
+        assertEvent(program, 645, 81_600L, 480, 81, OpnaPatchBank.FM_AT99, 480)
+        assertEvent(program, 919, 12_720L, 240, 74, OpnaPatchBank.FM_AT99, 200)
+        assertEvent(program, 2_035, 96_000L, 1_440, 82, OpnaPatchBank.FM_AT99, 1_440)
+        assertEvent(program, 2_036, 97_440L, 480, 82, OpnaPatchBank.FM_AT99, 480)
+        assertEvent(program, 2_171, 21_060L, 60, 66, OpnaPatchBank.SSG_SQUARE, 60)
+        assertEvent(program, 2_172, 21_480L, 240, 63, OpnaPatchBank.SSG_SQUARE, 240)
     }
 
     @Test
@@ -274,5 +288,21 @@ class MmlCompilerTest {
         assertEquals(op1Tl, patch.op1.tl)
         assertEquals(op2Tl, patch.op2.tl)
         assertEquals(op3Tl, patch.op3.tl)
+    }
+
+    private fun assertEvent(
+        program: CompiledOpnaSong,
+        index: Int,
+        start: Long,
+        duration: Int,
+        midi: Int,
+        patchId: Int,
+        gate: Int
+    ) {
+        assertEquals(start, program.startTick[index])
+        assertEquals(duration, program.durationTick[index])
+        assertEquals(midi, program.midi[index])
+        assertEquals(patchId, program.patchId[index])
+        assertEquals(gate, program.gateTick[index])
     }
 }

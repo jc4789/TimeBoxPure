@@ -2,6 +2,10 @@ package com.example.timeboxvibe.engine.audio.opna
 
 /** OPN register voices decoded from ZUN's PMD .M files in the LLS music archive. */
 object LlsPatches {
+    // The operator core peaks at 0.5 per carrier; reserve room for PMD voices
+    // with two or three simultaneous carriers before the shared chip mix bus.
+    private const val CHIP_CHANNEL_SCALE = 0.38f
+
     val At54 = FmPatch(
         algorithm = 4, feedback = 4,
         op0 = op(mul = 8, detune = 7, tl = 17, ar = 31, dr = 0, sr = 0, sl = 0, rr = 0),
@@ -37,10 +41,6 @@ object LlsPatches {
         op3 = op(mul = 4, detune = 3, tl = 0, ar = 31, dr = 16, sr = 0, sl = 2, rr = 8),
         totalLevel = CHIP_CHANNEL_SCALE
     )
-
-    // The operator core peaks at 0.5 per carrier; reserve room for PMD voices
-    // with two or three simultaneous carriers before the shared chip mix bus.
-    private const val CHIP_CHANNEL_SCALE = 0.44f
 
     private fun op(
         mul: Int,
