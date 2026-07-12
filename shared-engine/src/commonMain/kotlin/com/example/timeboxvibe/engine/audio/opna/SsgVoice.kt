@@ -24,6 +24,17 @@ class SsgVoice(
     private var pendingTargetFrequency: Float = 0f
     private var pendingSlideFrames: Int = 0
     private var pan: Int = 0
+    private var softwareEnvelopeEnabled: Boolean = false
+    private var softwareEnvelopeClockHz: Float = 0f
+    private var softwareEnvelopeClockStep: UInt = 0u
+    private var softwareEnvelopeClockPhase: UInt = 0u
+    private var softwareEnvelopeAttackTicks: Int = 0
+    private var softwareEnvelopeDecayLevel: Int = 0
+    private var softwareEnvelopeSustainTicks: Int = 0
+    private var softwareEnvelopeReleaseTicks: Int = 0
+    private var softwareEnvelopeStage: Int = SOFTWARE_ENVELOPE_OFF
+    private var softwareEnvelopeTicksRemaining: Int = 0
+    private var softwareEnvelopeLevelOffset: Int = 0
 
     init {
         applyPatch(SsgPatch())
@@ -40,6 +51,7 @@ class SsgVoice(
         pendingTargetFrequency = 0f
         pendingSlideFrames = 0
         hardwarePhase = 0u
+        if (softwareEnvelopeEnabled) restartSoftwareEnvelope()
     }
 
     fun setPitchRamp(targetFrequency: Float, frames: Int) {
@@ -48,7 +60,12 @@ class SsgVoice(
     }
 
     fun noteOff() {
-        enabled = false
+        if (softwareEnvelopeEnabled && enabled) {
+            softwareEnvelopeStage = SOFTWARE_ENVELOPE_RELEASE
+            softwareEnvelopeTicksRemaining = softwareEnvelopeReleaseTicks
+        } else {
+            enabled = false
+        }
     }
 
     fun applyPatch(patch: SsgPatch) {
@@ -60,6 +77,19 @@ class SsgVoice(
         if (patch.noiseEnabled) shared.configureNoise(patch.noisePeriod)
         if (patch.envelopeEnabled) {
             shared.configureEnvelope(patch.envelopeShape, patch.envelopePeriod, restart = true)
+        }
+        softwareEnvelopeClockHz = patch.softwareEnvelopeClockHz.coerceAtLeast(0f)
+        softwareEnvelopeEnabled = softwareEnvelopeClockHz > 0f
+        softwareEnvelopeClockStep = phaseStep(softwareEnvelopeClockHz, configuredSampleRate)
+        softwareEnvelopeAttackTicks = patch.softwareEnvelopeAttackTicks.coerceAtLeast(0)
+        softwareEnvelopeDecayLevel = patch.softwareEnvelopeDecayLevel.coerceIn(-15, 15)
+        softwareEnvelopeSustainTicks = patch.softwareEnvelopeSustainTicks.coerceAtLeast(0)
+        softwareEnvelopeReleaseTicks = patch.softwareEnvelopeReleaseTicks.coerceAtLeast(0)
+        if (!softwareEnvelopeEnabled) {
+            softwareEnvelopeClockPhase = 0u
+            softwareEnvelopeStage = SOFTWARE_ENVELOPE_OFF
+            softwareEnvelopeTicksRemaining = 0
+            softwareEnvelopeLevelOffset = 0
         }
     }
 
@@ -87,6 +117,10 @@ class SsgVoice(
         pendingTargetFrequency = 0f
         pendingSlideFrames = 0
         pan = 0
+        softwareEnvelopeClockPhase = 0u
+        softwareEnvelopeStage = SOFTWARE_ENVELOPE_OFF
+        softwareEnvelopeTicksRemaining = 0
+        softwareEnvelopeLevelOffset = 0
         applyPatch(SsgPatch())
     }
 
@@ -102,6 +136,9 @@ class SsgVoice(
         if (configuredSampleRate != sampleRate) {
             configuredSampleRate = sampleRate
             hardwarePhaseStep = phaseStep(frequency, sampleRate)
+            if (softwareEnvelopeEnabled) {
+                softwareEnvelopeClockStep = phaseStep(softwareEnvelopeClockHz, sampleRate)
+            }
         }
         if (!sharedPrepared && frames > OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK) {
             var rendered = 0
@@ -130,7 +167,7 @@ class SsgVoice(
                 useNoise -> noise
                 else -> 0f
             }
-            val level = if (envelopeEnabled) shared.envelopeAt(i) else fixedLevel
+            val level = if (envelopeEnabled) shared.envelopeAt(i) else fixedLevel + softwareEnvelopeLevelOffset
             buffer[startFrame + i] += signal * LEVEL_TABLE[level.coerceIn(0, 15)] * combinedGain
             hardwarePhase += hardwarePhaseStep
             if (hardwareRampFrames > 0 && hardwareRampPosition < hardwareRampFrames) {
@@ -140,7 +177,65 @@ class SsgVoice(
                         (hardwareRampTargetStep - hardwareRampStartStep) * hardwareRampPosition.toLong() / hardwareRampFrames.toLong()
                     ).toUInt()
             }
+            if (softwareEnvelopeEnabled) clockSoftwareEnvelope()
             i++
+        }
+    }
+
+    internal fun softwareEnvelopeLevelOffsetSnapshot(): Int = softwareEnvelopeLevelOffset
+
+    private fun restartSoftwareEnvelope() {
+        softwareEnvelopeClockPhase = 0u
+        softwareEnvelopeLevelOffset = 0
+        softwareEnvelopeStage = if (softwareEnvelopeAttackTicks > 0) {
+            softwareEnvelopeTicksRemaining = softwareEnvelopeAttackTicks
+            SOFTWARE_ENVELOPE_ATTACK
+        } else {
+            softwareEnvelopeLevelOffset = softwareEnvelopeDecayLevel
+            softwareEnvelopeTicksRemaining = softwareEnvelopeSustainTicks
+            SOFTWARE_ENVELOPE_DECAY
+        }
+    }
+
+    private fun clockSoftwareEnvelope() {
+        val previous = softwareEnvelopeClockPhase
+        softwareEnvelopeClockPhase += softwareEnvelopeClockStep
+        if (softwareEnvelopeClockPhase >= previous) return
+
+        when (softwareEnvelopeStage) {
+            SOFTWARE_ENVELOPE_ATTACK -> {
+                softwareEnvelopeTicksRemaining--
+                if (softwareEnvelopeTicksRemaining <= 0) {
+                    softwareEnvelopeLevelOffset = softwareEnvelopeDecayLevel
+                    softwareEnvelopeTicksRemaining = softwareEnvelopeSustainTicks
+                    softwareEnvelopeStage = SOFTWARE_ENVELOPE_DECAY
+                }
+            }
+            SOFTWARE_ENVELOPE_DECAY -> {
+                if (softwareEnvelopeSustainTicks <= 0) return
+                softwareEnvelopeTicksRemaining--
+                if (softwareEnvelopeTicksRemaining <= 0) {
+                    softwareEnvelopeLevelOffset = (softwareEnvelopeLevelOffset - 1).coerceAtLeast(-15)
+                    softwareEnvelopeTicksRemaining = softwareEnvelopeSustainTicks
+                }
+            }
+            SOFTWARE_ENVELOPE_RELEASE -> {
+                if (softwareEnvelopeReleaseTicks <= 0) {
+                    enabled = false
+                    softwareEnvelopeStage = SOFTWARE_ENVELOPE_OFF
+                    return
+                }
+                softwareEnvelopeTicksRemaining--
+                if (softwareEnvelopeTicksRemaining <= 0) {
+                    softwareEnvelopeLevelOffset--
+                    if (fixedLevel + softwareEnvelopeLevelOffset <= 0) {
+                        enabled = false
+                        softwareEnvelopeStage = SOFTWARE_ENVELOPE_OFF
+                    } else {
+                        softwareEnvelopeTicksRemaining = softwareEnvelopeReleaseTicks
+                    }
+                }
+            }
         }
     }
 
@@ -148,6 +243,10 @@ class SsgVoice(
         (freq.toDouble() * UINT_CYCLE / sampleRate.coerceAtLeast(1).toDouble()).toLong().toUInt()
 
     private companion object {
+        const val SOFTWARE_ENVELOPE_OFF = 0
+        const val SOFTWARE_ENVELOPE_ATTACK = 1
+        const val SOFTWARE_ENVELOPE_DECAY = 2
+        const val SOFTWARE_ENVELOPE_RELEASE = 3
         const val UINT_CYCLE = 4_294_967_296.0
         val LEVEL_TABLE = FloatArray(16) { level ->
             if (level == 0) 0f else 10.0.pow(((level - 15) * 1.5) / 20.0).toFloat()

@@ -21,6 +21,7 @@ object OpnaPatchBank {
     const val SSG_BASS = 34
     const val SSG_NOISE = 35
     const val SSG_ENVELOPE = 36
+    const val SSG_LLS_SQUARE = 37
 
     val Pc98Brass = FmPatch(
         algorithm = 4, feedback = 4,
@@ -63,6 +64,16 @@ object OpnaPatchBank {
     private val Bass = SsgPatch(fixedLevel = 12)
     private val Noise = SsgPatch(toneEnabled = false, noiseEnabled = true, fixedLevel = 10, noisePeriod = 8)
     private val Envelope = SsgPatch(fixedLevel = 15, envelopeEnabled = true, envelopeShape = 10, envelopePeriod = 1536)
+    private const val LLS_PMD_BPM = 160.73f
+    private const val PMD_CLOCKS_PER_QUARTER = 24f
+    private val LlsSquare = SsgPatch(
+        fixedLevel = 12,
+        softwareEnvelopeClockHz = LLS_PMD_BPM * PMD_CLOCKS_PER_QUARTER / 60f,
+        softwareEnvelopeAttackTicks = 2,
+        softwareEnvelopeDecayLevel = -1,
+        softwareEnvelopeSustainTicks = 24,
+        softwareEnvelopeReleaseTicks = 1
+    )
 
     fun idForName(name: String): Int = when (name.lowercase()) {
         "54" -> FM_AT54
@@ -83,11 +94,12 @@ object OpnaPatchBank {
         "ssg_bass" -> SSG_BASS
         "ssg_noise" -> SSG_NOISE
         "ssg_envelope" -> SSG_ENVELOPE
+        "lls_square" -> SSG_LLS_SQUARE
         else -> -1
     }
 
     fun isFm(id: Int): Boolean = id in FM_AT54..FM_EFFECT
-    fun isSsg(id: Int): Boolean = id in SSG_SQUARE..SSG_ENVELOPE
+    fun isSsg(id: Int): Boolean = id in SSG_SQUARE..SSG_LLS_SQUARE
 
     fun fmPatch(id: Int): FmPatch? = when (id) {
         FM_AT54 -> LlsPatches.At54
@@ -112,6 +124,7 @@ object OpnaPatchBank {
         SSG_BASS -> Bass
         SSG_NOISE -> Noise
         SSG_ENVELOPE -> Envelope
+        SSG_LLS_SQUARE -> LlsSquare
         else -> null
     }
 }

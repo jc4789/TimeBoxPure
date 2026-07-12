@@ -86,14 +86,14 @@
   - C / FM3: 205 notes, lower melody/doubling; begins on `@181`, then changes to `@99`.
   - D / FM4: 570 notes with source `@99 -> @54 -> @99` transitions.
   - E / FM5: 570 notes with source `@99 -> @54 -> @99` transitions.
-- G contains 712 source-derived SSG1 notes and H contains 710 source-derived SSG2 notes on clean-room square voices.
+- G contains 712 source-derived SSG1 notes and H contains 710 source-derived SSG2 notes on clean-room `lls_square` voices.
 - PMD FM channel volume is mapped to 64% and the two summed SSG lanes to 37% before `MmlArrangementScheduler.MIX_GAIN = 0.75f`.
 - R remains the existing 405-shot procedural rhythm approximation.
-- Both active SSG lanes are included. Their shared PMD software envelope `[AR=2, DR=-1, SR=24, RR=1]` is not yet modeled; they currently use fixed-level square voices.
+- Both active SSG lanes use the decoded PMD legacy software envelope `[AR=2, DR=-1, SR=24, RR=1]`, clocked at 24 PMD ticks per quarter note.
 - The original cut is still ambiguous: the source has a 192-clock/two-bar leading opening, while the current duration edit removes 288 clocks/three bars (about 4.48 seconds). Change this only as an explicit musical decision.
 - `BAD_APPLE_LLS_MIGRATION_FIXTURE_MML` is an old headerless parser/migration fixture, not production song truth.
 - Current compiled size is 3864 primitive events: 2037 FM notes, 1422 SSG notes, and 405 rhythm shots.
-- This is a source-coordinated reconstruction, not a complete or bit-authentic PMD claim. Exact decoded note timing, ties, mid-track patches, volume changes, and fixed PMD key-off tails are preserved for the included lanes. Original rhythm semantics, the SSG software envelope, random/percentage Q, software LFO, and the final cut decision remain unresolved.
+- This is a source-coordinated reconstruction, not a complete or bit-authentic PMD claim. Exact decoded note timing, ties, mid-track patches, volume changes, fixed PMD key-off tails, and the LLS SSG software envelope are preserved for the included lanes. Original rhythm semantics, random/percentage Q, software LFO, and the final cut decision remain unresolved.
 
 ## Current Listening Risks
 
@@ -153,7 +153,7 @@ $env:JAVA_HOME="D:\Programes\Android Studio\jbr"; .\gradlew :shared-engine:testD
 ## Current Task Focus
 
 - Listen to the coordinated FM1-FM5/SSG1-SSG2 Bad Apple build before making more tonal changes.
-- Model the shared PMD SSG software envelope `[2, -1, 24, 1]` without adding callback allocations.
+- Validate the decoded SSG software-envelope articulation by listening before changing its balance.
 - Replace approximate rhythm only with a procedural/legal reconstruction.
 - Resolve the two-bar versus three-bar cut explicitly.
 - Keep the clean-room OPN core plus embedded MML as the forward architecture.

@@ -344,10 +344,10 @@ def append_span(tokens, ticks, note=None):
 def render_track(channel, source_channel):
     events = decode_pmd(source_channel)
     is_ssg = channel in "GHI"
-    tokens = ["@square"] if is_ssg else []
+    tokens = ["@lls_square"] if is_ssg else []
     cursor = 0
     octave = None
-    patch = "square" if is_ssg else None
+    patch = "lls_square" if is_ssg else None
     volume = None
     gate_tail = None
     for event in events:

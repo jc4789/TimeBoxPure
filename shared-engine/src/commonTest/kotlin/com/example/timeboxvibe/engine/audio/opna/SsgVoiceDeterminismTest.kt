@@ -38,4 +38,23 @@ class SsgVoiceDeterminismTest {
         val diff = kotlin.math.abs(crossings - 880)
         assertTrue(diff <= 5, "Crossings was $crossings, expected ~880")
     }
+
+    @Test
+    fun llsLegacySoftwareEnvelopeFollowsPmdTickStages() {
+        val voice = SsgVoice(0)
+        val patch = requireNotNull(OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_LLS_SQUARE))
+        voice.applyPatch(patch)
+        voice.noteOn(440f)
+
+        voice.render(FloatArray(1_600), 1_600, 48_000, 1f)
+        assertEquals(-1, voice.softwareEnvelopeLevelOffsetSnapshot())
+
+        voice.render(FloatArray(18_000), 18_000, 48_000, 1f)
+        assertEquals(-2, voice.softwareEnvelopeLevelOffsetSnapshot())
+
+        val beforeRelease = voice.softwareEnvelopeLevelOffsetSnapshot()
+        voice.noteOff()
+        voice.render(FloatArray(800), 800, 48_000, 1f)
+        assertTrue(voice.softwareEnvelopeLevelOffsetSnapshot() < beforeRelease)
+    }
 }

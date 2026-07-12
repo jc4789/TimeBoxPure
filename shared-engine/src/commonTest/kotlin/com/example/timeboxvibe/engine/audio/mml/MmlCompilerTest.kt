@@ -172,10 +172,10 @@ class MmlCompilerTest {
         assertEvent(program, 919, 12_720L, 240, 74, OpnaPatchBank.FM_AT99, 200)
         assertEvent(program, 2_035, 96_000L, 1_440, 82, OpnaPatchBank.FM_AT99, 1_440)
         assertEvent(program, 2_036, 97_440L, 480, 82, OpnaPatchBank.FM_AT99, 480)
-        assertEvent(program, 2_171, 20_880L, 120, 66, OpnaPatchBank.SSG_SQUARE, 120)
-        assertEvent(program, 2_172, 21_000L, 120, 65, OpnaPatchBank.SSG_SQUARE, 120)
-        assertEvent(program, 2_883, 21_060L, 60, 66, OpnaPatchBank.SSG_SQUARE, 60)
-        assertEvent(program, 2_884, 21_480L, 240, 63, OpnaPatchBank.SSG_SQUARE, 240)
+        assertEvent(program, 2_171, 20_880L, 120, 66, OpnaPatchBank.SSG_LLS_SQUARE, 120)
+        assertEvent(program, 2_172, 21_000L, 120, 65, OpnaPatchBank.SSG_LLS_SQUARE, 120)
+        assertEvent(program, 2_883, 21_060L, 60, 66, OpnaPatchBank.SSG_LLS_SQUARE, 60)
+        assertEvent(program, 2_884, 21_480L, 240, 63, OpnaPatchBank.SSG_LLS_SQUARE, 240)
     }
 
     @Test

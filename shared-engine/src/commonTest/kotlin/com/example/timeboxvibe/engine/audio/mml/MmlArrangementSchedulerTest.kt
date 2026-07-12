@@ -36,7 +36,7 @@ class MmlArrangementSchedulerTest {
         assertEquals(expectedSsgGain, firstSsg.velocity, 0.0001f)
         assertEquals(-1f, firstSsg.attack)
         assertEquals(-1f, firstSsg.release)
-        assertEquals(OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_SQUARE), firstSsg.ssgPatch)
+        assertEquals(OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_LLS_SQUARE), firstSsg.ssgPatch)
 
         val firstDrum = findFirstEvent(sequencer, SequencerEvent.DRUM)
         val expectedDrumGain = ((11 * 127 + 7) / 15) / 127f * MmlArrangementScheduler.MIX_GAIN
