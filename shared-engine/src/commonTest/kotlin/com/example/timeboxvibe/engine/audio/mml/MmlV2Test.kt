@@ -3,9 +3,7 @@ package com.example.timeboxvibe.engine.audio.mml
 import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaSong
 import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaTimeline
 import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
-import com.example.timeboxvibe.engine.audio.opna.OpnaSequencer
 import com.example.timeboxvibe.engine.audio.opna.PmdPerformanceLaws
-import com.example.timeboxvibe.engine.audio.opna.SequencerEvent
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -140,26 +138,24 @@ class MmlV2Test {
     }
 
     @Test
-    fun v2SchedulesAndRendersDeterministically() {
+    fun v2PlayerRendersDeterministically() {
         val arrangement = assertIs<MmlCompileResult.Success>(MmlCompiler.compile(expressiveSource)).arrangement
         val sampleRate = 48_000
         val synthA = OpnaLikeSynthesizer(sampleRate)
         val synthB = OpnaLikeSynthesizer(sampleRate)
-        val seqA = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
-        val seqB = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
-        MmlArrangementScheduler.schedule(arrangement, synthA, seqA, sampleRate)
-        MmlArrangementScheduler.schedule(arrangement, synthB, seqB, sampleRate)
+        val playerA = MmlArrangementScheduler.createPlayer(arrangement, synthA, sampleRate)
+        val playerB = MmlArrangementScheduler.createPlayer(arrangement, synthB, sampleRate)
 
         assertTrue(synthA.lfo.enabled)
-        assertEquals(10, seqA.eventCount)
-        assertEquals(2, count(seqA, SequencerEvent.FM_ON))
-        assertEquals(1, count(seqA, SequencerEvent.SSG_ON))
-        assertEquals(4, count(seqA, SequencerEvent.DRUM))
+        assertEquals(11, playerA.eventCount)
+        assertEquals(2, count(playerA.timeline, CompiledOpnaTimeline.FM_ON))
+        assertEquals(1, count(playerA.timeline, CompiledOpnaTimeline.SSG_ON))
+        assertEquals(4, count(playerA.timeline, CompiledOpnaTimeline.DRUM_SHOT))
 
         val a = FloatArray(4096)
         val b = FloatArray(4096)
-        synthA.render(a, a.size, seqA, 0L)
-        synthB.render(b, b.size, seqB, 0L)
+        synthA.render(a, a.size, playerA, 0L)
+        synthB.render(b, b.size, playerB, 0L)
         assertTrue(a.contentEquals(b))
         assertTrue(a.any { abs(it) > 0.0001f })
         assertTrue(a.all { it.isFinite() })
@@ -179,7 +175,7 @@ class MmlV2Test {
     }
 
     @Test
-    fun fm3ExtendedPartsScheduleIndependentOperators() {
+    fun fm3ExtendedPartsReachIndependentTimelineOperators() {
         val source = """
             #MML 2
             #BPM 120
@@ -192,14 +188,16 @@ class MmlV2Test {
         val arrangement = assertIs<MmlCompileResult.Success>(MmlCompiler.compile(source)).arrangement
         val program = assertNotNull(arrangement.compiledOpnaSong)
         assertTrue(program.fm3Extended)
-        assertEquals(2, program.eventCount)
+        assertEquals(3, program.eventCount)
+        val fm3Notes = program.eventType.indices.filter { program.eventType[it] == CompiledOpnaSong.FM3_OPERATOR_NOTE }
+        assertEquals(CompiledOpnaSong.FM3_PART_BASE, program.logicalPart[fm3Notes[0]])
+        assertEquals(CompiledOpnaSong.FM3_PART_BASE + 1, program.logicalPart[fm3Notes[1]])
 
         val synth = OpnaLikeSynthesizer(48_000)
-        val sequencer = OpnaSequencer(48_000, 120f)
-        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, 48_000)
-        assertEquals(2, count(sequencer, SequencerEvent.FM3_OPERATOR_ON))
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, 48_000)
+        assertEquals(2, count(player.timeline, CompiledOpnaTimeline.FM3_OPERATOR_ON))
         val output = FloatArray(4096)
-        synth.render(output, output.size, sequencer, 0L)
+        synth.render(output, output.size, player, 0L)
         assertTrue(output.any { abs(it) > 0.0001f })
     }
 
@@ -243,11 +241,10 @@ class MmlV2Test {
         }
 
         val synth = OpnaLikeSynthesizer(48_000)
-        val sequencer = OpnaSequencer(48_000, arrangement.tempoBpm)
-        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, 48_000)
-        assertEquals(7, count(sequencer, SequencerEvent.FM_POLY_ON))
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, 48_000)
+        assertEquals(7, count(player.timeline, CompiledOpnaTimeline.FM_POLY_ON))
         val output = FloatArray(4_096)
-        synth.render(output, output.size, sequencer, 0L)
+        synth.render(output, output.size, player, 0L)
         assertEquals(7, synth.activeFmVoiceCount())
         assertTrue(output.any { abs(it) > 0.0001f })
     }
@@ -286,9 +283,8 @@ class MmlV2Test {
             eventIndex++
         }
         val synth = OpnaLikeSynthesizer(48_000)
-        val sequencer = OpnaSequencer(48_000, arrangement.tempoBpm)
-        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, 48_000)
-        synth.render(FloatArray(13_000), 13_000, sequencer, 0L)
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, 48_000)
+        synth.render(FloatArray(13_000), 13_000, player, 0L)
         assertEquals(1, synth.activeFmVoiceCount())
         assertTrue(synth.occupiedFmVoiceCount() >= 2, "The first arpeggio note's release tail was stolen")
     }
@@ -299,11 +295,21 @@ class MmlV2Test {
         val arrangement = assertIs<MmlCompileResult.Success>(MmlCompiler.compile(source)).arrangement
         val program = assertNotNull(arrangement.compiledOpnaSong)
         assertEquals(1_500L, program.durationMilliseconds())
-        val sequencer = OpnaSequencer(48_000, arrangement.tempoBpm)
-        MmlArrangementScheduler.schedule(arrangement, OpnaLikeSynthesizer(48_000), sequencer, 48_000)
-        val secondOn = sequencer.events.first { it.type == SequencerEvent.FM_ON && it.sampleTime > 0L }
-        assertEquals(48_000L, secondOn.sampleTime)
-        assertEquals(72_000L, sequencer.customLoopLength)
+        val player = MmlArrangementScheduler.createPlayer(arrangement, OpnaLikeSynthesizer(48_000), 48_000)
+        var secondOn = -1
+        var event = 0
+        while (event < player.eventCount) {
+            if (player.timeline.eventType[event] == CompiledOpnaTimeline.FM_ON &&
+                player.timeline.sampleTime[event] > 0L
+            ) {
+                secondOn = event
+                break
+            }
+            event++
+        }
+        assertTrue(secondOn >= 0)
+        assertEquals(48_000L, player.timeline.sampleTime[secondOn])
+        assertEquals(72_000L, player.loopLengthSamples)
     }
 
     @Test
@@ -330,11 +336,11 @@ class MmlV2Test {
         assertEquals(83_763L, player.loopLengthSamples)
     }
 
-    private fun count(sequencer: OpnaSequencer, type: Int): Int {
+    private fun count(timeline: CompiledOpnaTimeline, type: Int): Int {
         var result = 0
         var i = 0
-        while (i < sequencer.eventCount) {
-            if (sequencer.events[i].type == type) result++
+        while (i < timeline.eventCount) {
+            if (timeline.eventType[i] == type) result++
             i++
         }
         return result

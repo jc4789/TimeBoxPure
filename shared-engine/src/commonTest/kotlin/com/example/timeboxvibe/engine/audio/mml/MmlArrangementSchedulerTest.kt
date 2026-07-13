@@ -2,45 +2,46 @@ package com.example.timeboxvibe.engine.audio.mml
 
 import com.example.timeboxvibe.engine.ArrangementLanes
 import com.example.timeboxvibe.engine.audio.opna.OpnaAudioConstants
+import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaPlayer
+import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaTimeline
 import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
-import com.example.timeboxvibe.engine.audio.opna.OpnaSequencer
-import com.example.timeboxvibe.engine.audio.opna.SequencerEvent
 import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaSong
+import com.example.timeboxvibe.engine.audio.opna.FmPatch
+import com.example.timeboxvibe.engine.audio.opna.LlsPatches
 import com.example.timeboxvibe.engine.audio.opna.OpnaPatchBank
+import com.example.timeboxvibe.engine.audio.opna.PmdSampleClock
 import kotlin.math.abs
 import kotlin.math.sqrt
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class MmlArrangementSchedulerTest {
     @Test
-    fun productionScheduleUsesOneCompiledGainAndPatchEnvelopeContract() {
+    fun productionPlayerUsesOneCompiledGainAndPatchContract() {
         val arrangement = requireDemoArrangement()
         val sampleRate = 48000
         val synth = OpnaLikeSynthesizer(sampleRate)
-        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, sampleRate)
 
-        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
-
-        val firstFm = findFirstEvent(sequencer, SequencerEvent.FM_ON)
+        val firstFm = findFirstEvent(player, CompiledOpnaTimeline.FM_ON)
         val expectedLeadGain = 78f / 127f * MmlArrangementScheduler.MIX_GAIN
-        assertEquals(expectedLeadGain, firstFm.velocity, 0.0001f)
-        assertEquals(-1f, firstFm.attack)
-        assertEquals(-1f, firstFm.release)
-        assertEquals(com.example.timeboxvibe.engine.audio.opna.LlsPatches.At74, firstFm.patch)
+        assertEquals(expectedLeadGain, player.timeline.velocity[firstFm], 0.0001f)
+        assertSame(LlsPatches.At74, player.timeline.instrumentBank.fmPatch(player.timeline.patchId[firstFm]))
 
-        val firstSsg = findFirstEvent(sequencer, SequencerEvent.SSG_ON)
+        val firstSsg = findFirstEvent(player, CompiledOpnaTimeline.SSG_ON)
         val expectedSsgGain = 40f / 127f * MmlArrangementScheduler.MIX_GAIN
-        assertEquals(expectedSsgGain, firstSsg.velocity, 0.0001f)
-        assertEquals(-1f, firstSsg.attack)
-        assertEquals(-1f, firstSsg.release)
-        assertEquals(OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_LLS_SQUARE), firstSsg.ssgPatch)
+        assertEquals(expectedSsgGain, player.timeline.velocity[firstSsg], 0.0001f)
+        assertSame(
+            OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_LLS_SQUARE),
+            player.timeline.instrumentBank.ssgPatch(player.timeline.patchId[firstSsg])
+        )
 
-        val firstDrum = findFirstEvent(sequencer, SequencerEvent.DRUM)
+        val firstDrum = findFirstEvent(player, CompiledOpnaTimeline.DRUM_SHOT)
         val expectedDrumGain = ((11 * 127 + 7) / 15) / 127f * MmlArrangementScheduler.MIX_GAIN
-        assertEquals(expectedDrumGain, firstDrum.velocity, 0.0001f)
+        assertEquals(expectedDrumGain, player.timeline.velocity[firstDrum], 0.0001f)
     }
 
     @Test
@@ -48,18 +49,16 @@ class MmlArrangementSchedulerTest {
         val arrangement = requireDemoArrangement()
         val sampleRate = 48000
         val synth = OpnaLikeSynthesizer(sampleRate)
-        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, sampleRate)
 
-        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
-
-        assertEquals(487, countEvents(sequencer, SequencerEvent.FM_ON, 0))
-        assertEquals(205, countEvents(sequencer, SequencerEvent.FM_ON, 1))
-        assertEquals(205, countEvents(sequencer, SequencerEvent.FM_ON, 2))
-        assertEquals(570, countEvents(sequencer, SequencerEvent.FM_ON, 3))
-        assertEquals(570, countEvents(sequencer, SequencerEvent.FM_ON, 4))
-        assertEquals(712, countEvents(sequencer, SequencerEvent.SSG_ON, 0))
-        assertEquals(710, countEvents(sequencer, SequencerEvent.SSG_ON, 1))
-        assertEquals(0, countEvents(sequencer, SequencerEvent.SSG_ON, 2))
+        assertEquals(487, countEvents(player, CompiledOpnaTimeline.FM_ON, 0))
+        assertEquals(205, countEvents(player, CompiledOpnaTimeline.FM_ON, 1))
+        assertEquals(205, countEvents(player, CompiledOpnaTimeline.FM_ON, 2))
+        assertEquals(570, countEvents(player, CompiledOpnaTimeline.FM_ON, 3))
+        assertEquals(570, countEvents(player, CompiledOpnaTimeline.FM_ON, 4))
+        assertEquals(712, countEvents(player, CompiledOpnaTimeline.SSG_ON, 0))
+        assertEquals(710, countEvents(player, CompiledOpnaTimeline.SSG_ON, 1))
+        assertEquals(0, countEvents(player, CompiledOpnaTimeline.SSG_ON, 2))
     }
 
     @Test
@@ -79,12 +78,10 @@ class MmlArrangementSchedulerTest {
         ).arrangement
         val sampleRate = 48000
         val synth = OpnaLikeSynthesizer(sampleRate)
-        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, sampleRate)
 
-        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
-
-        assertEquals(1, countEvents(sequencer, SequencerEvent.FM_ON, 3))
-        assertEquals(1, countEvents(sequencer, SequencerEvent.SSG_ON, 0))
+        assertEquals(1, countEvents(player, CompiledOpnaTimeline.FM_ON, 3))
+        assertEquals(1, countEvents(player, CompiledOpnaTimeline.SSG_ON, 0))
     }
 
     @Test
@@ -92,31 +89,33 @@ class MmlArrangementSchedulerTest {
         val arrangement = requireDemoArrangement()
         val sampleRate = 48000
         val synth = OpnaLikeSynthesizer(sampleRate)
-        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, sampleRate)
 
-        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
-
-        val firstFmOn = findFirstEvent(sequencer, SequencerEvent.FM_ON)
-        val firstFmOff = findEvent(sequencer, SequencerEvent.FM_OFF, firstFmOn.channel, firstFmOn.noteId)
+        val firstFmOn = findFirstEvent(player, CompiledOpnaTimeline.FM_ON)
+        val firstFmOff = findEvent(
+            player, CompiledOpnaTimeline.FM_OFF, player.timeline.channel[firstFmOn], player.timeline.noteId[firstFmOn]
+        )
         val program = requireNotNull(arrangement.compiledOpnaSong)
         val expectedFmGateSamples =
-            ticksToSamples(program.startTick[0] + program.gateTick[0], program.bpm, sampleRate) -
-                ticksToSamples(program.startTick[0], program.bpm, sampleRate)
+            PmdSampleClock.samplesAt(program, program.startTick[0] + program.gateTick[0], sampleRate) -
+                PmdSampleClock.samplesAt(program, program.startTick[0], sampleRate)
         assertEquals(
-            firstFmOn.sampleTime + expectedFmGateSamples,
-            firstFmOff.sampleTime
+            player.timeline.sampleTime[firstFmOn] + expectedFmGateSamples,
+            player.timeline.sampleTime[firstFmOff]
         )
 
-        val firstSsgOn = findFirstEvent(sequencer, SequencerEvent.SSG_ON)
-        val firstSsgOff = findEvent(sequencer, SequencerEvent.SSG_OFF, firstSsgOn.channel, firstSsgOn.noteId)
+        val firstSsgOn = findFirstEvent(player, CompiledOpnaTimeline.SSG_ON)
+        val firstSsgOff = findEvent(
+            player, CompiledOpnaTimeline.SSG_OFF, player.timeline.channel[firstSsgOn], player.timeline.noteId[firstSsgOn]
+        )
         var ssgIndex = 0
         while (program.eventType[ssgIndex] != CompiledOpnaSong.SSG_NOTE) ssgIndex++
         val expectedSsgGateSamples =
-            ticksToSamples(program.startTick[ssgIndex] + program.gateTick[ssgIndex], program.bpm, sampleRate) -
-                ticksToSamples(program.startTick[ssgIndex], program.bpm, sampleRate)
+            PmdSampleClock.samplesAt(program, program.startTick[ssgIndex] + program.gateTick[ssgIndex], sampleRate) -
+                PmdSampleClock.samplesAt(program, program.startTick[ssgIndex], sampleRate)
         assertEquals(
-            firstSsgOn.sampleTime + expectedSsgGateSamples,
-            firstSsgOff.sampleTime
+            player.timeline.sampleTime[firstSsgOn] + expectedSsgGateSamples,
+            player.timeline.sampleTime[firstSsgOff]
         )
     }
 
@@ -129,11 +128,10 @@ class MmlArrangementSchedulerTest {
         ).arrangement
         val sampleRate = 48000
         val synth = OpnaLikeSynthesizer(sampleRate)
-        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
-        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, sampleRate)
 
         val buffer = FloatArray(sampleRate * 3 / 2)
-        synth.render(buffer, buffer.size, sequencer, 0L)
+        synth.render(buffer, buffer.size, player, 0L)
 
         val releaseTailRms = rms(buffer, sampleRate * 492 / 1000, sampleRate * 500 / 1000)
         val silentRestRms = rms(buffer, sampleRate * 520 / 1000, sampleRate * 980 / 1000)
@@ -151,11 +149,10 @@ class MmlArrangementSchedulerTest {
         val synth = OpnaLikeSynthesizer(sampleRate)
         synth.enableOutputFilter = true
         synth.configureMasterEq(arrangement.eqBands)
-        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
-        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, sampleRate)
         val frames = sampleRate / 10
         val mono = FloatArray(frames)
-        synth.render(mono, frames, sequencer, 0L)
+        synth.render(mono, frames, player, 0L)
 
         var energy = 0.0
         var i = 0
@@ -180,11 +177,10 @@ class MmlArrangementSchedulerTest {
             synth.fm[voice].enableOversampling = true
             voice++
         }
-        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
-        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, sampleRate)
         val frames = sampleRate * 4
         val mono = FloatArray(frames)
-        synth.render(mono, frames, sequencer, 0L)
+        synth.render(mono, frames, player, 0L)
         val highBandRatio = highBandEnergyRatio(mono, sampleRate)
         val midBandRatio = midBandEnergyRatio(mono, sampleRate)
         val lowBandRatio = lowBandEnergyRatio(mono, sampleRate)
@@ -211,12 +207,10 @@ class MmlArrangementSchedulerTest {
             deterministicSynth.fm[voiceIndex].enableOversampling = true
             voiceIndex++
         }
-        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
-        val deterministicSequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
-        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
-        MmlArrangementScheduler.schedule(arrangement, deterministicSynth, deterministicSequencer, sampleRate)
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, sampleRate)
+        val deterministicPlayer = MmlArrangementScheduler.createPlayer(arrangement, deterministicSynth, sampleRate)
 
-        val totalSamples = requireNotNull(arrangement.compiledOpnaSong).durationMilliseconds() * sampleRate / 1000L
+        val totalSamples = player.loopLengthSamples
         val buffer = FloatArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
         val deterministicBuffer = FloatArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
         var sampleOffset = 0L
@@ -227,8 +221,8 @@ class MmlArrangementSchedulerTest {
         var kneeCrossings = 0L
         while (sampleOffset < totalSamples) {
             val frames = minOf(buffer.size.toLong(), totalSamples - sampleOffset).toInt()
-            synth.render(buffer, frames, sequencer, sampleOffset)
-            deterministicSynth.render(deterministicBuffer, frames, deterministicSequencer, sampleOffset)
+            synth.render(buffer, frames, player, sampleOffset)
+            deterministicSynth.render(deterministicBuffer, frames, deterministicPlayer, sampleOffset)
             if (synth.preClampPeak > maximumPreClipPeak) maximumPreClipPeak = synth.preClampPeak
             kneeCrossings += synth.preClampKneeCrossings
             var i = 0
@@ -258,34 +252,31 @@ class MmlArrangementSchedulerTest {
         val arrangement = requireDemoArrangement()
         val sampleRate = 48000
         val synth = OpnaLikeSynthesizer(sampleRate)
-        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
-        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, sampleRate)
         val expected = arrayOf(
-            com.example.timeboxvibe.engine.audio.opna.LlsPatches.At74,
-            com.example.timeboxvibe.engine.audio.opna.LlsPatches.At181,
-            com.example.timeboxvibe.engine.audio.opna.LlsPatches.At181,
-            com.example.timeboxvibe.engine.audio.opna.LlsPatches.At99,
-            com.example.timeboxvibe.engine.audio.opna.LlsPatches.At99
+            LlsPatches.At74,
+            LlsPatches.At181,
+            LlsPatches.At181,
+            LlsPatches.At99,
+            LlsPatches.At99
         )
         var channel = 0
         while (channel < expected.size) {
-            val event = findFirstEvent(sequencer, SequencerEvent.FM_ON, channel)
-            assertEquals(expected[channel], event.patch)
-            assertEquals(-1f, event.attack)
-            assertEquals(-1f, event.release)
+            val event = findFirstEvent(player, CompiledOpnaTimeline.FM_ON, channel)
+            assertSame(expected[channel], player.timeline.instrumentBank.fmPatch(player.timeline.patchId[event]))
             channel++
         }
         val channel3At54 = findFirstPatchEvent(
-            sequencer,
+            player,
             channel = 3,
-            patch = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At54,
+            patch = LlsPatches.At54,
             afterSample = -1L
         )
         findFirstPatchEvent(
-            sequencer,
+            player,
             channel = 3,
-            patch = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At99,
-            afterSample = channel3At54.sampleTime
+            patch = LlsPatches.At99,
+            afterSample = player.timeline.sampleTime[channel3At54]
         )
     }
 
@@ -325,52 +316,9 @@ class MmlArrangementSchedulerTest {
         val arrangement = requireDemoArrangement()
         val sampleRate = 48000
         val synth = OpnaLikeSynthesizer(sampleRate)
-        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
-        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, sampleRate)
         val buffer = FloatArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
-        synth.render(buffer, buffer.size, sequencer, 0L)
-        return buffer
-    }
-
-    private fun renderComparisonPrefix(arrangement: ArrangementLanes, sampleRate: Int, richPatches: Boolean): FloatArray {
-        val synth = OpnaLikeSynthesizer(sampleRate)
-        synth.enableOutputFilter = true
-        var voiceIndex = 0
-        while (voiceIndex < synth.fm.size) {
-            synth.fm[voiceIndex].enableOversampling = true
-            voiceIndex++
-        }
-        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
-        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
-        if (!richPatches) {
-            synth.fm[0].applyPatch(com.example.timeboxvibe.engine.audio.opna.LlsPatches.At54.copy(
-                algorithm = 0,
-                feedback = 3,
-                op0 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At54.op0.copy(mul = 1, tl = 24),
-                op1 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At54.op1.copy(mul = 1, tl = 30),
-                op2 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At54.op2.copy(tl = 36)
-            ))
-            synth.fm[1].applyPatch(com.example.timeboxvibe.engine.audio.opna.LlsPatches.At74.copy(
-                algorithm = 2,
-                feedback = 2,
-                op0 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At74.op0.copy(tl = 26),
-                op1 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At74.op1.copy(mul = 2, tl = 32),
-                op2 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At74.op2.copy(tl = 38)
-            ))
-            synth.fm[2].applyPatch(com.example.timeboxvibe.engine.audio.opna.LlsPatches.At99.copy(
-                feedback = 2,
-                op0 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At99.op0.copy(tl = 24),
-                op1 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At99.op1.copy(tl = 38),
-                op2 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At99.op2.copy(tl = 34)
-            ))
-            synth.fm[3].applyPatch(com.example.timeboxvibe.engine.audio.opna.LlsPatches.At181.copy(
-                feedback = 1,
-                op0 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At181.op0.copy(tl = 32),
-                op2 = com.example.timeboxvibe.engine.audio.opna.LlsPatches.At181.op2.copy(tl = 34)
-            ))
-        }
-        val buffer = FloatArray(sampleRate * 2)
-        synth.render(buffer, buffer.size, sequencer, 0L)
+        synth.render(buffer, buffer.size, player, 0L)
         return buffer
     }
 
@@ -453,63 +401,57 @@ class MmlArrangementSchedulerTest {
         return result.arrangement
     }
 
-    private fun findFirstEvent(sequencer: OpnaSequencer, type: Int): SequencerEvent {
+    private fun findFirstEvent(player: CompiledOpnaPlayer, type: Int): Int {
         var i = 0
-        while (i < sequencer.eventCount) {
-            val event = sequencer.events[i]
-            if (event.type == type) return event
+        while (i < player.eventCount) {
+            if (player.timeline.eventType[i] == type) return i
             i++
         }
-        error("No sequencer event of type $type")
+        error("No timeline event of type $type")
     }
 
-    private fun findFirstEvent(sequencer: OpnaSequencer, type: Int, channel: Int): SequencerEvent {
+    private fun findFirstEvent(player: CompiledOpnaPlayer, type: Int, channel: Int): Int {
         var i = 0
-        while (i < sequencer.eventCount) {
-            val event = sequencer.events[i]
-            if (event.type == type && event.channel == channel) return event
+        while (i < player.eventCount) {
+            if (player.timeline.eventType[i] == type && player.timeline.channel[i] == channel) return i
             i++
         }
-        error("No sequencer event of type $type on channel $channel")
+        error("No timeline event of type $type on channel $channel")
     }
 
     private fun findFirstPatchEvent(
-        sequencer: OpnaSequencer,
+        player: CompiledOpnaPlayer,
         channel: Int,
-        patch: com.example.timeboxvibe.engine.audio.opna.FmPatch,
+        patch: FmPatch,
         afterSample: Long
-    ): SequencerEvent {
+    ): Int {
         var i = 0
-        while (i < sequencer.eventCount) {
-            val event = sequencer.events[i]
-            if (event.type == SequencerEvent.FM_ON && event.channel == channel &&
-                event.patch == patch && event.sampleTime > afterSample
-            ) return event
+        while (i < player.eventCount) {
+            if (player.timeline.eventType[i] == CompiledOpnaTimeline.FM_ON &&
+                player.timeline.channel[i] == channel && player.timeline.instrumentBank.fmPatch(player.timeline.patchId[i]) === patch &&
+                player.timeline.sampleTime[i] > afterSample
+            ) return i
             i++
         }
         error("No FM event for channel $channel with requested patch after $afterSample")
     }
 
-    private fun ticksToSamples(ticks: Long, bpm: Float, sampleRate: Int): Long =
-        (ticks.toDouble() * sampleRate.toDouble() * 60.0 /
-            (bpm.toDouble() * CompiledOpnaSong.TICKS_PER_QUARTER.toDouble())).toLong()
-
-    private fun findEvent(sequencer: OpnaSequencer, type: Int, channel: Int, noteId: Int): SequencerEvent {
+    private fun findEvent(player: CompiledOpnaPlayer, type: Int, channel: Int, noteId: Int): Int {
         var i = 0
-        while (i < sequencer.eventCount) {
-            val event = sequencer.events[i]
-            if (event.type == type && event.channel == channel && event.noteId == noteId) return event
+        while (i < player.eventCount) {
+            if (player.timeline.eventType[i] == type && player.timeline.channel[i] == channel &&
+                player.timeline.noteId[i] == noteId
+            ) return i
             i++
         }
-        error("No sequencer event of type $type for channel $channel and note $noteId")
+        error("No timeline event of type $type for channel $channel and note $noteId")
     }
 
-    private fun countEvents(sequencer: OpnaSequencer, type: Int, channel: Int): Int {
+    private fun countEvents(player: CompiledOpnaPlayer, type: Int, channel: Int): Int {
         var count = 0
         var i = 0
-        while (i < sequencer.eventCount) {
-            val event = sequencer.events[i]
-            if (event.type == type && event.channel == channel) count++
+        while (i < player.eventCount) {
+            if (player.timeline.eventType[i] == type && player.timeline.channel[i] == channel) count++
             i++
         }
         return count

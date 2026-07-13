@@ -19,6 +19,15 @@
 - `USAGE_ALARM` is intentional for this productivity/alarm application.
 - No `MediaPlayer`, sample asset, or runtime music-file path is part of production playback.
 
+## Repaired Runtime Ownership
+
+- Catalog MML has one runtime path: `CompiledOpnaSong` -> exact `CompiledOpnaTimeline` -> `CompiledOpnaPlayer`. The compiled-song-to-`OpnaSequencer` compatibility translator was removed; `OpnaSequencer` remains only for direct procedural motifs/tests.
+- `OpnaChipState` owns preallocated chip voices/shared state, `PmdPerformanceState` owns FM3 part-local driver state, and `SongMastering` owns EQ/filter/resonator/clipping state.
+- Compiled songs carry exact used-only `CompiledInstrumentBank` instances. Shared built-ins are compile-time sources; LOGO patch 79 is song-local and no longer extends the global built-in ID namespace.
+- FM3 C1-C4 carry explicit logical-part IDs, independent volume/two-LFO state, and slot masks. Channel C is an explicit register-control lane; unsupported part-local controls fail compilation instead of disappearing.
+- FM3 slot ownership is time-aware: simultaneous cross-part overlap fails, while sequential reuse is legal. ALG remains channel-global and patch FB changes only when slot 1 participates.
+- Legacy authored drums, YM2608 rhythm-register controls, and PMD K/R SSG effects use separate procedural generators and reset domains. Timeline precedence is global -> state -> off/dump -> on/shot -> zero-gate off.
+
 ## Procedural OPN Sound Engine
 
 - Main files:
@@ -66,7 +75,7 @@
   - `audio/mml/MmlArrangementScheduler.kt`
 - MML is embedded as Kotlin raw strings and compiled once before streaming. Parsing and compilation never occur in the audio callback.
 - Headerless MML is v1. `#MML 2` compiles into an exact-size `CompiledOpnaSong` independent of parser/catalog objects; setup expands it into one exact-size, canonically ordered sample-domain timeline.
-- Catalog playback advances a primitive cursor through `CompiledOpnaPlayer`; it does not allocate event objects or sort in the callback. `OpnaSequencer` remains active for direct procedural motifs and compatibility tests, not catalog playback.
+- Catalog playback advances a primitive cursor through `CompiledOpnaPlayer`; it does not allocate event objects or sort in the callback. `OpnaSequencer` remains only for direct procedural motifs/tests, not catalog translation or playback.
 - V2 channel layout is A-F FM, G-I SSG, and R rhythm, with optional C1-C4 operator parts under `#FM3EXTEND ON`.
 - V2 supports dots, ties/slurs, PMD `Q0..8`/`Q%0..255` plus source-clock `q` random/minimum rules, `V0..127`, relative accents, pan, signed-cent detune, portamento, hardware LFO, PMD `M/MA/MB`, `MW`, `*`, `MM`, `MX`, and `MD` software-LFO controls, chords, authored polyphony, macros, nested loops, and channel-A tempo changes.
 - V2 supports mid-track named instrument changes and records the active patch on every primitive note event. V1 deliberately rejects instrument changes.
@@ -74,6 +83,7 @@
 - SSG parts accept ordered legacy/extended `E` software-envelope definitions and Normal/Extend `EX0`/`EX1` clock controls. Normal follows tempo; Extend is fixed at approximately 56 Hz.
 - FM and SSG parts each preallocate two independent PMD software LFOs. The seven documented waveforms, delay/speed/depth/repetition, pitch/volume targets, key-on sync/free-run, fixed/tempo clocks, FM TL masks, depth evolution, and explicit deterministic random reset are ordered part state. PMD software LFO is rejected with the engine-only `P1` polyphonic mode because dynamically pooled voices are not PMD parts.
 - Compiled programs carry a lightweight playback-gain scalar; event arrays are shared when catalog volume changes.
+- Playback-gain copies also share the immutable exact song-local instrument bank; runtime patch lookup never consults the authored/global name registry.
 - MML2 is PMD-inspired, not a general PMD binary interpreter. Raw register commands, historical grace syntax, timers, CSM, and direct PMD binary playback remain unsupported.
 
 ## Current Bad Apple State
@@ -150,7 +160,8 @@
 
 ## Verification
 
-- Latest audio state: all 187 common/native tests and both JVM allocation tests pass with zero failures.
+- The post-audit repair adds interaction coverage for FM3 part isolation, exact key delay, sequential slot reuse, rhythm-domain isolation/ordering/reset/bus routing, compact song-local banks, and LOGO oracle provenance.
+- Latest post-repair Android/JVM result: 205 tests, zero failures/errors/skips; common metadata, Android shared code, app compilation/assembly, and the OPNA hot-path audit pass. The full `winTest` aggregate exceeded the five-minute command limit without failure output; focused Windows native rhythm/ownership tests and native compilation pass.
 - OPNA allocation/hot-path audit passes.
 - Android `:app:assembleDebug` succeeds.
 - Bad Apple regressions protect compiled event totals, per-lane counts, decoded opening pitches/patch, and the scheduled channel-D `@99 -> @54 -> @99` transition.
@@ -172,6 +183,7 @@ $env:JAVA_HOME="D:\Programes\Android Studio\jbr"; .\gradlew :shared-engine:testD
 ## Current Task Focus
 
 - Phases 0-8 of the YM2608/PMD generalization plan are implemented, including one checklist-driven archive ingestion. Phase 5 tonal A/B, Phase 7 three-song rhythm listening, and listening approval of the new LOGO transcription remain explicit manual acceptance gates; no global tonal law or production rhythm default was changed without them.
+- The architectural repair after Phases 6-8 is implemented. Do not restore the retired compiled-song sequencer path, a global per-song patch namespace, shared YM/K-R drum state, or channel-wide FM3 part performance state.
 - Listen to the coordinated FM1-FM5/SSG1-SSG2 Bad Apple build before making more tonal changes.
 - Listen to both output profiles before considering any change away from `TIMEBOX_LEGACY`; automated tests do not establish musical balance.
 - Replace approximate rhythm only with a procedural/legal reconstruction.

@@ -535,6 +535,18 @@ Good first additions should exercise different engine areas rather than selectin
 - The compiled result contains 227 authored note/control events, five sorted tempo changes, a 3,960-tick one-shot duration, and 429 runtime boundaries. `LogoSongIngestionTest` checks the full normalized pitch/start/duration/volume traces, patch registers, tempo state, deterministic product prefixes at 48,000 and 55,466 Hz, and a finite non-empty unmastered prefix.
 - The cached song is registered as `synth-mml-lls-logo` in `MmlSongBank` and `SongCatalog`. No global synthesis, mix, EQ, or rhythm law changed during ingestion; listening remains required before any such change.
 
+## Post-implementation architecture repair (2026-07-12)
+
+The first Phase 6-8 implementation passed its automated tests but violated several ownership and evidence requirements above. The repair is now part of the architecture:
+
+- The compiled-song-to-`OpnaSequencer` compatibility translator and its duplicate PMD/FM3/rhythm dispatch catalog were removed. Direct procedural `OpnaSequencer` motifs remain supported.
+- `OpnaChipState`, `PmdPerformanceState`, and `SongMastering` now own chip, driver-part, and product-output state respectively.
+- FM3 C1-C4 preserve logical-part identity, independent volume and two-LFO state, explicit patch/control ordering, selected-slot patch isolation, exact key-delay boundaries, and time-aware slot ownership. Unsupported Channel C part-local commands are rejected.
+- Legacy drums, YM2608 rhythm controls, and PMD K/R SSG effects have separate procedural generators, buses, silence/reset contracts, and canonical same-time precedence.
+- Compiled programs carry exact used-only, song-local instrument banks. `LOGO.M86` patch 79 no longer occupies the global built-in ID/name map.
+- `tools/oracles/logo_m86_normalized.json` is a compact derived semantic oracle covering the five active parts, 196 notes, represented controls, source hash, and decoded patch registers. It contains no archive/audio bytes and is never a runtime input.
+- Interaction tests replace compatibility-parity assertions. Passing tests do not waive the outstanding human tonal/rhythm/listening gates.
+
 ## Testing strategy
 
 ### Structural tests

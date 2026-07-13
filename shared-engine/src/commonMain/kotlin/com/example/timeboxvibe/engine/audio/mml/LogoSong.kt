@@ -3,6 +3,8 @@ package com.example.timeboxvibe.engine.audio.mml
 import com.example.timeboxvibe.engine.audio.opna.EgMode
 import com.example.timeboxvibe.engine.audio.opna.FmPatch
 import com.example.timeboxvibe.engine.audio.opna.OperatorSpec
+import com.example.timeboxvibe.engine.audio.opna.SourceInstrumentLookup
+import com.example.timeboxvibe.engine.audio.opna.SsgPatch
 
 /**
  * Compact source-owned patch bank for LOGO.M86.
@@ -10,7 +12,9 @@ import com.example.timeboxvibe.engine.audio.opna.OperatorSpec
  * Oracle entry SHA-256: 1e572f2677129bdc16bc79323c2e8369ca1c958d9c2685e3c48e21e74c2e66f7
  * Archive SHA-256: ca787b8ff66f7b3f10c97b3ecc77cd466772767e3e9e8cf5a0c71dd612b1c8d7
  */
-internal object LogoSongPatchBank {
+internal object LogoSongPatchBank : SourceInstrumentLookup {
+    private const val AT79_SOURCE_ID = 0
+
     val At79 = FmPatch(
         algorithm = 4,
         feedback = 7,
@@ -19,6 +23,12 @@ internal object LogoSongPatchBank {
         op2 = OperatorSpec(4, 3, 0, ar = 13, dr = 2, sr = 2, sl = 13, rr = 4, egMode = EgMode.OPN_RATE),
         op3 = OperatorSpec(4, 7, 0, ar = 12, dr = 2, sr = 6, sl = 13, rr = 5, egMode = EgMode.OPN_RATE)
     )
+
+    override fun sourceIdForName(name: String): Int = if (name.equals("logo79", ignoreCase = true)) AT79_SOURCE_ID else -1
+
+    override fun fmPatch(sourceId: Int): FmPatch? = if (sourceId == AT79_SOURCE_ID) At79 else null
+
+    override fun ssgPatch(sourceId: Int): SsgPatch? = null
 }
 
 internal const val LOGO_M86_MML_SOURCE: String = """

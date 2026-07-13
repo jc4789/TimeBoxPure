@@ -14,6 +14,7 @@ class CompiledOpnaSong internal constructor(
     internal val pmdClocksPerQuarter: Int,
     val lfoRate: Int,
     val fm3Extended: Boolean,
+    internal val instrumentBank: CompiledInstrumentBank,
     internal val tempoChangeCount: Int,
     internal val tempoTick: LongArray,
     internal val tempoBpm: FloatArray,
@@ -25,6 +26,7 @@ class CompiledOpnaSong internal constructor(
     internal val durationTick: IntArray,
     internal val gateTick: IntArray,
     internal val channel: IntArray,
+    internal val logicalPart: IntArray,
     internal val operator: IntArray,
     internal val slotMask: IntArray,
     internal val midi: IntArray,
@@ -60,6 +62,7 @@ class CompiledOpnaSong internal constructor(
             pmdClocksPerQuarter = pmdClocksPerQuarter,
             lfoRate = lfoRate,
             fm3Extended = fm3Extended,
+            instrumentBank = instrumentBank,
             tempoChangeCount = tempoChangeCount,
             tempoTick = tempoTick,
             tempoBpm = tempoBpm,
@@ -71,6 +74,7 @@ class CompiledOpnaSong internal constructor(
             durationTick = durationTick,
             gateTick = gateTick,
             channel = channel,
+            logicalPart = logicalPart,
             operator = operator,
             slotMask = slotMask,
             midi = midi,
@@ -138,6 +142,12 @@ class CompiledOpnaSong internal constructor(
         internal const val RHYTHM_VOICE_LEVEL_RELATIVE: Int = 26
         internal const val RHYTHM_VOICE_PAN: Int = 27
         internal const val SSG_DRUM_SHOT: Int = 28
+        internal const val FM_PART_VOLUME: Int = 29
+        internal const val FM_PART_SLOT_MASK: Int = 30
+
+        internal const val LOGICAL_PART_NONE: Int = -1
+        internal const val FM3_PART_BASE: Int = 6
+        internal const val FM3_PART_COUNT: Int = 4
     }
 }
 
@@ -148,8 +158,14 @@ internal class CompiledOpnaSongBuilder(
     private val beatsPerBar: Int,
     private val pmdClocksPerQuarter: Int,
     private val lfoRate: Int,
-    private val fm3Extended: Boolean
+    private val fm3Extended: Boolean,
+    sourceInstruments: SourceInstrumentLookup
 ) {
+    private val instrumentBankBuilder = CompiledInstrumentBankBuilder(
+        source = sourceInstruments,
+        maxFmPatches = MAX_COMPILED_FM_PATCHES,
+        maxSsgPatches = MAX_COMPILED_SSG_PATCHES
+    )
     private var tempoTick = LongArray(INITIAL_TEMPO_CAPACITY)
     private var tempoBpm = FloatArray(INITIAL_TEMPO_CAPACITY)
     private var tempoBpmMilli = IntArray(INITIAL_TEMPO_CAPACITY)
@@ -159,6 +175,7 @@ internal class CompiledOpnaSongBuilder(
     private var durationTick = IntArray(INITIAL_EVENT_CAPACITY)
     private var gateTick = IntArray(INITIAL_EVENT_CAPACITY)
     private var channel = IntArray(INITIAL_EVENT_CAPACITY)
+    private var logicalPart = IntArray(INITIAL_EVENT_CAPACITY) { CompiledOpnaSong.LOGICAL_PART_NONE }
     private var operator = IntArray(INITIAL_EVENT_CAPACITY)
     private var slotMask = IntArray(INITIAL_EVENT_CAPACITY)
     private var midi = IntArray(INITIAL_EVENT_CAPACITY)
@@ -187,6 +204,10 @@ internal class CompiledOpnaSongBuilder(
         private set
     var durationTicks: Long = 0L
         private set
+
+    fun internFmPatch(sourceId: Int): Int = instrumentBankBuilder.internFm(sourceId)
+
+    fun internSsgPatch(sourceId: Int): Int = instrumentBankBuilder.internSsg(sourceId)
 
     fun addTempo(atTick: Long, bpm: Float, milliBpm: Int): Boolean {
         var position = 0
@@ -232,7 +253,8 @@ internal class CompiledOpnaSongBuilder(
         selectedGateScale: Int = 8,
         selectedGateTailClocks: Int = 0,
         selectedGateMinimumClocks: Int = 0,
-        selectedSlotMask: Int = 0
+        selectedSlotMask: Int = 0,
+        selectedLogicalPart: Int = CompiledOpnaSong.LOGICAL_PART_NONE
     ): Boolean {
         if (size >= CompiledOpnaSong.MAX_AUTHORED_EVENTS) return false
         ensureEventCapacity(size + 1)
@@ -242,6 +264,7 @@ internal class CompiledOpnaSongBuilder(
         durationTick[i] = duration
         gateTick[i] = gate
         channel[i] = channelIndex
+        logicalPart[i] = selectedLogicalPart
         operator[i] = operatorIndex
         slotMask[i] = selectedSlotMask
         midi[i] = midiNote
@@ -301,9 +324,11 @@ internal class CompiledOpnaSongBuilder(
         value1: Int,
         value2: Int = 0,
         value3: Int = 0,
-        value4: Int = 0
+        value4: Int = 0,
+        logicalPartId: Int = CompiledOpnaSong.LOGICAL_PART_NONE
     ): Boolean {
-        if (!add(type, atTick, 0, 0, channelIndex, partFamily, 0, -1, 0, -1, 0, 0, 0, 0, 0)) return false
+        if (!add(type, atTick, 0, 0, channelIndex, partFamily, 0, -1, 0, -1, 0, 0, 0, 0, 0,
+                selectedLogicalPart = logicalPartId)) return false
         val i = size - 1
         envelopeFormat[i] = lfoIndex
         envelopeAttack[i] = value1
@@ -313,17 +338,32 @@ internal class CompiledOpnaSongBuilder(
         return true
     }
 
-    fun addFmControl(type: Int, atTick: Long, channelIndex: Int, mask: Int, value: Int): Boolean {
-        if (!add(type, atTick, 0, 0, channelIndex, -1, 0, -1, 0, -1, 0, 0, 0, 0, 0)) return false
+    fun addFmControl(
+        type: Int, atTick: Long, channelIndex: Int, mask: Int, value: Int,
+        logicalPartId: Int = CompiledOpnaSong.LOGICAL_PART_NONE
+    ): Boolean {
+        if (!add(type, atTick, 0, 0, channelIndex, -1, 0, -1, 0, -1, 0, 0, 0, 0, 0,
+                selectedLogicalPart = logicalPartId)) return false
         val i = size - 1
         slotMask[i] = mask
         envelopeAttack[i] = value
         return true
     }
 
-    fun addFm3Patch(atTick: Long, mask: Int, selectedPatchId: Int): Boolean {
-        if (!add(CompiledOpnaSong.FM3_PATCH, atTick, 0, 0, 2, -1, 0, -1, 0, selectedPatchId, 0, 0, 0, 0, 0)) return false
+    fun addFm3Patch(
+        atTick: Long, mask: Int, selectedPatchId: Int,
+        logicalPartId: Int = CompiledOpnaSong.LOGICAL_PART_NONE
+    ): Boolean {
+        if (!add(CompiledOpnaSong.FM3_PATCH, atTick, 0, 0, 2, -1, 0, -1, 0, selectedPatchId, 0, 0, 0, 0, 0,
+                selectedLogicalPart = logicalPartId)) return false
         slotMask[size - 1] = mask
+        return true
+    }
+
+    fun addFmPartControl(type: Int, atTick: Long, logicalPartId: Int, value: Int): Boolean {
+        if (!add(type, atTick, 0, 0, 2, -1, 0, -1, 0, -1, 0, 0, 0, 0, 0,
+                selectedLogicalPart = logicalPartId)) return false
+        envelopeAttack[size - 1] = value
         return true
     }
 
@@ -341,6 +381,7 @@ internal class CompiledOpnaSongBuilder(
         pmdClocksPerQuarter = pmdClocksPerQuarter,
         lfoRate = lfoRate,
         fm3Extended = fm3Extended,
+        instrumentBank = instrumentBankBuilder.build(),
         tempoChangeCount = tempoChangeCount,
         tempoTick = tempoTick.copyOf(tempoChangeCount),
         tempoBpm = tempoBpm.copyOf(tempoChangeCount),
@@ -352,6 +393,7 @@ internal class CompiledOpnaSongBuilder(
         durationTick = durationTick.copyOf(size),
         gateTick = gateTick.copyOf(size),
         channel = channel.copyOf(size),
+        logicalPart = logicalPart.copyOf(size),
         operator = operator.copyOf(size),
         slotMask = slotMask.copyOf(size),
         midi = midi.copyOf(size),
@@ -394,6 +436,9 @@ internal class CompiledOpnaSongBuilder(
         durationTick = durationTick.copyOf(next)
         gateTick = gateTick.copyOf(next)
         channel = channel.copyOf(next)
+        val oldLogicalSize = logicalPart.size
+        logicalPart = logicalPart.copyOf(next)
+        logicalPart.fill(CompiledOpnaSong.LOGICAL_PART_NONE, oldLogicalSize, next)
         operator = operator.copyOf(next)
         slotMask = slotMask.copyOf(next)
         midi = midi.copyOf(next)
@@ -423,5 +468,9 @@ internal class CompiledOpnaSongBuilder(
         const val INITIAL_EVENT_CAPACITY = 256
         const val INITIAL_TEMPO_CAPACITY = 8
         const val MAX_TEMPO_CHANGES = 4_096
+        // PMD instrument selectors are one-byte domains; final banks are trimmed
+        // to the exact used counts, while these setup arrays bound malformed input.
+        const val MAX_COMPILED_FM_PATCHES = 256
+        const val MAX_COMPILED_SSG_PATCHES = 256
     }
 }

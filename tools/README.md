@@ -45,3 +45,12 @@ python tools/pmd_corpus_audit.py --thdat "D:\Programes\ym2608-info\thtk-bin-12\t
 
 JSON/CSV outputs are offline build reports. They are not runtime assets and
 must not be copied into application resources.
+
+`tools/oracles/logo_m86_normalized.json` is a compact semantic oracle generated
+offline from the independently hashed `LOGO.M86` entry. It contains decoded
+notes, controls, and the referenced 26-byte PMD FM voice as named register
+fields; it contains no archive bytes and is never read by the application or
+Gradle build. Regenerate it only from the exact source SHA-256 recorded inside
+the fixture using `--oracle-song LOGO.M86 --oracle-out <temporary-path>`, compare
+that temporary result with the checked-in oracle, then run
+`python -m unittest tools/pmd_corpus_audit_test.py`.

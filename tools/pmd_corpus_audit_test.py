@@ -5,6 +5,8 @@ from __future__ import annotations
 import struct
 import sys
 import unittest
+import hashlib
+import json
 from pathlib import Path
 
 
@@ -90,8 +92,42 @@ class PmdCorpusAuditTest(unittest.TestCase):
                 "volume": 90,
                 "gate_tail": 2,
                 "shift": 1,
+                "detune": 0,
             }],
         )
+
+    def test_logo_oracle_is_canonical_and_covers_all_authored_lanes(self) -> None:
+        path = TOOLS / "oracles/logo_m86_normalized.json"
+        oracle = json.loads(path.read_text(encoding="utf-8"))
+        stored_hash = oracle.pop("oracle_sha256")
+        canonical = json.dumps(
+            oracle, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+
+        self.assertEqual(oracle["schema_version"], 1)
+        self.assertEqual(
+            oracle["source_sha256"],
+            "1e572f2677129bdc16bc79323c2e8369ca1c958d9c2685e3c48e21e74c2e66f7",
+        )
+        self.assertEqual(stored_hash, hashlib.sha256(canonical).hexdigest())
+        self.assertEqual([part["part"] for part in oracle["parts"]], ["A", "B", "G", "H", "I"])
+        self.assertEqual([part["note_count"] for part in oracle["parts"]], [2, 2, 64, 64, 64])
+        self.assertEqual(oracle["summary"]["note_count"], 196)
+        self.assertEqual(oracle["summary"]["control_counts"]["tempo"], 9)
+        self.assertEqual(oracle["summary"]["control_counts"]["software_lfo_1"], 5)
+
+    def test_logo_oracle_patch_79_is_decoded_register_state(self) -> None:
+        oracle = json.loads((TOOLS / "oracles/logo_m86_normalized.json").read_text(encoding="utf-8"))
+        patch = oracle["patches"][0]
+
+        self.assertEqual((patch["id"], patch["algorithm"], patch["feedback"]), (79, 4, 7))
+        self.assertEqual([op["mul"] for op in patch["operators"]], [2, 2, 4, 4])
+        self.assertEqual([op["detune"] for op in patch["operators"]], [3, 7, 3, 7])
+        self.assertEqual([op["tl"] for op in patch["operators"]], [30, 31, 0, 0])
+
+    def test_represented_logo_commands_are_not_ranked_unpreserved(self) -> None:
+        represented = {0xFC, 0xFA, 0xF0, 0xF2, 0xF1, 0xCB, 0xCA, 0xBB}
+        self.assertTrue(represented <= audit.CURRENT_IMPORT_PRESERVED)
 
     def test_unsupported_ranking_deduplicates_identical_payloads(self) -> None:
         location = {"part": "A", "offset": 30, "opcode": 0xFC, "name": "tempo"}

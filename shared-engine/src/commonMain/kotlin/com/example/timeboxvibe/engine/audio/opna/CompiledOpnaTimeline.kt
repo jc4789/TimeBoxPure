@@ -5,9 +5,11 @@ class CompiledOpnaTimeline internal constructor(
     val eventCount: Int,
     val loopLengthSamples: Long,
     internal val pmdClocksPerQuarter: Int,
+    internal val instrumentBank: CompiledInstrumentBank,
     internal val eventType: IntArray,
     internal val sampleTime: LongArray,
     internal val channel: IntArray,
+    internal val logicalPart: IntArray,
     internal val operator: IntArray,
     internal val slotMask: IntArray,
     internal val midi: IntArray,
@@ -58,10 +60,18 @@ class CompiledOpnaTimeline internal constructor(
         internal const val RHYTHM_VOICE_LEVEL_RELATIVE = 31
         internal const val RHYTHM_VOICE_PAN = 32
         internal const val SSG_DRUM_SHOT = 33
+        internal const val FM_PART_VOLUME = 34
+        internal const val FM_PART_SLOT_MASK = 35
 
         internal const val CONTROL_STRIDE = 8
     }
 }
+
+private const val ORDER_GLOBAL = 0
+private const val ORDER_STATE = 1
+private const val ORDER_KEY_OFF = 2
+private const val ORDER_KEY_ON = 3
+private const val ORDER_ZERO_GATE_OFF = 4
 
 internal object CompiledOpnaTimelineFactory {
     fun build(song: CompiledOpnaSong, sampleRate: Int, mixGain: Float): CompiledOpnaTimeline {
@@ -73,6 +83,8 @@ internal object CompiledOpnaTimelineFactory {
                 CompiledOpnaSong.RHYTHM_SHOT,
                 CompiledOpnaSong.SSG_ENVELOPE_DEFINE,
                 CompiledOpnaSong.SSG_ENVELOPE_MODE,
+                CompiledOpnaSong.FM_PART_VOLUME,
+                CompiledOpnaSong.FM_PART_SLOT_MASK,
                 in CompiledOpnaSong.SOFTWARE_LFO_DEFINE..CompiledOpnaSong.SSG_DRUM_SHOT -> 1
                 else -> 2
             }
@@ -112,7 +124,7 @@ internal object CompiledOpnaTimelineFactory {
             draft.addControl(
                 CompiledOpnaTimeline.SSG_ENVELOPE_MODE,
                 eventTick,
-                ORDER_PART_CONTROL,
+                ORDER_STATE,
                 song.channel[sourceIndex],
                 song.envelopeClockMode[sourceIndex]
             )
@@ -128,6 +140,12 @@ internal object CompiledOpnaTimelineFactory {
         }
         if (sourceType == CompiledOpnaSong.FM3_PATCH) {
             draft.addFm3Patch(song, sourceIndex)
+            return
+        }
+        if (sourceType == CompiledOpnaSong.FM_PART_VOLUME ||
+            sourceType == CompiledOpnaSong.FM_PART_SLOT_MASK
+        ) {
+            draft.addFmPartControl(song, sourceIndex)
             return
         }
         if (sourceType in CompiledOpnaSong.RHYTHM_CONTROL_SHOT..CompiledOpnaSong.RHYTHM_VOICE_PAN) {
@@ -177,11 +195,11 @@ internal object CompiledOpnaTimelineFactory {
         var resolvedPms = song.pms[sourceIndex]
         var resolvedAms = song.ams[sourceIndex]
         if (sourceType == CompiledOpnaSong.SSG_NOTE) {
-            requireNotNull(OpnaPatchBank.ssgPatch(song.patchId[sourceIndex]))
+            requireNotNull(song.instrumentBank.ssgPatch(song.patchId[sourceIndex]))
             resolvedPms = 0
             resolvedAms = 0
         } else {
-            val patch = requireNotNull(OpnaPatchBank.fmPatch(song.patchId[sourceIndex]))
+            val patch = requireNotNull(song.instrumentBank.fmPatch(song.patchId[sourceIndex]))
             if (resolvedPms < 0) resolvedPms = patch.pms
             if (resolvedAms < 0) resolvedAms = patch.ams
         }
@@ -191,21 +209,16 @@ internal object CompiledOpnaTimelineFactory {
             song.midi[sourceIndex], velocity, id, song.patchId[sourceIndex], song.pan[sourceIndex],
             song.detuneCents[sourceIndex], resolvedPms, resolvedAms,
             eventTick + song.lfoDelayTick[sourceIndex], song.targetMidi[sourceIndex],
-            eventTick + song.durationTick[sourceIndex]
+            eventTick + song.durationTick[sourceIndex], song.logicalPart[sourceIndex]
         )
         val gateEnd = eventTick + song.gateTick[sourceIndex]
         draft.addNote(
             offType, gateEnd, if (gateEnd == eventTick) ORDER_ZERO_GATE_OFF else ORDER_KEY_OFF,
             song.channel[sourceIndex], song.operator[sourceIndex], song.slotMask[sourceIndex], song.midi[sourceIndex],
-            0f, id, -1, 0, 0, 0, 0, gateEnd, -1, gateEnd
+            0f, id, -1, 0, 0, 0, 0, gateEnd, -1, gateEnd, song.logicalPart[sourceIndex]
         )
     }
 
-    private const val ORDER_GLOBAL = 0
-    private const val ORDER_PART_CONTROL = 1
-    private const val ORDER_KEY_OFF = 2
-    private const val ORDER_KEY_ON = 3
-    private const val ORDER_ZERO_GATE_OFF = 4
 }
 
 private class TimelineDraft(private val capacity: Int) {
@@ -214,6 +227,7 @@ private class TimelineDraft(private val capacity: Int) {
     private val tickTime = LongArray(capacity)
     private val eventOrder = IntArray(capacity)
     private val channel = IntArray(capacity)
+    private val logicalPart = IntArray(capacity) { CompiledOpnaSong.LOGICAL_PART_NONE }
     private val operator = IntArray(capacity)
     private val slotMask = IntArray(capacity)
     private val midi = IntArray(capacity)
@@ -238,7 +252,7 @@ private class TimelineDraft(private val capacity: Int) {
         val i = reserve(
             CompiledOpnaTimeline.SSG_ENVELOPE_DEFINE,
             song.startTick[source],
-            1,
+            ORDER_STATE,
             song.channel[source]
         )
         val base = i * CompiledOpnaTimeline.CONTROL_STRIDE
@@ -254,8 +268,9 @@ private class TimelineDraft(private val capacity: Int) {
     fun addSoftwareLfo(song: CompiledOpnaSong, source: Int) {
         val timelineType = CompiledOpnaTimeline.SOFTWARE_LFO_DEFINE +
             (song.eventType[source] - CompiledOpnaSong.SOFTWARE_LFO_DEFINE)
-        val i = reserve(timelineType, song.startTick[source], 1, song.channel[source])
+        val i = reserve(timelineType, song.startTick[source], ORDER_STATE, song.channel[source])
         operator[i] = song.operator[source]
+        logicalPart[i] = song.logicalPart[source]
         val base = i * CompiledOpnaTimeline.CONTROL_STRIDE
         controlValues[base] = song.envelopeFormat[source]
         controlValues[base + 1] = song.envelopeAttack[source]
@@ -267,21 +282,39 @@ private class TimelineDraft(private val capacity: Int) {
     fun addFmControl(song: CompiledOpnaSong, source: Int) {
         val timelineType = CompiledOpnaTimeline.FM_SLOT_DETUNE_ABSOLUTE +
             (song.eventType[source] - CompiledOpnaSong.FM_SLOT_DETUNE_ABSOLUTE)
-        val i = reserve(timelineType, song.startTick[source], 1, song.channel[source])
+        val i = reserve(timelineType, song.startTick[source], ORDER_STATE, song.channel[source])
+        logicalPart[i] = song.logicalPart[source]
         slotMask[i] = song.slotMask[source]
         controlValues[i * CompiledOpnaTimeline.CONTROL_STRIDE] = song.envelopeAttack[source]
     }
 
     fun addFm3Patch(song: CompiledOpnaSong, source: Int) {
-        val i = reserve(CompiledOpnaTimeline.FM3_PATCH, song.startTick[source], 1, 2)
+        val i = reserve(CompiledOpnaTimeline.FM3_PATCH, song.startTick[source], ORDER_STATE, 2)
+        logicalPart[i] = song.logicalPart[source]
         slotMask[i] = song.slotMask[source]
         patchId[i] = song.patchId[source]
+    }
+
+    fun addFmPartControl(song: CompiledOpnaSong, source: Int) {
+        val type = if (song.eventType[source] == CompiledOpnaSong.FM_PART_VOLUME) {
+            CompiledOpnaTimeline.FM_PART_VOLUME
+        } else {
+            CompiledOpnaTimeline.FM_PART_SLOT_MASK
+        }
+        val i = reserve(type, song.startTick[source], ORDER_STATE, song.channel[source])
+        logicalPart[i] = song.logicalPart[source]
+        controlValues[i * CompiledOpnaTimeline.CONTROL_STRIDE] = song.envelopeAttack[source]
     }
 
     fun addRhythmControl(song: CompiledOpnaSong, source: Int) {
         val type = CompiledOpnaTimeline.RHYTHM_CONTROL_SHOT +
             (song.eventType[source] - CompiledOpnaSong.RHYTHM_CONTROL_SHOT)
-        val i = reserve(type, song.startTick[source], 1, song.channel[source])
+        val order = when (song.eventType[source]) {
+            CompiledOpnaSong.RHYTHM_CONTROL_DUMP -> ORDER_KEY_OFF
+            CompiledOpnaSong.RHYTHM_CONTROL_SHOT -> ORDER_KEY_ON
+            else -> ORDER_STATE
+        }
+        val i = reserve(type, song.startTick[source], order, song.channel[source])
         slotMask[i] = song.midi[source]
         controlValues[i * CompiledOpnaTimeline.CONTROL_STRIDE] = song.envelopeAttack[source]
     }
@@ -303,10 +336,12 @@ private class TimelineDraft(private val capacity: Int) {
         selectedAms: Int,
         delayEndTick: Long,
         targetMidiNote: Int,
-        portamentoEndTick: Long
+        portamentoEndTick: Long,
+        logicalPartId: Int = CompiledOpnaSong.LOGICAL_PART_NONE
     ) {
         val i = reserve(type, atTick, order, channelIndex)
         operator[i] = operatorIndex
+        logicalPart[i] = logicalPartId
         slotMask[i] = selectedSlotMask
         midi[i] = midiNote
         velocity[i] = eventVelocity
@@ -337,6 +372,7 @@ private class TimelineDraft(private val capacity: Int) {
         val sortedType = IntArray(size)
         val sortedTime = LongArray(size)
         val sortedChannel = IntArray(size)
+        val sortedLogicalPart = IntArray(size)
         val sortedOperator = IntArray(size)
         val sortedSlotMask = IntArray(size)
         val sortedMidi = IntArray(size)
@@ -358,6 +394,7 @@ private class TimelineDraft(private val capacity: Int) {
             sortedType[i] = eventType[source]
             sortedTime[i] = startSample
             sortedChannel[i] = channel[source]
+            sortedLogicalPart[i] = logicalPart[source]
             sortedOperator[i] = operator[source]
             sortedSlotMask[i] = slotMask[source]
             sortedMidi[i] = midi[source]
@@ -394,8 +431,8 @@ private class TimelineDraft(private val capacity: Int) {
             i++
         }
         return CompiledOpnaTimeline(
-            size, PmdSampleClock.samplesAt(song, song.durationTicks, sampleRate), song.pmdClocksPerQuarter,
-            sortedType, sortedTime, sortedChannel, sortedOperator, sortedSlotMask, sortedMidi, sortedVelocity,
+            size, PmdSampleClock.samplesAt(song, song.durationTicks, sampleRate), song.pmdClocksPerQuarter, song.instrumentBank,
+            sortedType, sortedTime, sortedChannel, sortedLogicalPart, sortedOperator, sortedSlotMask, sortedMidi, sortedVelocity,
             sortedNoteId, sortedPatchId, sortedPan, sortedDetune, sortedPms, sortedAms,
             sortedDelay, sortedTarget, sortedSlide, sortedControls
         )

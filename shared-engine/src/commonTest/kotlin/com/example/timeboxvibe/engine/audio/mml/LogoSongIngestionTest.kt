@@ -15,8 +15,15 @@ import kotlin.test.assertTrue
 class LogoSongIngestionTest {
     @Test
     fun sourceOwnedPatchMatchesDecodedAt79Registers() {
-        val patch = assertNotNull(OpnaPatchBank.fmPatch(OpnaPatchBank.FM_LOGO_AT79))
+        val success = assertIs<MmlCompileResult.Success>(MmlSongBank.llsLogoResult)
+        val program = assertNotNull(success.arrangement.compiledOpnaSong)
+        val fmEvent = noteIndices(program, CompiledOpnaSong.FM_NOTE, 0)[0]
+        val patch = assertNotNull(program.instrumentBank.fmPatch(program.patchId[fmEvent]))
 
+        assertEquals(1, program.instrumentBank.fmPatchCount)
+        assertEquals(1, program.instrumentBank.ssgPatchCount)
+        assertEquals(-1, OpnaPatchBank.idForName("logo79"))
+        assertEquals(null, OpnaPatchBank.fmPatch(13))
         assertEquals(4, patch.algorithm)
         assertEquals(7, patch.feedback)
         assertContentEquals(intArrayOf(2, 2, 4, 4), intArrayOf(patch.op0.mul, patch.op1.mul, patch.op2.mul, patch.op3.mul))
@@ -107,7 +114,7 @@ class LogoSongIngestionTest {
             assertEquals(durations[i], program.durationTick[event])
             assertEquals(pitches[i], program.midi[event])
             assertEquals(velocities[i], program.velocity[event])
-            assertEquals(OpnaPatchBank.FM_LOGO_AT79, program.patchId[event])
+            assertEquals(0, program.patchId[event])
             i++
         }
     }

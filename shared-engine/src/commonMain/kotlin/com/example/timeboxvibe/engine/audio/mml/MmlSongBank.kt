@@ -325,7 +325,7 @@ k h s h k h s h | k h s h k h s h | k h s h k h s h | k h s h k r s h |
 
     val senbonzakuraDemoResult: MmlCompileResult = MmlCompiler.compile(BAD_APPLE_LLS_MML)
     val rinToShiteResult: MmlCompileResult = MmlCompiler.compile(RIN_TO_SHITE_MML)
-    val llsLogoResult: MmlCompileResult = MmlCompiler.compile(LLS_LOGO_MML)
+    val llsLogoResult: MmlCompileResult = MmlCompiler.compile(LLS_LOGO_MML, LogoSongPatchBank)
 
     fun getArrangement(key: String, volume: Float): ArrangementLanes? {
         val result = when (key) {

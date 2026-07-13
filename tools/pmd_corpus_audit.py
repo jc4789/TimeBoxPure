@@ -44,6 +44,7 @@ BAD_APPLE_WINDOW_END = 5280
 PMD_TO_MML_TICKS = 20
 MAX_TRACE_STEPS = 100_000
 REPORT_SCHEMA_VERSION = 1
+NORMALIZED_ORACLE_SCHEMA_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -355,6 +356,7 @@ def trace_part(payload: bytes, part_index: int, note_limit: int) -> dict:
     gate_tail = 0
     shift = 0
     default_shift = 0
+    detune = 0
     part_loop: int | None = None
     previous_midi: int | None = None
     notes: list[dict] = []
@@ -384,6 +386,7 @@ def trace_part(payload: bytes, part_index: int, note_limit: int) -> dict:
                         "volume": volume,
                         "gate_tail": gate_tail,
                         "shift": shift + default_shift,
+                        "detune": detune,
                     }
                 )
             tick += duration
@@ -404,7 +407,7 @@ def trace_part(payload: bytes, part_index: int, note_limit: int) -> dict:
                     {
                         "tick": tick, "duration": duration, "midi": midi, "target_midi": target_midi,
                         "patch": patch, "volume": volume, "gate_tail": gate_tail,
-                        "shift": shift + default_shift,
+                        "shift": shift + default_shift, "detune": detune,
                     }
                 )
             tick += duration
@@ -450,6 +453,10 @@ def trace_part(payload: bytes, part_index: int, note_limit: int) -> dict:
             shift += signed_byte(data[pointer])
             controls.append({"tick": tick, "offset": offset, "name": "transpose_relative", "value": shift})
             pointer += 1
+        elif opcode == 0xFA:
+            detune = struct.unpack_from("<h", data, pointer)[0]
+            controls.append({"tick": tick, "offset": offset, "name": "detune", "value": detune})
+            pointer += 2
         elif opcode == 0xF4:
             volume = min(127 if part_index < 6 else 15, volume + (4 if part_index < 6 else 1))
         elif opcode == 0xF3:
@@ -468,6 +475,182 @@ def trace_part(payload: bytes, part_index: int, note_limit: int) -> dict:
     if steps >= MAX_TRACE_STEPS:
         raise PmdScanError(f"Trace exceeded {MAX_TRACE_STEPS} steps")
     return {"part": PMD_PART_NAMES[part_index], "notes": notes, "controls": controls, "steps": steps}
+
+
+def decode_fm_voice(payload: bytes, patch_id: int) -> dict | None:
+    """Decode one referenced 26-byte PMD FM voice record, never archive metadata."""
+    data = payload[1:]
+    if len(data) < PMD_POINTER_COUNT * 2:
+        return None
+    voice_offset = struct.unpack_from("<H", data, 12 * 2)[0]
+    offset = voice_offset
+    while offset + 26 <= len(data):
+        record = data[offset:offset + 26]
+        if record[0] == patch_id:
+            operators = []
+            for operator in range(4):
+                dt_mul = record[1 + operator]
+                ks_ar = record[9 + operator]
+                sl_rr = record[21 + operator]
+                operators.append(
+                    {
+                        "mul": dt_mul & 0x0F,
+                        "detune": (dt_mul >> 4) & 0x07,
+                        "tl": record[5 + operator] & 0x7F,
+                        "ks": (ks_ar >> 6) & 0x03,
+                        "ar": ks_ar & 0x1F,
+                        "dr": record[13 + operator] & 0x1F,
+                        "sr": record[17 + operator] & 0x1F,
+                        "sl": (sl_rr >> 4) & 0x0F,
+                        "rr": sl_rr & 0x0F,
+                    }
+                )
+            algorithm_feedback = record[25]
+            return {
+                "id": patch_id,
+                "source_offset": offset,
+                "algorithm": algorithm_feedback & 0x07,
+                "feedback": (algorithm_feedback >> 3) & 0x07,
+                "operators": operators,
+            }
+        offset += 26
+    return None
+
+
+def normalized_control(control: dict) -> dict:
+    result = {"tick": control["tick"], "offset": control["offset"], "name": control["name"]}
+    if "value" in control:
+        result["value"] = control["value"]
+    else:
+        parameters = control.get("parameters", [])
+        result["parameters"] = parameters
+        if control["name"] == "tempo" and len(parameters) == 2:
+            result["tempo_mode"] = f"0x{parameters[0]:02X}"
+            if parameters[0] == 0xFD:
+                result["relative_bpm"] = signed_byte(parameters[1])
+            elif parameters[0] == 0xFF:
+                result["timer_or_bpm_value"] = parameters[1]
+        elif control["name"] == "software_envelope" and len(parameters) == 4:
+            result["decoded"] = {
+                "attack_level": parameters[0],
+                "decay_delta": signed_byte(parameters[1]),
+                "sustain_rate": parameters[2],
+                "release_rate": parameters[3],
+            }
+    return result
+
+
+def build_normalized_song_oracle(name: str, payload: bytes) -> dict:
+    """Build compact deterministic semantic data; no source/archive bytes are retained."""
+    scan = scan_song(name, payload)
+    used_part_indices = [index for index, part in enumerate(scan["parts"]) if part["notes"] > 0]
+    parts = []
+    patch_ids: set[int] = set()
+    control_counts: Counter[str] = Counter()
+    for part_index in used_part_indices:
+        trace = trace_part(payload, part_index, 100_000)
+        notes = []
+        for note in trace["notes"]:
+            if note["patch"] is not None:
+                patch_ids.add(note["patch"])
+            notes.append(
+                [
+                    note["tick"], note["duration"], note["midi"], note["volume"],
+                    note["patch"], note["gate_tail"], note["shift"], note["detune"],
+                    note.get("target_midi"),
+                ]
+            )
+        controls = [normalized_control(control) for control in trace["controls"]]
+        control_counts.update(control["name"] for control in controls)
+        parts.append(
+            {
+                "part": trace["part"],
+                "note_count": len(notes),
+                "end_tick": max((note[0] + note[1] for note in notes), default=0),
+                "note_columns": [
+                    "tick", "duration", "midi", "volume", "patch", "gate_tail",
+                    "transpose", "detune", "target_midi",
+                ],
+                "notes": notes,
+                "controls": controls,
+            }
+        )
+    patches = []
+    for patch_id in sorted(patch_ids):
+        decoded = decode_fm_voice(payload, patch_id)
+        if decoded is not None:
+            patches.append(decoded)
+    oracle = {
+        "schema_version": NORMALIZED_ORACLE_SCHEMA_VERSION,
+        "song": name,
+        "source_sha256": sha256_bytes(payload),
+        "source_size": len(payload),
+        "parts": parts,
+        "patches": patches,
+        "summary": {
+            "part_count": len(parts),
+            "note_count": sum(part["note_count"] for part in parts),
+            "control_counts": dict(sorted(control_counts.items())),
+        },
+    }
+    canonical = json.dumps(oracle, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    oracle["oracle_sha256"] = sha256_bytes(canonical)
+    return oracle
+
+
+def compact_normalized_oracle(oracle: dict) -> dict:
+    """Replace repetitive full note rows with deterministic, readable runs."""
+    compact = {key: value for key, value in oracle.items() if key not in ("parts", "oracle_sha256")}
+    compact_parts = []
+    for part in oracle["parts"]:
+        notes = part["notes"]
+        runs = []
+        index = 0
+        while index < len(notes):
+            maximum_period = min(16, len(notes) - index)
+            best_period = 1
+            best_repeats = 1
+            period = 1
+            while period <= maximum_period:
+                repeats = 1
+                while index + (repeats + 1) * period <= len(notes):
+                    matched = True
+                    compare = 0
+                    while compare < period:
+                        first = notes[index + compare]
+                        other = notes[index + repeats * period + compare]
+                        if first[1:] != other[1:] or other[0] != first[0] + repeats * period * first[1]:
+                            matched = False
+                            break
+                        compare += 1
+                    if not matched:
+                        break
+                    repeats += 1
+                if repeats * period > best_repeats * best_period:
+                    best_period = period
+                    best_repeats = repeats
+                period += 1
+            first = notes[index]
+            pitches = [notes[index + item][2] for item in range(best_period)]
+            runs.append(
+                {
+                    "tick": first[0], "duration": first[1], "pitches": pitches,
+                    "repeats": best_repeats, "volume": first[3], "patch": first[4],
+                    "gate_tail": first[5], "transpose": first[6], "detune": first[7],
+                    "target_midi": first[8],
+                }
+            )
+            index += best_period * best_repeats
+        compact_parts.append(
+            {
+                "part": part["part"], "note_count": part["note_count"],
+                "end_tick": part["end_tick"], "note_runs": runs, "controls": part["controls"],
+            }
+        )
+    compact["parts"] = compact_parts
+    canonical = json.dumps(compact, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    compact["oracle_sha256"] = sha256_bytes(canonical)
+    return compact
 
 
 def production_tracks(mml_bank: Path) -> dict[str, str]:
@@ -789,6 +972,7 @@ def audit_corpus(
     trace_note_limit: int,
     mml_bank: Path,
     run_bad_apple: bool,
+    oracle_names: list[str] | None = None,
 ) -> dict:
     archive_reports = []
     songs = []
@@ -837,6 +1021,21 @@ def audit_corpus(
         digest, payload = matches[0]
         traced = trace_part(payload, 0, trace_note_limit)
         traces.append({"song": requested_name, "sha256": digest, **traced})
+    oracles = []
+    for requested_name in oracle_names or []:
+        matches = sorted(
+            (
+                (digest, payload)
+                for (name, digest), payload in payload_by_name_and_hash.items()
+                if name == requested_name.upper()
+            ),
+            key=lambda item: item[0],
+        )
+        if not matches:
+            oracles.append({"song": requested_name, "error": "not found"})
+            continue
+        _, payload = matches[0]
+        oracles.append(compact_normalized_oracle(build_normalized_song_oracle(requested_name.upper(), payload)))
     errors = []
     for song in songs:
         for error in song["errors"]:
@@ -852,6 +1051,7 @@ def audit_corpus(
         "feature_summary": build_feature_summary(songs),
         "unsupported_ranking": build_unsupported_ranking(songs),
         "traces": traces,
+        "normalized_oracles": oracles,
         "bad_apple_audit": None,
     }
     if run_bad_apple:
@@ -911,6 +1111,15 @@ def print_report(report: dict) -> None:
                 f"  tick={note['tick']} dur={note['duration']} midi={note['midi']}{target} "
                 f"patch={note['patch']} volume={note['volume']} q={note['gate_tail']} shift={note['shift']}"
             )
+    for oracle in report["normalized_oracles"]:
+        if "error" in oracle:
+            print(f"ORACLE {oracle['song']}: ERROR {oracle['error']}")
+        else:
+            print(
+                f"ORACLE {oracle['song']} sha256={oracle['source_sha256']} "
+                f"parts={oracle['summary']['part_count']} notes={oracle['summary']['note_count']} "
+                f"oracle_sha256={oracle['oracle_sha256']}"
+            )
     audit = report["bad_apple_audit"]
     if audit is not None:
         print(f"BAD APPLE AUDIT passed={audit['passed']} sha256={audit['sha256']}")
@@ -941,8 +1150,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mml-bank", type=Path, default=DEFAULT_MML_BANK)
     parser.add_argument("--trace-song", action="append", default=[])
     parser.add_argument("--trace-notes", type=int, default=8)
+    parser.add_argument(
+        "--oracle-song", action="append", default=[],
+        help="Emit a full normalized semantic oracle for the named archive entry",
+    )
     parser.add_argument("--bad-apple-audit", action="store_true")
     parser.add_argument("--json-out", type=Path)
+    parser.add_argument(
+        "--oracle-out", type=Path,
+        help="Write the single --oracle-song result as a standalone compact fixture",
+    )
     parser.add_argument("--csv-out", type=Path)
     parser.add_argument("--strict", action="store_true")
     args = parser.parse_args(argv)
@@ -955,14 +1172,21 @@ def main(argv: list[str] | None = None) -> int:
         args.trace_notes,
         args.mml_bank,
         args.bad_apple_audit,
+        args.oracle_song,
     )
     print_report(report)
     if args.json_out is not None:
         write_json(args.json_out, report)
+    if args.oracle_out is not None:
+        if len(report["normalized_oracles"]) != 1:
+            parser.error("--oracle-out requires exactly one --oracle-song")
+        write_json(args.oracle_out, report["normalized_oracles"][0])
     if args.csv_out is not None:
         write_csv(args.csv_out, report["unsupported_ranking"])
     failed = bool(report["scan_errors"])
     if any("error" in trace for trace in report["traces"]):
+        failed = True
+    if any("error" in oracle for oracle in report["normalized_oracles"]):
         failed = True
     if report["bad_apple_audit"] is not None and not report["bad_apple_audit"]["passed"]:
         failed = True

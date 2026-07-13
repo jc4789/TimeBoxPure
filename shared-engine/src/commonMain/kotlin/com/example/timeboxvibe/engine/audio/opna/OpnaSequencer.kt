@@ -7,32 +7,8 @@ internal class SequencerEvent {
         const val SSG_ON = 2
         const val SSG_OFF = 3
         const val DRUM = 4
-        const val FM3_OPERATOR_ON = 5
-        const val FM3_OPERATOR_OFF = 6
         const val FM_POLY_ON = 7
         const val FM_POLY_OFF = 8
-        const val FM_SLOT_DETUNE_ABSOLUTE = 9
-        const val FM_SLOT_DETUNE_RELATIVE = 10
-        const val FM_TL_ABSOLUTE = 11
-        const val FM_TL_RELATIVE = 12
-        const val FM_FEEDBACK_ABSOLUTE = 13
-        const val FM_FEEDBACK_RELATIVE = 14
-        const val FM_SLOT_KEY_ON_DELAY = 15
-        const val FM3_PATCH = 16
-        const val SOFTWARE_LFO_DEFINE = 17
-        const val SOFTWARE_LFO_SWITCH = 18
-        const val SOFTWARE_LFO_WAVE = 19
-        const val SOFTWARE_LFO_CLOCK = 20
-        const val SOFTWARE_LFO_TL_MASK = 21
-        const val SOFTWARE_LFO_DEPTH = 22
-        const val RHYTHM_CONTROL_SHOT = 23
-        const val RHYTHM_CONTROL_DUMP = 24
-        const val RHYTHM_MASTER_ABSOLUTE = 25
-        const val RHYTHM_MASTER_RELATIVE = 26
-        const val RHYTHM_VOICE_LEVEL_ABSOLUTE = 27
-        const val RHYTHM_VOICE_LEVEL_RELATIVE = 28
-        const val RHYTHM_VOICE_PAN = 29
-        const val SSG_DRUM = 30
     }
 
     var type: Int = 0
@@ -54,12 +30,6 @@ internal class SequencerEvent {
     var lfoDelayFrames: Int = 0
     var targetMidi: Int = -1
     var slideFrames: Int = 0
-    var operator: Int = -1
-    var slotMask: Int = 0
-    var controlValue: Int = 0
-    var controlValue2: Int = 0
-    var controlValue3: Int = 0
-    var controlValue4: Int = 0
 }
 
 class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 4) {
@@ -82,8 +52,6 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
         noteIdCounter = if (noteIdCounter == Int.MAX_VALUE) 1 else noteIdCounter + 1
         return id
     }
-
-    var customLoopLength: Long = 0L
 
     fun beatToSample(beat: Float): Long = (beat * 60f * sampleRate / bpm).toLong()
     fun barToSample(bar: Int): Long = (bar * beatsPerBar * 60f * sampleRate / bpm).toLong()
@@ -158,8 +126,6 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
         onEv.lfoDelayFrames = lfoDelayFrames
         onEv.targetMidi = targetMidi
         onEv.slideFrames = slideFrames
-        onEv.operator = -1
-        onEv.slotMask = 0
 
         // 2. FM_OFF Event
         val offEv = events[eventCount++]
@@ -213,8 +179,6 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
         onEv.lfoDelayFrames = lfoDelayFrames
         onEv.targetMidi = -1
         onEv.slideFrames = 0
-        onEv.operator = -1
-        onEv.slotMask = 0
 
         val offEv = events[eventCount++]
         offEv.type = SequencerEvent.FM_POLY_OFF
@@ -289,8 +253,6 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
         onEv.lfoDelayFrames = 0
         onEv.targetMidi = targetMidi
         onEv.slideFrames = slideFrames
-        onEv.operator = -1
-        onEv.slotMask = 0
 
         // 2. SSG_OFF Event
         val offEv = events[eventCount++]
@@ -338,166 +300,6 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
         ev.pan = pan.coerceIn(0, 2)
     }
 
-    internal fun noteSsgDrumRaw(kind: ProceduralDrums.DrumKind, startSample: Long, velocity: Float) {
-        if (eventCount + 1 > MAX_EVENTS) return
-        isSorted = false
-        val event = events[eventCount++]
-        event.type = SequencerEvent.SSG_DRUM
-        event.sampleTime = startSample
-        event.midi = kind.ordinal
-        event.velocity = velocity
-        event.noteId = 0
-        clearControls(event)
-    }
-
-    fun noteFm3OperatorRaw(
-        operator: Int,
-        midi: Int,
-        startSample: Long,
-        durationSamples: Long,
-        velocity: Float,
-        patch: FmPatch,
-        pan: Int,
-        detuneCents: Int,
-        pms: Int,
-        ams: Int,
-        lfoDelayFrames: Int,
-        targetMidi: Int = -1,
-        slideFrames: Int = 0
-    ) {
-        noteFm3SlotsRaw(
-            1 shl operator.coerceIn(0, 3), midi, startSample, durationSamples, velocity,
-            patch, pan, detuneCents, pms, ams, lfoDelayFrames, targetMidi, slideFrames
-        )
-    }
-
-    fun noteFm3SlotsRaw(
-        slotMask: Int,
-        midi: Int,
-        startSample: Long,
-        durationSamples: Long,
-        velocity: Float,
-        patch: FmPatch,
-        pan: Int,
-        detuneCents: Int,
-        pms: Int,
-        ams: Int,
-        lfoDelayFrames: Int,
-        targetMidi: Int = -1,
-        slideFrames: Int = 0,
-        applyPatch: Boolean = true
-    ) {
-        if (eventCount + 2 > MAX_EVENTS) return
-        val noteId = nextNoteId()
-        isSorted = false
-        val onEv = events[eventCount++]
-        onEv.type = SequencerEvent.FM3_OPERATOR_ON
-        onEv.sampleTime = startSample
-        onEv.channel = 2
-        onEv.operator = if (applyPatch) -1 else 0
-        onEv.slotMask = slotMask and 15
-        onEv.midi = midi
-        onEv.velocity = velocity
-        onEv.noteId = noteId
-        onEv.patch = patch
-        onEv.ssgPatch = null
-        onEv.pan = pan
-        onEv.detuneCents = detuneCents
-        onEv.pms = pms
-        onEv.ams = ams
-        onEv.lfoDelayFrames = lfoDelayFrames
-        onEv.targetMidi = targetMidi
-        onEv.slideFrames = slideFrames
-        onEv.attack = -1f
-        onEv.decay = -1f
-        onEv.sustain = -1f
-        onEv.release = -1f
-
-        val offEv = events[eventCount++]
-        offEv.type = SequencerEvent.FM3_OPERATOR_OFF
-        offEv.sampleTime = startSample + durationSamples
-        offEv.channel = 2
-        offEv.operator = -1
-        offEv.midi = midi
-        offEv.velocity = 0f
-        offEv.noteId = noteId
-        offEv.attack = -1f
-        offEv.decay = -1f
-        offEv.sustain = -1f
-        offEv.release = -1f
-        clearControls(offEv)
-        offEv.slotMask = onEv.slotMask
-    }
-
-    internal fun fmControlRaw(
-        type: Int,
-        atSample: Long,
-        channel: Int,
-        slotMask: Int,
-        value: Int,
-        patch: FmPatch? = null
-    ) {
-        if (eventCount + 1 > MAX_EVENTS) return
-        isSorted = false
-        val event = events[eventCount++]
-        event.type = type
-        event.sampleTime = atSample
-        event.channel = channel
-        event.slotMask = slotMask and 15
-        event.controlValue = value
-        event.patch = patch
-        event.ssgPatch = null
-        event.operator = -1
-        event.noteId = 0
-        event.velocity = 0f
-    }
-
-    internal fun softwareLfoControlRaw(
-        type: Int,
-        atSample: Long,
-        channel: Int,
-        family: Int,
-        index: Int,
-        value1: Int,
-        value2: Int,
-        value3: Int,
-        value4: Int
-    ) {
-        if (eventCount + 1 > MAX_EVENTS) return
-        isSorted = false
-        val event = events[eventCount++]
-        event.type = type
-        event.sampleTime = atSample
-        event.channel = channel
-        event.operator = family
-        event.midi = index
-        event.controlValue = value1
-        event.controlValue2 = value2
-        event.controlValue3 = value3
-        event.controlValue4 = value4
-        event.patch = null
-        event.ssgPatch = null
-        event.noteId = 0
-        event.velocity = 0f
-        event.slotMask = 0
-    }
-
-    internal fun rhythmControlRaw(type: Int, atSample: Long, voice: Int, mask: Int, value: Int) {
-        if (eventCount + 1 > MAX_EVENTS) return
-        isSorted = false
-        val event = events[eventCount++]
-        event.type = type
-        event.sampleTime = atSample
-        event.channel = voice
-        event.slotMask = mask and 63
-        event.controlValue = value
-        event.patch = null
-        event.ssgPatch = null
-        event.noteId = 0
-        event.velocity = 0f
-        event.operator = -1
-    }
-
     private fun clearControls(event: SequencerEvent) {
         event.patch = null
         event.ssgPatch = null
@@ -508,19 +310,12 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
         event.lfoDelayFrames = 0
         event.targetMidi = -1
         event.slideFrames = 0
-        event.operator = -1
-        event.slotMask = 0
-        event.controlValue = 0
-        event.controlValue2 = 0
-        event.controlValue3 = 0
-        event.controlValue4 = 0
     }
 
     fun clear() {
         eventCount = 0
         resetPlaybackCursor()
         noteIdCounter = 1
-        customLoopLength = 0L
         isSorted = false
     }
 
@@ -529,7 +324,6 @@ class OpnaSequencer(val sampleRate: Int, val bpm: Float, val beatsPerBar: Int = 
     }
 
     fun loopLengthSamples(): Long {
-        if (customLoopLength > 0L) return customLoopLength
         return (4L * beatsPerBar * sampleRate * 60 / bpm).toLong()
     }
 

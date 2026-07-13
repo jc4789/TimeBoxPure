@@ -197,7 +197,21 @@ class ProceduralDrums(private val configuredSampleRate: Int = 48_000) {
     }
 
     fun stopAll() {
-        reset()
+        silence()
+    }
+
+    /** Stops active voices without changing authored gain/pan state or reseeding noise. */
+    fun silence() {
+        kickState = IDLE
+        kickLevel = 0f
+        snareState = IDLE
+        snareLevel = 0f
+        hatState = IDLE
+        hatLevel = 0f
+        tomState = IDLE
+        tomLevel = 0f
+        cymbalState = IDLE
+        rimState = IDLE
     }
 
     fun reset() {

@@ -2,7 +2,6 @@ package com.example.timeboxvibe.engine.audio.mml
 
 import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaSong
 import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
-import com.example.timeboxvibe.engine.audio.opna.OpnaSequencer
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -39,24 +38,22 @@ class RinToShiteSongTest {
     }
 
     @Test
-    fun arrangementSchedulesWithinCapacityAndRendersDeterministically() {
+    fun arrangementTimelineRendersDeterministically() {
         val arrangement = assertIs<MmlCompileResult.Success>(MmlSongBank.rinToShiteResult).arrangement
         val sampleRate = 48_000
         val synthA = OpnaLikeSynthesizer(sampleRate)
         val synthB = OpnaLikeSynthesizer(sampleRate)
-        val seqA = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
-        val seqB = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
-        MmlArrangementScheduler.schedule(arrangement, synthA, seqA, sampleRate)
-        MmlArrangementScheduler.schedule(arrangement, synthB, seqB, sampleRate)
+        val playerA = MmlArrangementScheduler.createPlayer(arrangement, synthA, sampleRate)
+        val playerB = MmlArrangementScheduler.createPlayer(arrangement, synthB, sampleRate)
 
-        assertEquals(542, seqA.eventCount)
-        assertEquals(seqA.eventCount, seqB.eventCount)
-        assertTrue(seqA.customLoopLength > 0L)
+        assertEquals(543, playerA.eventCount)
+        assertEquals(playerA.eventCount, playerB.eventCount)
+        assertTrue(playerA.loopLengthSamples > 0L)
 
         val a = FloatArray(16_384)
         val b = FloatArray(a.size)
-        synthA.render(a, a.size, seqA, 0L)
-        synthB.render(b, b.size, seqB, 0L)
+        synthA.render(a, a.size, playerA, 0L)
+        synthB.render(b, b.size, playerB, 0L)
         assertTrue(a.contentEquals(b))
         assertTrue(a.any { abs(it) > 0.0001f })
         assertTrue(a.all { it.isFinite() })
@@ -74,15 +71,14 @@ class RinToShiteSongTest {
         val arrangement = assertIs<MmlCompileResult.Success>(MmlSongBank.rinToShiteResult).arrangement
         val sampleRate = 48_000
         val synth = OpnaLikeSynthesizer(sampleRate)
-        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
         var voice = 0
         while (voice < synth.fm.size) {
             synth.fm[voice].enableOversampling = true
             voice++
         }
-        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
-        val output = FloatArray(sequencer.customLoopLength.toInt())
-        synth.render(output, output.size, sequencer, 0L)
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, sampleRate)
+        val output = FloatArray(player.loopLengthSamples.toInt())
+        synth.render(output, output.size, player, 0L)
         println("RIN_POLY_HEADROOM peak=${synth.preClampPeak} kneeCrossings=${synth.preClampKneeCrossings}")
         assertTrue(output.all { it.isFinite() })
     }
@@ -153,16 +149,15 @@ class RinToShiteSongTest {
         val arrangement = assertIs<MmlCompileResult.Success>(MmlCompiler.compile(source)).arrangement
         val sampleRate = 48_000
         val synth = OpnaLikeSynthesizer(sampleRate)
-        val sequencer = OpnaSequencer(sampleRate, arrangement.tempoBpm, arrangement.beatsPerBar)
         synth.enableOutputFilter = true
         var channel = 0
         while (channel < synth.fm.size) {
             synth.fm[channel].enableOversampling = true
             channel++
         }
-        MmlArrangementScheduler.schedule(arrangement, synth, sequencer, sampleRate)
-        val output = FloatArray(sequencer.customLoopLength.toInt())
-        synth.render(output, output.size, sequencer, 0L)
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, sampleRate)
+        val output = FloatArray(player.loopLengthSamples.toInt())
+        synth.render(output, output.size, player, 0L)
         return output
     }
 

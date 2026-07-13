@@ -13,6 +13,8 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private val opState: Array<OperatorState> = Array(AudioLaws.FM_OPERATORS) { OperatorState() }
     private val opSpec: Array<OperatorSpec?> = arrayOfNulls(AudioLaws.FM_OPERATORS)
     private var patch: FmPatch? = null
+    private var configuredOperatorMask: Int = 0
+    private var pmdPerformanceState: PmdPerformanceState? = null
     private var channelAlgorithm: Int = 0
     private var channelFeedback: Int = 0
     private var channelTotalLevel: Float = 1f
@@ -76,6 +78,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         OpnLogTables.warmUp()
         OpnEnvelopeCompatibility.warmUp()
         patch = p
+        configuredOperatorMask = 15
         channelAlgorithm = p.algorithm.coerceIn(0, 7)
         channelFeedback = p.feedback.coerceIn(0, 7)
         channelTotalLevel = p.totalLevel
@@ -94,12 +97,9 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     internal fun applyPatchToSlots(p: FmPatch, slotMask: Int) {
         OpnLogTables.warmUp()
         OpnEnvelopeCompatibility.warmUp()
-        patch = p
         channelAlgorithm = p.algorithm.coerceIn(0, 7)
-        channelTotalLevel = p.totalLevel
-        channelAms = p.ams.coerceIn(0, 3)
-        channelPms = p.pms.coerceIn(0, 7)
         if ((slotMask and 1) != 0) channelFeedback = p.feedback.coerceIn(0, 7)
+        configuredOperatorMask = configuredOperatorMask or (slotMask and 15)
         var opIndex = 0
         while (opIndex < AudioLaws.FM_OPERATORS) {
             if ((slotMask and (1 shl opIndex)) != 0) {
@@ -110,6 +110,10 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             opIndex++
         }
         updateEnvelopeSampleRates()
+    }
+
+    internal fun attachPmdPerformanceState(state: PmdPerformanceState) {
+        pmdPerformanceState = state
     }
 
     private fun updateEnvelopeSampleRates() {
@@ -201,6 +205,11 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     internal fun slotKeyOnDelaySnapshot(opIdx: Int): Int =
         slotKeyOnDelayFrames[opIdx.coerceIn(0, AudioLaws.FM_OPERATORS - 1)]
+
+    internal fun slotPendingKeyOnSnapshot(opIdx: Int): Boolean =
+        pendingKeyOn[opIdx.coerceIn(0, AudioLaws.FM_OPERATORS - 1)]
+
+    internal fun channelTotalLevelSnapshot(): Float = channelTotalLevel
 
     internal fun feedbackHistorySnapshot(): Long =
         (op0Feedback1.toLong() shl 32) or (op0Feedback2.toLong() and 0xffffffffL)
@@ -431,7 +440,8 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         midi: Int,
         slideTargetMidi: Int = -1,
         slideFrames: Int = 0,
-        cents: Int = 0
+        cents: Int = 0,
+        fm3Part: Int = -1
     ) {
         val pitch = OpnPitch.nearestBlockFnumForMidi(midi)
         specialMode = true
@@ -469,8 +479,10 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             index++
         }
         lfoDelayRemaining = lfoDelayFrames
-        softwareLfo1.noteOn()
-        softwareLfo2.noteOn()
+        if (fm3Part >= 0) pmdPerformanceState?.noteOn(fm3Part) else {
+            softwareLfo1.noteOn()
+            softwareLfo2.noteOn()
+        }
     }
 
     internal fun noteOffOperator(operator: Int) {
@@ -558,6 +570,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             i++
         }
         patch = null
+        configuredOperatorMask = 0
         channelAlgorithm = 0
         channelFeedback = 0
         channelTotalLevel = 1f
@@ -571,7 +584,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         startFrame: Int = 0,
         lfo: Lfo? = null
     ) {
-        if (patch == null) {
+        if (configuredOperatorMask == 0) {
             if (!softwareLfoActive) return
             var frame = 0
             while (frame < frames) {
@@ -631,7 +644,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     }
 
     private fun renderOne(clockEnvelope: Boolean): Float {
-        if (patch == null) return 0f
+        if (configuredOperatorMask == 0) return 0f
         val ops = opState
         val feedback = channelFeedback
 
@@ -771,6 +784,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             currentSoftwareVolume1 = 0
             currentSoftwareVolume2 = 0
         }
+        if (specialMode) pmdPerformanceState?.prepareFrame(clockFrame)
     }
 
     private fun operatorAttenuation(op: OperatorState, opIndex: Int, clockEnvelope: Boolean): Int {
@@ -781,11 +795,19 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             op.opnEnvelope.currentAttenuation()
         }
         var result = envelope + if (op.amEnabled) currentAmAttenuation else 0
-        if (currentSoftwareVolume1 != 0 && softwareLfoTargetsOperator(softwareLfo1, opIndex)) {
-            result -= currentSoftwareVolume1 * 8
-        }
-        if (currentSoftwareVolume2 != 0 && softwareLfoTargetsOperator(softwareLfo2, opIndex)) {
-            result -= currentSoftwareVolume2 * 8
+        if (specialMode) {
+            val state = pmdPerformanceState
+            if (state != null) {
+                val part = state.partForOperator(opIndex)
+                result += state.volumeOffset(part, opIndex, isCarrier(opIndex, channelAlgorithm))
+            }
+        } else {
+            if (currentSoftwareVolume1 != 0 && softwareLfoTargetsOperator(softwareLfo1, opIndex)) {
+                result -= currentSoftwareVolume1 * 8
+            }
+            if (currentSoftwareVolume2 != 0 && softwareLfoTargetsOperator(softwareLfo2, opIndex)) {
+                result -= currentSoftwareVolume2 * 8
+            }
         }
         return result
     }
@@ -793,8 +815,13 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private fun advancePhase(op: OperatorState, opIndex: Int) {
         val base = op.phaseStep.toLong()
         var softwarePitch = 0
-        if (softwareLfoTargetsPitchOperator(softwareLfo1, opIndex)) softwarePitch += currentSoftwarePitch1Q20
-        if (softwareLfoTargetsPitchOperator(softwareLfo2, opIndex)) softwarePitch += currentSoftwarePitch2Q20
+        if (specialMode) {
+            val state = pmdPerformanceState
+            if (state != null) softwarePitch = state.pitchQ20(state.partForOperator(opIndex), opIndex)
+        } else {
+            if (softwareLfoTargetsPitchOperator(softwareLfo1, opIndex)) softwarePitch += currentSoftwarePitch1Q20
+            if (softwareLfoTargetsPitchOperator(softwareLfo2, opIndex)) softwarePitch += currentSoftwarePitch2Q20
+        }
         val delta = (base * (currentPmQ20 + softwarePitch).toLong()) shr 20
         op.phase += (base + delta).coerceAtLeast(0L).toUInt()
     }

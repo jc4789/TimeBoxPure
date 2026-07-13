@@ -8,13 +8,16 @@ import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaSong
 import com.example.timeboxvibe.engine.audio.opna.OpnaPatchBank
 import com.example.timeboxvibe.engine.audio.opna.ProceduralDrums
 import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
-import com.example.timeboxvibe.engine.audio.opna.OpnaSequencer
+import com.example.timeboxvibe.engine.audio.opna.FmPatch
+import com.example.timeboxvibe.engine.audio.opna.SourceInstrumentLookup
+import com.example.timeboxvibe.engine.audio.opna.SsgPatch
 import kotlin.math.log2
 import kotlin.math.roundToInt
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.test.assertSame
 
 class MmlCompilerTest {
     @Test
@@ -129,7 +132,7 @@ class MmlCompilerTest {
         val arrangement = assertIs<MmlCompileResult.Success>(MmlCompiler.compile(parsed)).arrangement
         val program = requireNotNull(arrangement.compiledOpnaSong)
         assertEquals(5, program.eventCount)
-        assertEquals(OpnaPatchBank.FM_AT181, program.patchId[4])
+        assertSame(OpnaPatchBank.fmPatch(OpnaPatchBank.FM_AT181), program.instrumentBank.fmPatch(program.patchId[4]))
         assertEquals(3, program.channel[4])
     }
 
@@ -153,7 +156,9 @@ class MmlCompilerTest {
         assertEquals(51, program.midi[0])
         assertEquals(58, program.midi[1])
         assertEquals(56, program.midi[2])
-        assertEquals(OpnaPatchBank.FM_AT74, program.patchId[0])
+        assertEquals(4, program.instrumentBank.fmPatchCount)
+        assertEquals(1, program.instrumentBank.ssgPatchCount)
+        assertSame(OpnaPatchBank.fmPatch(OpnaPatchBank.FM_AT74), program.instrumentBank.fmPatch(program.patchId[0]))
         assertEquals(78, program.velocity[0])
         assertEquals(3, arrangement.eqBands.size)
         assertEquals(180f, arrangement.eqBands[0].frequencyHz)
@@ -168,15 +173,15 @@ class MmlCompilerTest {
         val arrangement = assertIs<MmlCompileResult.Success>(MmlSongBank.senbonzakuraDemoResult).arrangement
         val program = requireNotNull(arrangement.compiledOpnaSong)
 
-        assertEvent(program, 134, 32_160L, 240, 49, OpnaPatchBank.FM_AT74, 240)
-        assertEvent(program, 645, 81_600L, 480, 81, OpnaPatchBank.FM_AT99, 480)
-        assertEvent(program, 919, 12_720L, 240, 74, OpnaPatchBank.FM_AT99, 200)
-        assertEvent(program, 2_035, 96_000L, 1_440, 82, OpnaPatchBank.FM_AT99, 1_440)
-        assertEvent(program, 2_036, 97_440L, 480, 82, OpnaPatchBank.FM_AT99, 480)
-        assertEvent(program, 2_173, 20_880L, 120, 66, OpnaPatchBank.SSG_LLS_SQUARE, 120)
-        assertEvent(program, 2_174, 21_000L, 120, 65, OpnaPatchBank.SSG_LLS_SQUARE, 120)
-        assertEvent(program, 2_887, 21_060L, 60, 66, OpnaPatchBank.SSG_LLS_SQUARE, 60)
-        assertEvent(program, 2_888, 21_480L, 240, 63, OpnaPatchBank.SSG_LLS_SQUARE, 240)
+        assertEvent(program, 134, 32_160L, 240, 49, OpnaPatchBank.fmPatch(OpnaPatchBank.FM_AT74), 240)
+        assertEvent(program, 645, 81_600L, 480, 81, OpnaPatchBank.fmPatch(OpnaPatchBank.FM_AT99), 480)
+        assertEvent(program, 919, 12_720L, 240, 74, OpnaPatchBank.fmPatch(OpnaPatchBank.FM_AT99), 200)
+        assertEvent(program, 2_035, 96_000L, 1_440, 82, OpnaPatchBank.fmPatch(OpnaPatchBank.FM_AT99), 1_440)
+        assertEvent(program, 2_036, 97_440L, 480, 82, OpnaPatchBank.fmPatch(OpnaPatchBank.FM_AT99), 480)
+        assertEvent(program, 2_173, 20_880L, 120, 66, OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_LLS_SQUARE), 120)
+        assertEvent(program, 2_174, 21_000L, 120, 65, OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_LLS_SQUARE), 120)
+        assertEvent(program, 2_887, 21_060L, 60, 66, OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_LLS_SQUARE), 60)
+        assertEvent(program, 2_888, 21_480L, 240, 63, OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_LLS_SQUARE), 240)
     }
 
     @Test
@@ -260,6 +265,25 @@ class MmlCompilerTest {
     }
 
     @Test
+    fun songLocalNamesWinAndEqualNumericSourceIdsRemainSongScoped() {
+        val source = "#BPM 120\n#BAR 4/4\nA @54 o4 l1 c |"
+        val first = assertIs<MmlCompileResult.Success>(
+            MmlCompiler.compile(source, SingleFmLookup("54", 0, LlsPatches.At181))
+        ).arrangement.compiledOpnaSong
+        val second = assertIs<MmlCompileResult.Success>(
+            MmlCompiler.compile(source, SingleFmLookup("54", 0, LlsPatches.At99))
+        ).arrangement.compiledOpnaSong
+
+        assertEquals(1, first.instrumentBank.fmPatchCount)
+        assertEquals(0, first.instrumentBank.ssgPatchCount)
+        assertEquals(0, first.patchId[0])
+        assertEquals(0, second.patchId[0])
+        assertSame(LlsPatches.At181, first.instrumentBank.fmPatch(0))
+        assertSame(LlsPatches.At99, second.instrumentBank.fmPatch(0))
+        assertSame(first.instrumentBank, first.withPlaybackGain(0.5f).instrumentBank)
+    }
+
+    @Test
     fun songAboveFormer4096LimitUsesExactAuthoredAndRuntimeArrays() {
         val result = assertIs<MmlCompileResult.Success>(MmlCompiler.compile(
             "#BPM 120\n#BAR 4/4\n" +
@@ -274,7 +298,6 @@ class MmlCompilerTest {
         val synth = OpnaLikeSynthesizer(8_000)
         val player = MmlArrangementScheduler.createPlayer(result.arrangement, synth, 8_000)
         assertEquals(8_225, player.eventCount)
-        assertTrue(player.eventCount > OpnaSequencer.MAX_EVENTS)
         val prefix = FloatArray(1_024)
         synth.render(prefix, prefix.size, player, 0L)
         assertTrue(prefix.any { it != 0f })
@@ -284,16 +307,14 @@ class MmlCompilerTest {
     fun unifiedBenchmarkProgramRendersDeterministicNonSilentPcm() {
         val arrangement = assertIs<MmlCompileResult.Success>(MmlSongBank.senbonzakuraDemoResult).arrangement
         val sampleRate = 48000
-        val seqA = OpnaSequencer(sampleRate, arrangement.tempoBpm)
-        val seqB = OpnaSequencer(sampleRate, arrangement.tempoBpm)
         val synthA = OpnaLikeSynthesizer(sampleRate)
         val synthB = OpnaLikeSynthesizer(sampleRate)
-        MmlArrangementScheduler.schedule(arrangement, synthA, seqA, sampleRate)
-        MmlArrangementScheduler.schedule(arrangement, synthB, seqB, sampleRate)
+        val playerA = MmlArrangementScheduler.createPlayer(arrangement, synthA, sampleRate)
+        val playerB = MmlArrangementScheduler.createPlayer(arrangement, synthB, sampleRate)
         val outA = FloatArray(sampleRate * 4)
         val outB = FloatArray(sampleRate * 4)
-        synthA.render(outA, outA.size, seqA, 0L)
-        synthB.render(outB, outB.size, seqB, 0L)
+        synthA.render(outA, outA.size, playerA, 0L)
+        synthB.render(outB, outB.size, playerB, 0L)
         assertTrue(outA.any { it != 0f })
         assertTrue(outA.contentEquals(outB))
     }
@@ -333,19 +354,34 @@ class MmlCompilerTest {
         assertEquals(op3Tl, patch.op3.tl)
     }
 
+    private class SingleFmLookup(
+        private val name: String,
+        private val sourceId: Int,
+        private val patch: FmPatch
+    ) : SourceInstrumentLookup {
+        override fun sourceIdForName(name: String): Int = if (name.equals(this.name, ignoreCase = true)) sourceId else -1
+        override fun fmPatch(sourceId: Int): FmPatch? = if (sourceId == this.sourceId) patch else null
+        override fun ssgPatch(sourceId: Int): SsgPatch? = null
+    }
+
     private fun assertEvent(
         program: CompiledOpnaSong,
         index: Int,
         start: Long,
         duration: Int,
         midi: Int,
-        patchId: Int,
+        patch: Any?,
         gate: Int
     ) {
         assertEquals(start, program.startTick[index])
         assertEquals(duration, program.durationTick[index])
         assertEquals(midi, program.midi[index])
-        assertEquals(patchId, program.patchId[index])
+        val actualPatch = if (program.eventType[index] == CompiledOpnaSong.SSG_NOTE) {
+            program.instrumentBank.ssgPatch(program.patchId[index])
+        } else {
+            program.instrumentBank.fmPatch(program.patchId[index])
+        }
+        assertSame(patch, actualPatch)
         assertEquals(gate, program.gateTick[index])
     }
 }

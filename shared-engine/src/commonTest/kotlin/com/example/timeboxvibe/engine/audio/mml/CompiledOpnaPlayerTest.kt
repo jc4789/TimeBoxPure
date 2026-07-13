@@ -140,28 +140,6 @@ class CompiledOpnaPlayerTest {
     }
 
     @Test
-    fun primitivePlayerMatchesRetainedSequencerPrefix() {
-        val arrangement = testArrangement()
-        val playerSynth = OpnaLikeSynthesizer(SAMPLE_RATE)
-        val player = MmlArrangementScheduler.createPlayer(arrangement, playerSynth, SAMPLE_RATE)
-        val sequencerSynth = OpnaLikeSynthesizer(SAMPLE_RATE)
-        val sequencer = com.example.timeboxvibe.engine.audio.opna.OpnaSequencer(
-            SAMPLE_RATE,
-            arrangement.tempoBpm,
-            arrangement.beatsPerBar
-        )
-        MmlArrangementScheduler.schedule(arrangement, sequencerSynth, sequencer, SAMPLE_RATE)
-        val frames = SAMPLE_RATE
-        val playerOutput = FloatArray(frames)
-        val sequencerOutput = FloatArray(frames)
-
-        playerSynth.render(playerOutput, frames, player, 0L)
-        sequencerSynth.render(sequencerOutput, frames, sequencer, 0L)
-
-        assertContentEquals(sequencerOutput, playerOutput)
-    }
-
-    @Test
     fun badAppleRendersDeterministicallyUnderBothListeningProfiles() {
         val arrangement = assertIs<MmlCompileResult.Success>(MmlSongBank.senbonzakuraDemoResult).arrangement
         val legacy = renderProfilePrefix(arrangement, OpnaOutputProfile.TIMEBOX_LEGACY)

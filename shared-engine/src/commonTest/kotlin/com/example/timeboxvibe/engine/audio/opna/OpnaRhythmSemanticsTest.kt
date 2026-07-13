@@ -4,6 +4,7 @@ import com.example.timeboxvibe.engine.audio.mml.MmlArrangementScheduler
 import com.example.timeboxvibe.engine.audio.mml.MmlCompileResult
 import com.example.timeboxvibe.engine.audio.mml.MmlCompiler
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
@@ -44,11 +45,11 @@ class OpnaRhythmSemanticsTest {
         assertEquals(45, synth.rhythmMasterLevelSnapshot())
         assertEquals(13, synth.rhythmVoiceLevelSnapshot(0))
         assertEquals(1, synth.rhythmVoicePanSnapshot(0))
-        assertEquals(ProceduralDrums.DECAY, synth.drums.stateSnapshot(ProceduralDrums.DrumKind.KICK))
-        assertEquals(45f / 63f * 13f / 31f, synth.drums.gainSnapshot(ProceduralDrums.DrumKind.KICK), 0.000001f)
+        assertEquals(ProceduralDrums.DECAY, synth.rhythmGeneratorStateSnapshot(0))
+        assertEquals(45f / 63f * 13f / 31f, synth.rhythmGeneratorGainSnapshot(0), 0.000001f)
 
         synth.render(FloatArray(1), 1, player, 8_000L)
-        assertEquals(ProceduralDrums.IDLE, synth.drums.stateSnapshot(ProceduralDrums.DrumKind.KICK))
+        assertEquals(ProceduralDrums.IDLE, synth.rhythmGeneratorStateSnapshot(0))
     }
 
     @Test
@@ -67,42 +68,14 @@ class OpnaRhythmSemanticsTest {
 
         var kind = 0
         while (kind < ProceduralDrums.DrumKind.entries.size) {
-            assertEquals(ProceduralDrums.DECAY, synth.drums.stateSnapshot(ProceduralDrums.DrumKind.entries[kind]))
+            assertEquals(ProceduralDrums.DECAY, synth.rhythmGeneratorStateSnapshot(kind))
             kind++
         }
         synth.rhythmDump(0b100101)
-        assertEquals(ProceduralDrums.IDLE, synth.drums.stateSnapshot(ProceduralDrums.DrumKind.KICK))
-        assertEquals(ProceduralDrums.IDLE, synth.drums.stateSnapshot(ProceduralDrums.DrumKind.CYMBAL))
-        assertEquals(ProceduralDrums.IDLE, synth.drums.stateSnapshot(ProceduralDrums.DrumKind.RIMSHOT))
-        assertEquals(ProceduralDrums.DECAY, synth.drums.stateSnapshot(ProceduralDrums.DrumKind.SNARE))
-    }
-
-    @Test
-    fun retainedSequencerMatchesRhythmControlState() {
-        val arrangement = compile(
-            """
-                #MML 2
-                #BPM 120
-                #BAR 4/4
-                R @drum \V63 \vs7 \rh \s r1 |
-            """.trimIndent()
-        )
-        val playerSynth = OpnaLikeSynthesizer(8_000)
-        val player = MmlArrangementScheduler.createPlayer(arrangement, playerSynth, 8_000)
-        val retainedSynth = OpnaLikeSynthesizer(8_000)
-        val sequencer = OpnaSequencer(8_000, arrangement.tempoBpm)
-        MmlArrangementScheduler.schedule(arrangement, retainedSynth, sequencer, 8_000)
-
-        playerSynth.render(FloatArray(1), 1, player, 0L)
-        retainedSynth.render(FloatArray(1), 1, sequencer, 0L)
-
-        assertEquals(playerSynth.rhythmMasterLevelSnapshot(), retainedSynth.rhythmMasterLevelSnapshot())
-        assertEquals(playerSynth.rhythmVoiceLevelSnapshot(1), retainedSynth.rhythmVoiceLevelSnapshot(1))
-        assertEquals(playerSynth.rhythmVoicePanSnapshot(3), retainedSynth.rhythmVoicePanSnapshot(3))
-        assertEquals(
-            playerSynth.drums.stateSnapshot(ProceduralDrums.DrumKind.SNARE),
-            retainedSynth.drums.stateSnapshot(ProceduralDrums.DrumKind.SNARE)
-        )
+        assertEquals(ProceduralDrums.IDLE, synth.rhythmGeneratorStateSnapshot(0))
+        assertEquals(ProceduralDrums.IDLE, synth.rhythmGeneratorStateSnapshot(2))
+        assertEquals(ProceduralDrums.IDLE, synth.rhythmGeneratorStateSnapshot(5))
+        assertEquals(ProceduralDrums.DECAY, synth.rhythmGeneratorStateSnapshot(1))
     }
 
     @Test
@@ -141,6 +114,132 @@ class OpnaRhythmSemanticsTest {
         assertEquals(1, synth.ssgDrumTriggerCountSnapshot())
         assertEquals(48, synth.rhythmMasterLevelSnapshot())
         assertEquals(31, synth.rhythmVoiceLevelSnapshot(0))
+    }
+
+    @Test
+    fun reverseAuthoredSameTickRhythmCommandsUseCanonicalOrder() {
+        val arrangement = compile(
+            "#MML 2\n#BPM 120\n#BAR 4/4\nR @drum \\b \\bp \\V40 \\vb10 \\lb r1 |"
+        )
+        val synth = OpnaLikeSynthesizer(8_000)
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, 8_000)
+        val expected = intArrayOf(
+            CompiledOpnaTimeline.RHYTHM_MASTER_ABSOLUTE,
+            CompiledOpnaTimeline.RHYTHM_VOICE_LEVEL_ABSOLUTE,
+            CompiledOpnaTimeline.RHYTHM_VOICE_PAN,
+            CompiledOpnaTimeline.RHYTHM_CONTROL_DUMP,
+            CompiledOpnaTimeline.RHYTHM_CONTROL_SHOT
+        )
+        var found = 0
+        var event = 0
+        while (event < player.eventCount) {
+            if (player.timeline.sampleTime[event] == 0L && player.timeline.eventType[event] != CompiledOpnaTimeline.TEMPO) {
+                assertEquals(expected[found++], player.timeline.eventType[event])
+            }
+            event++
+        }
+        assertEquals(expected.size, found)
+
+        synth.render(FloatArray(1), 1, player, 0L)
+        assertEquals(ProceduralDrums.DECAY, synth.rhythmGeneratorStateSnapshot(0))
+        assertEquals(40f / 63f * 10f / 31f, synth.rhythmGeneratorGainSnapshot(0), 0.000001f)
+    }
+
+    @Test
+    fun pmdPatternAndYmRhythmGeneratorsCannotMutateEachOther() {
+        val arrangement = compile(
+            """
+                #MML 2
+                #BPM 120
+                #BAR 4/4
+                K R0 |
+                R @drum \V40 \vb10 \b r1 |
+                R0 l1 @1c
+            """.trimIndent()
+        )
+        val synth = OpnaLikeSynthesizer(8_000)
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, 8_000)
+        synth.render(FloatArray(1), 1, player, 0L)
+
+        assertEquals(ProceduralDrums.DECAY, synth.rhythmGeneratorStateSnapshot(0))
+        assertEquals(ProceduralDrums.DECAY, synth.pmdSsgEffectStateSnapshot(ProceduralDrums.DrumKind.KICK))
+        assertEquals(40, synth.rhythmMasterLevelSnapshot())
+        assertEquals(10, synth.rhythmVoiceLevelSnapshot(0))
+
+        synth.rhythmDump(1)
+        assertEquals(ProceduralDrums.IDLE, synth.rhythmGeneratorStateSnapshot(0))
+        assertEquals(ProceduralDrums.DECAY, synth.pmdSsgEffectStateSnapshot(ProceduralDrums.DrumKind.KICK))
+    }
+
+    @Test
+    fun ymControlsAreRejectedOnKAndInsidePatternDefinitions() {
+        val patternResult = assertIs<MmlCompileResult.Failure>(
+            MmlCompiler.compile(
+                "#MML 2\n#BPM 120\n#BAR 4/4\nK R0 |\nR0 l1 @1 \\V40 \\b c"
+            )
+        )
+        assertTrue(patternResult.diagnostics.any { it.reason.contains("inside R0") })
+
+        val kResult = assertIs<MmlCompileResult.Failure>(
+            MmlCompiler.compile(
+                "#MML 2\n#BPM 120\n#BAR 4/4\nK \\V40 R0 |\nR0 l1 @1c"
+            )
+        )
+        assertTrue(kResult.diagnostics.any { it.reason.contains("part K") })
+
+        assertIs<MmlCompileResult.Success>(
+            MmlCompiler.compile("#MML 2\n#BPM 120\n#BAR 4/4\nR @drum \\V40 \\b r1 |")
+        )
+    }
+
+    @Test
+    fun allNotesOffPreservesYmRegistersAndFullResetRestoresEveryDomain() {
+        val synth = OpnaLikeSynthesizer(8_000)
+        synth.setRhythmMasterLevel(12, relative = false)
+        synth.rhythmShot(1)
+        synth.triggerPmdSsgEffect(ProceduralDrums.DrumKind.SNARE.ordinal, 0.5f)
+        synth.triggerDrum(ProceduralDrums.DrumKind.HAT.ordinal, 0.5f)
+
+        synth.allNotesOff()
+        assertEquals(12, synth.rhythmMasterLevelSnapshot())
+        assertEquals(ProceduralDrums.IDLE, synth.rhythmGeneratorStateSnapshot(0))
+        assertEquals(ProceduralDrums.IDLE, synth.pmdSsgEffectStateSnapshot(ProceduralDrums.DrumKind.SNARE))
+        assertEquals(ProceduralDrums.IDLE, synth.drums.stateSnapshot(ProceduralDrums.DrumKind.HAT))
+        assertEquals(1, synth.ssgDrumTriggerCountSnapshot())
+
+        synth.reset()
+        assertEquals(48, synth.rhythmMasterLevelSnapshot())
+        assertEquals(31, synth.rhythmVoiceLevelSnapshot(0))
+        assertEquals(0, synth.ssgDrumTriggerCountSnapshot())
+    }
+
+    @Test
+    fun pmdEffectsUseSsgGainWhileYmRhythmUsesRhythmGain() {
+        val legacyPmd = OpnaLikeSynthesizer(8_000)
+        val referencePmd = OpnaLikeSynthesizer(8_000)
+        legacyPmd.enableOutputFilter = false
+        referencePmd.enableOutputFilter = false
+        referencePmd.outputProfile = OpnaOutputProfile.PC9801_86_REFERENCE
+        legacyPmd.triggerPmdSsgEffect(ProceduralDrums.DrumKind.KICK.ordinal, 0.5f)
+        referencePmd.triggerPmdSsgEffect(ProceduralDrums.DrumKind.KICK.ordinal, 0.5f)
+        val legacyPmdOutput = FloatArray(128)
+        val referencePmdOutput = FloatArray(128)
+        legacyPmd.render(legacyPmdOutput, legacyPmdOutput.size)
+        referencePmd.render(referencePmdOutput, referencePmdOutput.size)
+        assertTrue(!legacyPmdOutput.contentEquals(referencePmdOutput))
+
+        val legacyYm = OpnaLikeSynthesizer(8_000)
+        val referenceYm = OpnaLikeSynthesizer(8_000)
+        legacyYm.enableOutputFilter = false
+        referenceYm.enableOutputFilter = false
+        referenceYm.outputProfile = OpnaOutputProfile.PC9801_86_REFERENCE
+        legacyYm.rhythmShot(1)
+        referenceYm.rhythmShot(1)
+        val legacyYmOutput = FloatArray(128)
+        val referenceYmOutput = FloatArray(128)
+        legacyYm.render(legacyYmOutput, legacyYmOutput.size)
+        referenceYm.render(referenceYmOutput, referenceYmOutput.size)
+        assertContentEquals(legacyYmOutput, referenceYmOutput)
     }
 
     private fun compile(source: String) =
