@@ -1,6 +1,0 @@
-{
-  "name": "Timebox",
-  "description": "Retro-style PC-98 東方ドット絵 time-blocking & interval micro-timing engine with dithered audio feedback.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
