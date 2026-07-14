@@ -131,9 +131,9 @@ class MmlCompilerTest {
 
         val arrangement = assertIs<MmlCompileResult.Success>(MmlCompiler.compile(parsed)).arrangement
         val program = requireNotNull(arrangement.compiledOpnaSong)
-        assertEquals(5, program.eventCount)
-        assertSame(OpnaPatchBank.fmPatch(OpnaPatchBank.FM_AT181), program.instrumentBank.fmPatch(program.patchId[4]))
-        assertEquals(3, program.channel[4])
+        assertEquals(17, program.eventCount)
+        val at181Note = firstEvent(program, CompiledOpnaSong.FM_NOTE, 3)
+        assertSame(OpnaPatchBank.fmPatch(OpnaPatchBank.FM_AT181), program.instrumentBank.fmPatch(program.patchId[at181Note]))
     }
 
     @Test
@@ -145,21 +145,22 @@ class MmlCompilerTest {
         assertEquals(ArrangementRouting.MML_LOGICAL_TRACKS, arrangement.routing)
         val program = requireNotNull(arrangement.compiledOpnaSong)
         assertEquals(2, program.dialectVersion)
-        assertEquals(3_868, program.eventCount)
+        assertEquals(3_896, program.eventCount)
         assertEquals(3_864, countMusicalEvents(program))
         assertEquals(2_037, countEvents(program, CompiledOpnaSong.FM_NOTE))
         assertEquals(1_422, countEvents(program, CompiledOpnaSong.SSG_NOTE))
         assertEquals(405, countEvents(program, CompiledOpnaSong.RHYTHM_SHOT))
-        assertEquals(0L, program.startTick[0])
-        assertEquals(240L, program.startTick[1])
-        assertEquals(480L, program.startTick[2])
-        assertEquals(51, program.midi[0])
-        assertEquals(58, program.midi[1])
-        assertEquals(56, program.midi[2])
+        val musical = musicalEventIndices(program)
+        assertEquals(0L, program.startTick[musical[0]])
+        assertEquals(240L, program.startTick[musical[1]])
+        assertEquals(480L, program.startTick[musical[2]])
+        assertEquals(51, program.midi[musical[0]])
+        assertEquals(58, program.midi[musical[1]])
+        assertEquals(56, program.midi[musical[2]])
         assertEquals(4, program.instrumentBank.fmPatchCount)
         assertEquals(1, program.instrumentBank.ssgPatchCount)
-        assertSame(OpnaPatchBank.fmPatch(OpnaPatchBank.FM_AT74), program.instrumentBank.fmPatch(program.patchId[0]))
-        assertEquals(78, program.velocity[0])
+        assertSame(OpnaPatchBank.fmPatch(OpnaPatchBank.FM_AT74), program.instrumentBank.fmPatch(program.patchId[musical[0]]))
+        assertEquals(78, program.velocity[musical[0]])
         assertEquals(3, arrangement.eqBands.size)
         assertEquals(180f, arrangement.eqBands[0].frequencyHz)
         assertEquals(850f, arrangement.eqBands[1].frequencyHz)
@@ -173,15 +174,15 @@ class MmlCompilerTest {
         val arrangement = assertIs<MmlCompileResult.Success>(MmlSongBank.senbonzakuraDemoResult).arrangement
         val program = requireNotNull(arrangement.compiledOpnaSong)
 
-        assertEvent(program, 134, 32_160L, 240, 49, OpnaPatchBank.fmPatch(OpnaPatchBank.FM_AT74), 240)
-        assertEvent(program, 645, 81_600L, 480, 81, OpnaPatchBank.fmPatch(OpnaPatchBank.FM_AT99), 480)
-        assertEvent(program, 919, 12_720L, 240, 74, OpnaPatchBank.fmPatch(OpnaPatchBank.FM_AT99), 200)
-        assertEvent(program, 2_035, 96_000L, 1_440, 82, OpnaPatchBank.fmPatch(OpnaPatchBank.FM_AT99), 1_440)
-        assertEvent(program, 2_036, 97_440L, 480, 82, OpnaPatchBank.fmPatch(OpnaPatchBank.FM_AT99), 480)
-        assertEvent(program, 2_173, 20_880L, 120, 66, OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_LLS_SQUARE), 120)
-        assertEvent(program, 2_174, 21_000L, 120, 65, OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_LLS_SQUARE), 120)
-        assertEvent(program, 2_887, 21_060L, 60, 66, OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_LLS_SQUARE), 60)
-        assertEvent(program, 2_888, 21_480L, 240, 63, OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_LLS_SQUARE), 240)
+        assertEvent(program, 32_160L, 240, 49, OpnaPatchBank.fmPatch(OpnaPatchBank.FM_AT74), 240)
+        assertEvent(program, 81_600L, 480, 81, OpnaPatchBank.fmPatch(OpnaPatchBank.FM_AT99), 480)
+        assertEvent(program, 12_720L, 240, 74, OpnaPatchBank.fmPatch(OpnaPatchBank.FM_AT99), 200)
+        assertEvent(program, 96_000L, 1_440, 82, OpnaPatchBank.fmPatch(OpnaPatchBank.FM_AT99), 1_440)
+        assertEvent(program, 97_440L, 480, 82, OpnaPatchBank.fmPatch(OpnaPatchBank.FM_AT99), 480)
+        assertEvent(program, 20_880L, 120, 66, OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_LLS_SQUARE), 120)
+        assertEvent(program, 21_000L, 120, 65, OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_LLS_SQUARE), 120)
+        assertEvent(program, 21_060L, 60, 66, OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_LLS_SQUARE), 60)
+        assertEvent(program, 21_480L, 240, 63, OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_LLS_SQUARE), 240)
     }
 
     @Test
@@ -192,11 +193,12 @@ class MmlCompilerTest {
             )
         )
         val program = requireNotNull(result.arrangement.compiledOpnaSong)
-        assertEquals(2, program.eventCount)
-        assertEquals(0L, program.startTick[0])
-        assertEquals(480, program.durationTick[0])
-        assertEquals(960L, program.startTick[1])
-        assertEquals(960, program.durationTick[1])
+        assertEquals(6, program.eventCount)
+        val notes = eventIndices(program, CompiledOpnaSong.FM_NOTE)
+        assertEquals(0L, program.startTick[notes[0]])
+        assertEquals(480, program.durationTick[notes[0]])
+        assertEquals(960L, program.startTick[notes[1]])
+        assertEquals(960, program.durationTick[notes[1]])
     }
 
     @Test
@@ -254,6 +256,11 @@ class MmlCompilerTest {
             )
         )
         assertTrue(noise.warnings.any { it.reason.contains("noise periods") })
+        val noiseWarning = noise.warnings.first { it.reason.contains("noise periods") }
+        assertEquals(5, noiseWarning.line)
+        assertEquals(3, noiseWarning.column)
+        assertTrue(noiseWarning.reason.contains("part G at 4:3"))
+        assertTrue(noiseWarning.reason.contains("part H at 5:3"))
 
         val envelope = assertIs<MmlCompileResult.Success>(
             MmlCompiler.compile(
@@ -262,6 +269,109 @@ class MmlCompilerTest {
             )
         )
         assertTrue(envelope.warnings.any { it.reason.contains("hardware envelopes") })
+    }
+
+    @Test
+    fun ssgPatchApplicationsExpandToTypedStateAtTheAuthoredBoundary() {
+        val program = requireNotNull(
+            assertIs<MmlCompileResult.Success>(
+                MmlCompiler.compile(
+                    "#MML 2\n#BPM 120\n#BAR 4/4\n" +
+                        "G @ssg_noise o4 l1 c |"
+                )
+            ).arrangement.compiledOpnaSong
+        )
+
+        assertEquals(
+            listOf(
+                CompiledOpnaSong.HW_LFO_RATE,
+                CompiledOpnaSong.HW_LFO_ENABLE,
+                CompiledOpnaSong.SSG_TONE_ENABLE,
+                CompiledOpnaSong.SSG_NOISE_ENABLE,
+                CompiledOpnaSong.SSG_NOISE_PERIOD,
+                CompiledOpnaSong.SSG_NOTE
+            ),
+            program.eventType.toList()
+        )
+        assertEquals(listOf(0, 0, 0, 1, 8), program.stateValue.copyOf(5).toList())
+        assertEquals(listOf(1, 1, 3, 3, 3), program.sourceColumn.copyOf(5).toList())
+        assertTrue(program.sourceOrder[0] < program.sourceOrder[1])
+        assertTrue(program.sourceOrder[1] < program.sourceOrder[2])
+        assertTrue(program.sourceOrder[2] < program.sourceOrder[3])
+        assertTrue(program.sourceOrder[3] < program.sourceOrder[4])
+    }
+
+    @Test
+    fun semanticSsgHardwareCommandsAreTypedAndRangeChecked() {
+        val program = requireNotNull(
+            assertIs<MmlCompileResult.Success>(
+                MmlCompiler.compile(
+                    "#MML 2\n#BPM 120\n#BAR 4/4\n" +
+                        "G @square ST0 SN1 SNP31 SEP65535 SES15 o4 l1 c |"
+                )
+            ).arrangement.compiledOpnaSong
+        )
+        val expectedTypes = intArrayOf(
+            CompiledOpnaSong.HW_LFO_RATE,
+            CompiledOpnaSong.HW_LFO_ENABLE,
+            CompiledOpnaSong.SSG_TONE_ENABLE,
+            CompiledOpnaSong.SSG_NOISE_ENABLE,
+            CompiledOpnaSong.SSG_TONE_ENABLE,
+            CompiledOpnaSong.SSG_NOISE_ENABLE,
+            CompiledOpnaSong.SSG_NOISE_PERIOD,
+            CompiledOpnaSong.SSG_HARDWARE_ENVELOPE_PERIOD,
+            CompiledOpnaSong.SSG_HARDWARE_ENVELOPE_SHAPE,
+            CompiledOpnaSong.SSG_NOTE
+        )
+        assertTrue(program.eventType.contentEquals(expectedTypes))
+        assertEquals(listOf(0, 0, 1, 0, 0, 1, 31, 65_535, 15), program.stateValue.copyOf(9).toList())
+
+        val wrongPart = assertIs<MmlCompileResult.Failure>(
+            MmlCompiler.compile("#MML 2\n#BPM 120\n#BAR 4/4\nA @54 ST1 o4 l1 c |")
+        )
+        assertTrue(wrongPart.diagnostics.any { it.reason.contains("only valid on channels G-I") })
+        val badRange = assertIs<MmlCompileResult.Failure>(
+            MmlCompiler.compile("#MML 2\n#BPM 120\n#BAR 4/4\nG @square SNP32 o4 l1 c |")
+        )
+        assertTrue(badRange.diagnostics.any { it.line == 4 && it.column == 11 })
+        val rawRegister = assertIs<MmlCompileResult.Failure>(
+            MmlCompiler.compile("#MML 2\n#BPM 120\n#BAR 4/4\nG @square SREG7 o4 l1 c |")
+        )
+        assertTrue(rawRegister.diagnostics.any { it.reason.contains("ST, SN, SNP, SEP, and SES") })
+    }
+
+    @Test
+    fun expandedLoopOccurrencesKeepTheirActualSourceOrder() {
+        val document = assertIs<MmlParseResult.Success>(
+            MmlParser.parse(
+                "#MML 2\n#BPM 120\n#BAR 4/4\n" +
+                    "G @square [SNP8 SNP16]2 o4 l1 c |"
+            )
+        ).document
+        val commands = document.tracks[MmlChannelId.G.ordinal].commands
+        val periods = commands.filterIsInstance<MmlCommand.SsgNoisePeriod>()
+
+        assertEquals(listOf(8, 16, 8, 16), periods.map { it.period })
+        assertEquals(listOf(12, 17, 12, 17), periods.map { it.column })
+        assertTrue(periods[0].sourceOrder < periods[1].sourceOrder)
+        assertTrue(periods[1].sourceOrder < periods[2].sourceOrder)
+        assertTrue(periods[2].sourceOrder < periods[3].sourceOrder)
+    }
+
+    @Test
+    fun expandedMacroDiagnosticsPointToTheInvocationColumn() {
+        val result = assertIs<MmlCompileResult.Failure>(
+            MmlCompiler.compile(
+                """
+                    #MML 2
+                    #BPM 120
+                    #BAR 4/4
+                    #MACRO bad SNP99
+                    G @square ${'$'}bad o4 l1 c |
+                """.trimIndent()
+            )
+        )
+        assertTrue(result.diagnostics.any { it.line == 5 && it.column == 11 })
     }
 
     @Test
@@ -276,8 +386,8 @@ class MmlCompilerTest {
 
         assertEquals(1, first.instrumentBank.fmPatchCount)
         assertEquals(0, first.instrumentBank.ssgPatchCount)
-        assertEquals(0, first.patchId[0])
-        assertEquals(0, second.patchId[0])
+        assertEquals(0, first.patchId[firstEvent(first, CompiledOpnaSong.FM_NOTE, 0)])
+        assertEquals(0, second.patchId[firstEvent(second, CompiledOpnaSong.FM_NOTE, 0)])
         assertSame(LlsPatches.At181, first.instrumentBank.fmPatch(0))
         assertSame(LlsPatches.At99, second.instrumentBank.fmPatch(0))
         assertSame(first.instrumentBank, first.withPlaybackGain(0.5f).instrumentBank)
@@ -290,14 +400,14 @@ class MmlCompilerTest {
                 "A @54 o4 l16 [c c c c c c c c c c c c c c c c |]257"
         ))
         val program = result.arrangement.compiledOpnaSong
-        assertEquals(4_112, program.eventCount)
+        assertEquals(4_116, program.eventCount)
         assertEquals(program.eventCount, program.eventType.size)
         assertEquals(program.eventCount, program.startTick.size)
         assertEquals(program.eventCount, program.patchId.size)
 
         val synth = OpnaLikeSynthesizer(8_000)
         val player = MmlArrangementScheduler.createPlayer(result.arrangement, synth, 8_000)
-        assertEquals(8_225, player.eventCount)
+        assertEquals(8_229, player.eventCount)
         val prefix = FloatArray(1_024)
         synth.render(prefix, prefix.size, player, 0L)
         assertTrue(prefix.any { it != 0f })
@@ -366,16 +476,20 @@ class MmlCompilerTest {
 
     private fun assertEvent(
         program: CompiledOpnaSong,
-        index: Int,
         start: Long,
         duration: Int,
         midi: Int,
         patch: Any?,
         gate: Int
     ) {
-        assertEquals(start, program.startTick[index])
-        assertEquals(duration, program.durationTick[index])
-        assertEquals(midi, program.midi[index])
+        var index = 0
+        while (index < program.eventCount) {
+            if (program.startTick[index] == start && program.durationTick[index] == duration &&
+                program.midi[index] == midi && program.gateTick[index] == gate
+            ) break
+            index++
+        }
+        assertTrue(index < program.eventCount, "Missing compiled checkpoint at tick $start for MIDI $midi")
         val actualPatch = if (program.eventType[index] == CompiledOpnaSong.SSG_NOTE) {
             program.instrumentBank.ssgPatch(program.patchId[index])
         } else {
@@ -383,5 +497,36 @@ class MmlCompilerTest {
         }
         assertSame(patch, actualPatch)
         assertEquals(gate, program.gateTick[index])
+    }
+
+    private fun eventIndices(program: CompiledOpnaSong, type: Int): IntArray {
+        val result = IntArray(countEvents(program, type))
+        var output = 0
+        var index = 0
+        while (index < program.eventCount) {
+            if (program.eventType[index] == type) result[output++] = index
+            index++
+        }
+        return result
+    }
+
+    private fun musicalEventIndices(program: CompiledOpnaSong): IntArray {
+        val result = IntArray(countMusicalEvents(program))
+        var output = 0
+        var index = 0
+        while (index < program.eventCount) {
+            if (program.eventType[index] <= CompiledOpnaSong.FM_POLY_NOTE) result[output++] = index
+            index++
+        }
+        return result
+    }
+
+    private fun firstEvent(program: CompiledOpnaSong, type: Int, channel: Int): Int {
+        var index = 0
+        while (index < program.eventCount) {
+            if (program.eventType[index] == type && program.channel[index] == channel) return index
+            index++
+        }
+        error("No compiled event type $type on channel $channel")
     }
 }

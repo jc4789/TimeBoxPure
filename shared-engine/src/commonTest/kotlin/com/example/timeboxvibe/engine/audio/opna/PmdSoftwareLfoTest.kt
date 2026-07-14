@@ -142,11 +142,72 @@ class PmdSoftwareLfoTest {
         }
     }
 
+    @Test
+    fun squareEstablishesAtDelayEdgeThenHoldsForSpeedClocks() {
+        val lfo = PmdSoftwareLfo(48_000)
+        lfo.configure(2, 3, 2, 4)
+        lfo.setWaveform(2)
+        lfo.setClockMode(PmdPerformanceLaws.LFO_CLOCK_FIXED)
+        lfo.setSwitch(1)
+
+        advanceFixedClocks(lfo, 1)
+        assertEquals(0, lfo.valueSnapshot())
+        advanceFixedClocks(lfo, 1)
+        assertEquals(8, lfo.valueSnapshot())
+        advanceFixedClocks(lfo, 2)
+        assertEquals(8, lfo.valueSnapshot())
+        advanceFixedClocks(lfo, 1)
+        assertEquals(-8, lfo.valueSnapshot())
+    }
+
+    @Test
+    fun randomEstablishesAtDelayEdgeThenHoldsForSpeedClocks() {
+        val lfo = PmdSoftwareLfo(48_000)
+        lfo.configure(2, 3, 7, 9)
+        lfo.setWaveform(3)
+        lfo.setClockMode(PmdPerformanceLaws.LFO_CLOCK_FIXED)
+        lfo.setSwitch(1)
+        val resetSeed = lfo.randomSnapshot()
+
+        advanceFixedClocks(lfo, 1)
+        assertEquals(resetSeed, lfo.randomSnapshot())
+        advanceFixedClocks(lfo, 1)
+        val firstValue = lfo.valueSnapshot()
+        val firstSeed = lfo.randomSnapshot()
+        assertNotEquals(resetSeed, firstSeed)
+        advanceFixedClocks(lfo, 2)
+        assertEquals(firstValue, lfo.valueSnapshot())
+        assertEquals(firstSeed, lfo.randomSnapshot())
+        advanceFixedClocks(lfo, 1)
+        assertNotEquals(firstSeed, lfo.randomSnapshot())
+    }
+
+    @Test
+    fun squareDepthEvolutionCountsSignTransitionsNotInitialAssignment() {
+        val lfo = PmdSoftwareLfo(48_000)
+        lfo.configure(0, 1, 2, 3)
+        lfo.setWaveform(2)
+        lfo.setDepthEvolution(1, 1, 2)
+        lfo.setClockMode(PmdPerformanceLaws.LFO_CLOCK_FIXED)
+        lfo.setSwitch(1)
+
+        advanceFixedClocks(lfo, 1)
+        assertEquals(6, lfo.valueSnapshot())
+        assertEquals(2, lfo.depthSnapshot())
+        advanceFixedClocks(lfo, 1)
+        assertEquals(-6, lfo.valueSnapshot())
+        assertEquals(3, lfo.depthSnapshot())
+    }
+
     private fun advance(lfo: PmdSoftwareLfo, samples: Int) {
         var i = 0
         while (i < samples) {
             lfo.advanceSample()
             i++
         }
+    }
+
+    private fun advanceFixedClocks(lfo: PmdSoftwareLfo, clocks: Int) {
+        advance(lfo, clocks * 858)
     }
 }

@@ -9,6 +9,7 @@ import com.example.timeboxvibe.engine.audio.opna.OpnaPatchBank
 import com.example.timeboxvibe.engine.audio.opna.ProceduralDrums
 import com.example.timeboxvibe.engine.audio.opna.PmdPerformanceLaws
 import com.example.timeboxvibe.engine.audio.opna.SourceInstrumentLookup
+import com.example.timeboxvibe.engine.audio.opna.SsgPatch
 import com.example.timeboxvibe.engine.audio.AudioLaws
 
 sealed class MmlCompileResult {
@@ -26,6 +27,7 @@ object MmlCompiler {
     private const val DEFAULT_LENGTH = 4
     private const val DEFAULT_VOLUME = 15
     private const val DEFAULT_KEY_ROOT_MIDI = 60
+    private const val SSG_SOURCE_ORDER_STRIDE = 8
 
     fun compile(source: String): MmlCompileResult {
         return compileSource(source, OpnaPatchBank)
@@ -77,6 +79,7 @@ object MmlCompiler {
             fm3Extended = false,
             sourceInstruments = instruments
         )
+        addInitialHardwareLfoState(document, builder, diagnostics)
         var fmChannel = 0
         var ssgChannel = 0
         var trackIndex = 0
@@ -140,6 +143,11 @@ object MmlCompiler {
         var i = 0
         while (i < track.commands.size) {
             val command = track.commands[i]
+            builder.beginSource(
+                command.sourceOrder * SSG_SOURCE_ORDER_STRIDE + SSG_SOURCE_ORDER_STRIDE - 1,
+                command.line,
+                command.column
+            )
             when (command) {
                 is MmlCommand.Instrument -> {
                     val sourceId = instruments.sourceIdForName(command.value)
@@ -160,6 +168,23 @@ object MmlCompiler {
                             diagnostics.add(MmlDiagnostic(command.line, command.column, "Instrument changes require #MML 2"))
                         } else {
                             patchId = selected
+                            if (!isRhythm && !isSsg) {
+                                val fmPatch = instruments.fmPatch(sourceId)
+                                if (fmPatch != null) {
+                                    addPatchHardwareLfoDefaults(
+                                        fmPatch.pms, fmPatch.ams, tick, channelIndex,
+                                        CompiledOpnaSong.LOGICAL_PART_NONE, command, builder, diagnostics
+                                    )
+                                }
+                            }
+                            if (isSsg) {
+                                val patch = instruments.ssgPatch(sourceId)
+                                if (patch != null) {
+                                    expandSsgPatchState(
+                                        patch, tick, channelIndex, command, builder, diagnostics
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -194,7 +219,7 @@ object MmlCompiler {
                         else if (midi !in 0..127) diagnostics.add(MmlDiagnostic(command.line, command.column, "Note is outside MIDI range 0..127"))
                         else if (duration > 0) {
                             val type = if (isSsg) CompiledOpnaSong.SSG_NOTE else CompiledOpnaSong.FM_NOTE
-                            if (!builder.add(type, tick, duration, duration, channelIndex, -1, midi, -1, (volume * 127 + 7) / 15, patchId, 0, 0, -1, -1, 0)) {
+                            if (!builder.add(type, tick, duration, duration, channelIndex, -1, midi, -1, (volume * 127 + 7) / 15, patchId, 0, 0)) {
                                 diagnostics.add(MmlDiagnostic(command.line, command.column, "Compiled OPNA event capacity exceeded"))
                             }
                             tick += duration
@@ -216,7 +241,7 @@ object MmlCompiler {
                         val duration = durationTicks(command.denominator, defaultLength, command.line, command.column, diagnostics)
                         val kind = drumKind(command.kind)
                         if (duration > 0 && kind != null) {
-                            if (!builder.add(CompiledOpnaSong.RHYTHM_SHOT, tick, duration, 0, 0, -1, kind.ordinal, -1, (volume * 127 + 7) / 15, -1, 0, 0, 0, 0, 0)) {
+                            if (!builder.add(CompiledOpnaSong.RHYTHM_SHOT, tick, duration, 0, 0, -1, kind.ordinal, -1, (volume * 127 + 7) / 15, -1, 0, 0)) {
                                 diagnostics.add(MmlDiagnostic(command.line, command.column, "Compiled OPNA event safety limit exceeded"))
                             }
                             tick += duration
@@ -273,6 +298,7 @@ object MmlCompiler {
             fm3Extended = document.fm3Extended,
             sourceInstruments = instruments
         )
+        addInitialHardwareLfoState(document, builder, diagnostics)
         val channelC = document.tracks[MmlChannelId.C.ordinal]
         val channelCPatch = firstFmPatch(channelC, instruments, builder)
         compileRhythmSequence(document, barTicks, builder, diagnostics)
@@ -344,38 +370,53 @@ object MmlCompiler {
         var warnedNoise = false
         var i = 0
         while (i < program.eventCount && (!warnedEnvelope || !warnedNoise)) {
-            if (program.eventType[i] == CompiledOpnaSong.SSG_NOTE) {
-                val first = program.instrumentBank.ssgPatch(program.patchId[i])
-                if (first != null) {
-                    val firstEnd = program.startTick[i] + program.durationTick[i]
-                    var j = i + 1
-                    while (j < program.eventCount && (!warnedEnvelope || !warnedNoise)) {
-                        if (program.eventType[j] == CompiledOpnaSong.SSG_NOTE) {
-                            val second = program.instrumentBank.ssgPatch(program.patchId[j])
-                            val secondEnd = program.startTick[j] + program.durationTick[j]
-                            val overlaps = program.startTick[i] < secondEnd && program.startTick[j] < firstEnd
-                            if (!warnedEnvelope && second != null && first.envelopeEnabled &&
-                                second.envelopeEnabled && overlaps &&
-                                (first.envelopeShape != second.envelopeShape || first.envelopePeriod != second.envelopePeriod)
-                            ) {
-                                warnings.add(MmlDiagnostic(1, 1, "Overlapping SSG parts request incompatible shared hardware envelopes; last note-on wins"))
-                                warnedEnvelope = true
-                            }
-                            if (!warnedNoise && second != null && first.noiseEnabled &&
-                                second.noiseEnabled && overlaps && first.noisePeriod != second.noisePeriod
-                            ) {
-                                warnings.add(MmlDiagnostic(1, 1, "Overlapping SSG parts request incompatible shared noise periods; last note-on wins"))
-                                warnedNoise = true
-                            }
+            val type = program.eventType[i]
+            val sharedNoise = type == CompiledOpnaSong.SSG_NOISE_PERIOD
+            val sharedEnvelope = type == CompiledOpnaSong.SSG_HARDWARE_ENVELOPE_PERIOD ||
+                type == CompiledOpnaSong.SSG_HARDWARE_ENVELOPE_SHAPE
+            if ((sharedNoise && !warnedNoise) || (sharedEnvelope && !warnedEnvelope)) {
+                var j = i + 1
+                while (j < program.eventCount) {
+                    if (program.eventType[j] == type && program.startTick[j] == program.startTick[i] &&
+                        program.channel[j] != program.channel[i] && program.stateValue[j] != program.stateValue[i]
+                    ) {
+                        val earlier = if (program.sourceOrder[i] <= program.sourceOrder[j]) i else j
+                        val later = if (earlier == i) j else i
+                        val firstPart = ssgPartName(program.channel[earlier])
+                        val secondPart = ssgPartName(program.channel[later])
+                        val locations = "$firstPart at ${program.sourceLine[earlier]}:${program.sourceColumn[earlier]} and " +
+                            "$secondPart at ${program.sourceLine[later]}:${program.sourceColumn[later]}"
+                        if (sharedNoise) {
+                            warnings.add(
+                                MmlDiagnostic(
+                                    program.sourceLine[later],
+                                    program.sourceColumn[later],
+                                    "Shared SSG noise periods conflict between $locations; authored source order applies $secondPart last"
+                                )
+                            )
+                            warnedNoise = true
+                        } else {
+                            warnings.add(
+                                MmlDiagnostic(
+                                    program.sourceLine[later],
+                                    program.sourceColumn[later],
+                                    "Shared SSG hardware envelopes conflict between $locations; authored source order applies $secondPart last"
+                                )
+                            )
+                            warnedEnvelope = true
                         }
-                        j++
+                        break
                     }
+                    j++
                 }
             }
             i++
         }
         return warnings
     }
+
+    private fun ssgPartName(channel: Int): String =
+        if (channel in 0..2) "part ${('G'.code + channel).toChar()}" else "SSG part $channel"
 
     private fun maximumConcurrentFmVoices(program: CompiledOpnaSong): Int {
         val normalChannelActive = BooleanArray(AudioLaws.FM_CHANNELS)
@@ -452,13 +493,14 @@ object MmlCompiler {
         var fmSlotMask = if (isFm3Operator) 1 shl (track.channel.ordinal - MmlChannelId.C1.ordinal) else 15
         var pan = 0
         var detuneCents = 0
-        var pms = -1
-        var ams = -1
+        var hasExplicitHardwareLfoDepth = false
         var polyphonicPart = false
         var sawSoftwareLfo = false
-        var lfoDelayTicks = 0
         var tick = 0L
         var sawEvent = false
+        if (isSsg && document.envelopeClockMode != PmdPerformanceLaws.ENVELOPE_CLOCK_NORMAL) {
+            builder.beginSource(Int.MAX_VALUE, 1, 1)
+        }
         if (isSsg && document.envelopeClockMode != PmdPerformanceLaws.ENVELOPE_CLOCK_NORMAL &&
             !builder.addSsgEnvelopeMode(
                 0L,
@@ -471,6 +513,11 @@ object MmlCompiler {
         var i = 0
         while (i < track.commands.size) {
             val command = track.commands[i]
+            builder.beginSource(
+                command.sourceOrder * SSG_SOURCE_ORDER_STRIDE + SSG_SOURCE_ORDER_STRIDE - 1,
+                command.line,
+                command.column
+            )
             if (fm3ControlLane && isUnsupportedFm3ControlLaneCommand(command)) {
                 diagnostics.add(
                     MmlDiagnostic(
@@ -497,6 +544,28 @@ object MmlCompiler {
                         if (!valid) diagnostics.add(MmlDiagnostic(command.line, command.column, "Instrument @${command.value} is invalid for channel ${track.channel}"))
                         else {
                             patchId = id
+                            if (isFmPart && !isFm3Operator && !hasExplicitHardwareLfoDepth) {
+                                val fmPatch = instruments.fmPatch(sourceId)
+                                if (fmPatch != null) {
+                                    addPatchHardwareLfoDefaults(
+                                        fmPatch.pms, fmPatch.ams, tick, fmChannelIndex, logicalPart,
+                                        command, builder, diagnostics
+                                    )
+                                }
+                            }
+                            if (isSsg) {
+                                val patch = instruments.ssgPatch(sourceId)
+                                if (patch != null) {
+                                    expandSsgPatchState(
+                                        patch,
+                                        tick,
+                                        track.channel.ordinal - MmlChannelId.G.ordinal,
+                                        command,
+                                        builder,
+                                        diagnostics
+                                    )
+                                }
+                            }
                             if (isFm3Operator) {
                                 if (!builder.addFm3Patch(tick, fmSlotMask, id, logicalPart)) {
                                     diagnostics.add(MmlDiagnostic(command.line, command.column, "Compiled OPNA event capacity exceeded"))
@@ -606,6 +675,26 @@ object MmlCompiler {
                         diagnostics.add(MmlDiagnostic(command.line, command.column, "Compiled OPNA event capacity exceeded"))
                     }
                 }
+                is MmlCommand.SsgToneEnable -> addSsgSemanticState(
+                    isSsg, command, CompiledOpnaSong.SSG_TONE_ENABLE,
+                    if (command.enabled) 1 else 0, 0..1, tick, track, builder, diagnostics
+                )
+                is MmlCommand.SsgNoiseEnable -> addSsgSemanticState(
+                    isSsg, command, CompiledOpnaSong.SSG_NOISE_ENABLE,
+                    if (command.enabled) 1 else 0, 0..1, tick, track, builder, diagnostics
+                )
+                is MmlCommand.SsgNoisePeriod -> addSsgSemanticState(
+                    isSsg, command, CompiledOpnaSong.SSG_NOISE_PERIOD,
+                    command.period, 1..31, tick, track, builder, diagnostics
+                )
+                is MmlCommand.SsgHardwareEnvelopePeriod -> addSsgSemanticState(
+                    isSsg, command, CompiledOpnaSong.SSG_HARDWARE_ENVELOPE_PERIOD,
+                    command.period, 1..65_535, tick, track, builder, diagnostics
+                )
+                is MmlCommand.SsgHardwareEnvelopeShape -> addSsgSemanticState(
+                    isSsg, command, CompiledOpnaSong.SSG_HARDWARE_ENVELOPE_SHAPE,
+                    command.shape, 0..15, tick, track, builder, diagnostics
+                )
                 is MmlCommand.Pan -> {
                     pan = when (command.value) {
                         1 -> 2 // PMD/OPNA: right
@@ -725,15 +814,89 @@ object MmlCompiler {
                         diagnostics.add(MmlDiagnostic(command.line, command.column, "Tempo-change capacity exceeded"))
                     }
                 }
+                is MmlCommand.HardwareLfoGlobal -> {
+                    val selectedRate = command.rate
+                    if (!isFm || isFm3Operator) {
+                        diagnostics.add(
+                            MmlDiagnostic(
+                                command.line,
+                                command.column,
+                                "OPNA # hardware LFO control must be authored on physical FM channel A-F"
+                            )
+                        )
+                    } else if (selectedRate != null && selectedRate !in 0..7) {
+                        diagnostics.add(MmlDiagnostic(command.line, command.column, "OPNA hardware LFO rate must be 0..7"))
+                    } else {
+                        val sourceBase = command.sourceOrder * SSG_SOURCE_ORDER_STRIDE
+                        if (selectedRate != null && !builder.addHardwareLfoGlobalControl(
+                                CompiledOpnaSong.HW_LFO_RATE,
+                                tick,
+                                selectedRate,
+                                sourceBase,
+                                command.line,
+                                command.column
+                            )
+                        ) diagnostics.add(MmlDiagnostic(command.line, command.column, "Compiled OPNA event capacity exceeded"))
+                        if (!builder.addHardwareLfoGlobalControl(
+                                CompiledOpnaSong.HW_LFO_ENABLE,
+                                tick,
+                                if (command.enabled) 1 else 0,
+                                sourceBase + 1,
+                                command.line,
+                                command.column
+                            )
+                        ) diagnostics.add(MmlDiagnostic(command.line, command.column, "Compiled OPNA event capacity exceeded"))
+                    }
+                }
                 is MmlCommand.HardwareLfo -> {
                     if (!isFmPart) {
                         diagnostics.add(MmlDiagnostic(command.line, command.column, "Hardware LFO is only valid on FM channels"))
+                    } else if (isFm3Operator) {
+                        diagnostics.add(
+                            MmlDiagnostic(
+                                command.line,
+                                command.column,
+                                "FM3 PMS/AMS/delay are shared physical-channel state; author H on channel C, not C1-C4"
+                            )
+                        )
                     } else if (command.pms !in 0..7 || command.ams !in 0..3) {
                         diagnostics.add(MmlDiagnostic(command.line, command.column, "H requires PMS 0..7 and AMS 0..3"))
+                    } else if (!isValidHardwareLfoDelay(command)) {
+                        diagnostics.add(
+                            MmlDiagnostic(
+                                command.line,
+                                command.column,
+                                "H delay requires raw clocks 0..255 or lLength 1..255 on the compiler tick grid"
+                            )
+                        )
                     } else {
-                        pms = command.pms
-                        ams = command.ams
-                        lfoDelayTicks = if (command.delayDenominator == null) 0 else durationTicksV2(command.delayDenominator, false, defaultLength, command, diagnostics)
+                        hasExplicitHardwareLfoDepth = true
+                        val sourceBase = command.sourceOrder * SSG_SOURCE_ORDER_STRIDE
+                        if (!builder.addHardwareLfoPartControl(
+                                CompiledOpnaSong.HW_LFO_PMS, tick, fmChannelIndex, logicalPart,
+                                command.pms, CompiledOpnaSong.HW_LFO_DELAY_NONE, 0, false,
+                                sourceBase, command.line, command.column
+                            )
+                        ) diagnostics.add(MmlDiagnostic(command.line, command.column, "Compiled OPNA event capacity exceeded"))
+                        if (!builder.addHardwareLfoPartControl(
+                                CompiledOpnaSong.HW_LFO_AMS, tick, fmChannelIndex, logicalPart,
+                                command.ams, CompiledOpnaSong.HW_LFO_DELAY_NONE, 0, false,
+                                sourceBase + 1, command.line, command.column
+                            )
+                        ) diagnostics.add(MmlDiagnostic(command.line, command.column, "Compiled OPNA event capacity exceeded"))
+                        if (command.delayKind != MmlCommand.HARDWARE_LFO_DELAY_NONE) {
+                            val delayKind = if (command.delayKind == MmlCommand.HARDWARE_LFO_DELAY_RAW_CLOCKS) {
+                                CompiledOpnaSong.HW_LFO_DELAY_RAW_CLOCKS
+                            } else {
+                                CompiledOpnaSong.HW_LFO_DELAY_NOTE_LENGTH
+                            }
+                            if (!builder.addHardwareLfoPartControl(
+                                    CompiledOpnaSong.HW_LFO_DELAY, tick, fmChannelIndex, logicalPart,
+                                    0, delayKind, command.delayValue, command.delayDotted,
+                                    sourceBase + 2, command.line, command.column
+                                )
+                            ) diagnostics.add(MmlDiagnostic(command.line, command.column, "Compiled OPNA event capacity exceeded"))
+                        }
                     }
                 }
                 is MmlCommand.SoftwareLfoDefine -> {
@@ -863,7 +1026,7 @@ object MmlCompiler {
                             }
                             if (!builder.add(
                                     type, tick, totalDuration, gate, channelIndex, if (isFm3Operator) 0 else -1, midi, -1,
-                                    fineVolume, patchId, pan, detuneCents, pms, ams, lfoDelayTicks,
+                                    fineVolume, patchId, pan, detuneCents,
                                     gateState.proportionalValue, gateState.proportionalScale,
                                     gateState.lastResolvedTailClocks, gateState.minimumClocks,
                                     if (isFm3Operator) fmSlotMask else 0,
@@ -906,9 +1069,6 @@ object MmlCompiler {
                                         patchId,
                                         pan,
                                         detuneCents,
-                                        pms,
-                                        ams,
-                                        lfoDelayTicks,
                                         gateState.proportionalValue,
                                         gateState.proportionalScale,
                                         gateState.lastResolvedTailClocks,
@@ -938,7 +1098,7 @@ object MmlCompiler {
                             val gate = gateState.resolve(duration, false)
                             if (!builder.add(
                                     type, tick, duration, gate, channelIndex, if (isFm3Operator) 0 else -1, fromMidi, toMidi,
-                                    fineVolume, patchId, pan, detuneCents, pms, ams, lfoDelayTicks,
+                                    fineVolume, patchId, pan, detuneCents,
                                     gateState.proportionalValue, gateState.proportionalScale,
                                     gateState.lastResolvedTailClocks, gateState.minimumClocks,
                                     if (isFm3Operator) fmSlotMask else 0,
@@ -963,7 +1123,7 @@ object MmlCompiler {
                         val duration = durationTicksV2(command.denominator, command.dotted, defaultLength, command, diagnostics)
                         val kind = drumKind(command.kind)
                         if (duration > 0 && kind != null) {
-                            if (!builder.add(CompiledOpnaSong.RHYTHM_SHOT, tick, duration, 0, 0, -1, kind.ordinal, -1, fineVolume, -1, pan, 0, 0, 0, 0)) {
+                            if (!builder.add(CompiledOpnaSong.RHYTHM_SHOT, tick, duration, 0, 0, -1, kind.ordinal, -1, fineVolume, -1, pan, 0)) {
                                 diagnostics.add(MmlDiagnostic(command.line, command.column, "Compiled OPNA event safety limit exceeded"))
                             }
                             tick += duration
@@ -982,6 +1142,58 @@ object MmlCompiler {
         }
     }
 
+    private fun addInitialHardwareLfoState(
+        document: MmlDocument,
+        builder: CompiledOpnaSongBuilder,
+        diagnostics: MutableList<MmlDiagnostic>
+    ) {
+        val rate = if (document.lfoRate in 0..7) document.lfoRate else 0
+        if (!builder.addHardwareLfoGlobalControl(
+                CompiledOpnaSong.HW_LFO_RATE, 0L, rate,
+                Int.MIN_VALUE, 1, 1
+            )
+        ) diagnostics.add(MmlDiagnostic(1, 1, "Compiled OPNA event capacity exceeded"))
+        if (!builder.addHardwareLfoGlobalControl(
+                CompiledOpnaSong.HW_LFO_ENABLE, 0L,
+                if (document.lfoRate in 0..7) 1 else 0,
+                Int.MIN_VALUE + 1, 1, 1
+            )
+        ) diagnostics.add(MmlDiagnostic(1, 1, "Compiled OPNA event capacity exceeded"))
+    }
+
+    private fun addPatchHardwareLfoDefaults(
+        pms: Int,
+        ams: Int,
+        tick: Long,
+        channel: Int,
+        logicalPart: Int,
+        command: MmlCommand.Instrument,
+        builder: CompiledOpnaSongBuilder,
+        diagnostics: MutableList<MmlDiagnostic>
+    ) {
+        val sourceBase = command.sourceOrder * SSG_SOURCE_ORDER_STRIDE
+        if (!builder.addHardwareLfoPartControl(
+                CompiledOpnaSong.HW_LFO_PMS, tick, channel, logicalPart,
+                pms.coerceIn(0, 7), CompiledOpnaSong.HW_LFO_DELAY_NONE, 0, false,
+                sourceBase, command.line, command.column
+            )
+        ) diagnostics.add(MmlDiagnostic(command.line, command.column, "Compiled OPNA event capacity exceeded"))
+        if (!builder.addHardwareLfoPartControl(
+                CompiledOpnaSong.HW_LFO_AMS, tick, channel, logicalPart,
+                ams.coerceIn(0, 3), CompiledOpnaSong.HW_LFO_DELAY_NONE, 0, false,
+                sourceBase + 1, command.line, command.column
+            )
+        ) diagnostics.add(MmlDiagnostic(command.line, command.column, "Compiled OPNA event capacity exceeded"))
+    }
+
+    private fun isValidHardwareLfoDelay(command: MmlCommand.HardwareLfo): Boolean = when (command.delayKind) {
+        MmlCommand.HARDWARE_LFO_DELAY_NONE -> command.delayValue == 0 && !command.delayDotted
+        MmlCommand.HARDWARE_LFO_DELAY_RAW_CLOCKS -> command.delayValue in 0..255 && !command.delayDotted
+        MmlCommand.HARDWARE_LFO_DELAY_NOTE_LENGTH ->
+            command.delayValue in 1..255 && WHOLE_NOTE_TICKS % command.delayValue == 0
+        else -> false
+    }
+
     private fun isValidSoftwareEnvelope(command: MmlCommand.SoftwareEnvelope): Boolean {
         return if (command.format == 1) {
             command.attack in 0..255 && command.decay in -15..15 &&
@@ -990,6 +1202,61 @@ object MmlCompiler {
             command.format == 2 && command.attack in 0..31 && command.decay in 0..31 &&
                 command.sustain in 0..31 && command.release in 0..15 &&
                 command.sustainLevel in 0..15 && command.attackLevel in 0..15
+        }
+    }
+
+    private fun expandSsgPatchState(
+        patch: SsgPatch,
+        tick: Long,
+        channel: Int,
+        command: MmlCommand.Instrument,
+        builder: CompiledOpnaSongBuilder,
+        diagnostics: MutableList<MmlDiagnostic>
+    ) {
+        var subOrder = 0
+        fun add(type: Int, value: Int) {
+            if (!builder.addSsgHardwareState(
+                    type, tick, channel, value, command.sourceOrder * SSG_SOURCE_ORDER_STRIDE + subOrder,
+                    command.line, command.column
+                )
+            ) diagnostics.add(MmlDiagnostic(command.line, command.column, "Compiled OPNA event capacity exceeded"))
+            subOrder++
+        }
+        add(CompiledOpnaSong.SSG_TONE_ENABLE, if (patch.toneEnabled) 1 else 0)
+        add(CompiledOpnaSong.SSG_NOISE_ENABLE, if (patch.noiseEnabled) 1 else 0)
+        if (patch.noiseEnabled) add(CompiledOpnaSong.SSG_NOISE_PERIOD, patch.noisePeriod)
+        if (patch.envelopeEnabled) {
+            add(CompiledOpnaSong.SSG_HARDWARE_ENVELOPE_PERIOD, patch.envelopePeriod)
+            add(CompiledOpnaSong.SSG_HARDWARE_ENVELOPE_SHAPE, patch.envelopeShape)
+        }
+    }
+
+    private fun addSsgSemanticState(
+        isSsg: Boolean,
+        command: MmlCommand,
+        type: Int,
+        value: Int,
+        validRange: IntRange,
+        tick: Long,
+        track: MmlTrack,
+        builder: CompiledOpnaSongBuilder,
+        diagnostics: MutableList<MmlDiagnostic>
+    ) {
+        if (!isSsg) {
+            diagnostics.add(MmlDiagnostic(command.line, command.column, "SSG hardware state commands are only valid on channels G-I"))
+        } else if (value !in validRange) {
+            diagnostics.add(MmlDiagnostic(command.line, command.column, "SSG hardware state value must be ${validRange.first}..${validRange.last}"))
+        } else if (!builder.addSsgHardwareState(
+                type,
+                tick,
+                track.channel.ordinal - MmlChannelId.G.ordinal,
+                value,
+                command.sourceOrder * SSG_SOURCE_ORDER_STRIDE,
+                command.line,
+                command.column
+            )
+        ) {
+            diagnostics.add(MmlDiagnostic(command.line, command.column, "Compiled OPNA event capacity exceeded"))
         }
     }
 
@@ -1077,7 +1344,7 @@ object MmlCompiler {
             command is MmlCommand.OctaveShift || command is MmlCommand.Gate ||
             command is MmlCommand.GateTail || command is MmlCommand.Pan ||
             command is MmlCommand.Polyphony || command is MmlCommand.Detune ||
-            command is MmlCommand.HardwareLfo || command is MmlCommand.SoftwareLfoDefine ||
+            command is MmlCommand.SoftwareLfoDefine ||
             command is MmlCommand.SoftwareLfoSwitch || command is MmlCommand.SoftwareLfoWaveform ||
             command is MmlCommand.SoftwareLfoClockMode || command is MmlCommand.SoftwareLfoTlMask ||
             command is MmlCommand.SoftwareLfoDepthEvolution
@@ -1096,6 +1363,11 @@ object MmlCompiler {
         var commandIndex = 0
         while (commandIndex < track.commands.size) {
             val command = track.commands[commandIndex]
+            builder.beginSource(
+                command.sourceOrder * SSG_SOURCE_ORDER_STRIDE + SSG_SOURCE_ORDER_STRIDE - 1,
+                command.line,
+                command.column
+            )
             when (command) {
                 is MmlCommand.RhythmPatternSelect -> {
                     val pattern = document.rhythmPatterns.firstOrNull { it.id == command.pattern }
@@ -1147,6 +1419,11 @@ object MmlCompiler {
         var commandIndex = 0
         while (commandIndex < pattern.commands.size) {
             val command = pattern.commands[commandIndex]
+            builder.beginSource(
+                command.sourceOrder * SSG_SOURCE_ORDER_STRIDE + SSG_SOURCE_ORDER_STRIDE - 1,
+                command.line,
+                command.column
+            )
             when (command) {
                 is MmlCommand.Instrument -> {
                     instrument = command.value.toIntOrNull() ?: -1
@@ -1171,7 +1448,7 @@ object MmlCompiler {
                     if (kind < 0) diagnostics.add(MmlDiagnostic(command.line, command.column, "R${pattern.id} requires a supported SSG drum @ instrument before a hit"))
                     else if (!builder.add(
                             CompiledOpnaSong.SSG_DRUM_SHOT, baseTick + tick, duration, 0,
-                            2, -1, kind, -1, velocity, -1, 0, 0, 0, 0, 0
+                            2, -1, kind, -1, velocity, -1, 0, 0
                         )
                     ) diagnostics.add(MmlDiagnostic(command.line, command.column, "Compiled OPNA event capacity exceeded"))
                     tick += duration

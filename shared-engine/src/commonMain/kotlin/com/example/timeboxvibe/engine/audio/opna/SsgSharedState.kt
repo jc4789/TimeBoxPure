@@ -76,11 +76,21 @@ class SsgSharedState(private var sampleRate: Int = 48_000) {
     }
 
     fun writeMixerChannel(channel: Int, toneEnabled: Boolean, noiseEnabled: Boolean) {
+        writeToneEnabled(channel, toneEnabled)
+        writeNoiseEnabled(channel, noiseEnabled)
+    }
+
+    fun writeToneEnabled(channel: Int, enabled: Boolean) {
         if (channel !in 0 until SsgHardwareLaws.CHANNEL_COUNT) return
         val toneMask = 1 shl channel
+        mixerRegister = if (enabled) mixerRegister and toneMask.inv() else mixerRegister or toneMask
+        mixerRegister = mixerRegister and MIXER_REGISTER_MASK
+    }
+
+    fun writeNoiseEnabled(channel: Int, enabled: Boolean) {
+        if (channel !in 0 until SsgHardwareLaws.CHANNEL_COUNT) return
         val noiseMask = 1 shl (channel + NOISE_ENABLE_BIT_OFFSET)
-        mixerRegister = if (toneEnabled) mixerRegister and toneMask.inv() else mixerRegister or toneMask
-        mixerRegister = if (noiseEnabled) mixerRegister and noiseMask.inv() else mixerRegister or noiseMask
+        mixerRegister = if (enabled) mixerRegister and noiseMask.inv() else mixerRegister or noiseMask
         mixerRegister = mixerRegister and MIXER_REGISTER_MASK
     }
 
@@ -211,7 +221,7 @@ class SsgSharedState(private var sampleRate: Int = 48_000) {
             envelopeClockAccumulator -= threshold
             clockEnvelopeStep()
         }
-        envelopeBuffer[frame] = envelopeLevel.coerceIn(0, ENVELOPE_MAX_LEVEL) ushr 1
+        envelopeBuffer[frame] = envelopeLevel.coerceIn(0, ENVELOPE_MAX_LEVEL)
     }
 
     private fun clockNoise() {

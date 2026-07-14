@@ -35,9 +35,6 @@ class CompiledOpnaSong internal constructor(
     internal val patchId: IntArray,
     internal val pan: IntArray,
     internal val detuneCents: IntArray,
-    internal val pms: IntArray,
-    internal val ams: IntArray,
-    internal val lfoDelayTick: IntArray,
     internal val gateValue: IntArray,
     internal val gateScale: IntArray,
     internal val gateTailClocks: IntArray,
@@ -50,6 +47,13 @@ class CompiledOpnaSong internal constructor(
     internal val envelopeSustainLevel: IntArray,
     internal val envelopeAttackLevel: IntArray,
     internal val envelopeClockMode: IntArray,
+    internal val stateValue: IntArray,
+    internal val hardwareLfoDelayKind: IntArray,
+    internal val hardwareLfoDelayValue: IntArray,
+    internal val hardwareLfoDelayDotted: BooleanArray,
+    internal val sourceOrder: IntArray,
+    internal val sourceLine: IntArray,
+    internal val sourceColumn: IntArray,
     internal val playbackGain: Float = 1f
 ) {
     internal fun withPlaybackGain(gain: Float): CompiledOpnaSong {
@@ -83,9 +87,6 @@ class CompiledOpnaSong internal constructor(
             patchId = patchId,
             pan = pan,
             detuneCents = detuneCents,
-            pms = pms,
-            ams = ams,
-            lfoDelayTick = lfoDelayTick,
             gateValue = gateValue,
             gateScale = gateScale,
             gateTailClocks = gateTailClocks,
@@ -98,6 +99,13 @@ class CompiledOpnaSong internal constructor(
             envelopeSustainLevel = envelopeSustainLevel,
             envelopeAttackLevel = envelopeAttackLevel,
             envelopeClockMode = envelopeClockMode,
+            stateValue = stateValue,
+            hardwareLfoDelayKind = hardwareLfoDelayKind,
+            hardwareLfoDelayValue = hardwareLfoDelayValue,
+            hardwareLfoDelayDotted = hardwareLfoDelayDotted,
+            sourceOrder = sourceOrder,
+            sourceLine = sourceLine,
+            sourceColumn = sourceColumn,
             playbackGain = gain.coerceAtLeast(0f)
         )
     }
@@ -144,6 +152,20 @@ class CompiledOpnaSong internal constructor(
         internal const val SSG_DRUM_SHOT: Int = 28
         internal const val FM_PART_VOLUME: Int = 29
         internal const val FM_PART_SLOT_MASK: Int = 30
+        internal const val SSG_TONE_ENABLE: Int = 31
+        internal const val SSG_NOISE_ENABLE: Int = 32
+        internal const val SSG_NOISE_PERIOD: Int = 33
+        internal const val SSG_HARDWARE_ENVELOPE_PERIOD: Int = 34
+        internal const val SSG_HARDWARE_ENVELOPE_SHAPE: Int = 35
+        internal const val HW_LFO_ENABLE: Int = 36
+        internal const val HW_LFO_RATE: Int = 37
+        internal const val HW_LFO_PMS: Int = 38
+        internal const val HW_LFO_AMS: Int = 39
+        internal const val HW_LFO_DELAY: Int = 40
+
+        internal const val HW_LFO_DELAY_NONE: Int = 0
+        internal const val HW_LFO_DELAY_RAW_CLOCKS: Int = 1
+        internal const val HW_LFO_DELAY_NOTE_LENGTH: Int = 2
 
         internal const val LOGICAL_PART_NONE: Int = -1
         internal const val FM3_PART_BASE: Int = 6
@@ -184,9 +206,6 @@ internal class CompiledOpnaSongBuilder(
     private var patchId = IntArray(INITIAL_EVENT_CAPACITY)
     private var pan = IntArray(INITIAL_EVENT_CAPACITY)
     private var detuneCents = IntArray(INITIAL_EVENT_CAPACITY)
-    private var pms = IntArray(INITIAL_EVENT_CAPACITY)
-    private var ams = IntArray(INITIAL_EVENT_CAPACITY)
-    private var lfoDelayTick = IntArray(INITIAL_EVENT_CAPACITY)
     private var gateValue = IntArray(INITIAL_EVENT_CAPACITY)
     private var gateScale = IntArray(INITIAL_EVENT_CAPACITY)
     private var gateTailClocks = IntArray(INITIAL_EVENT_CAPACITY)
@@ -199,6 +218,16 @@ internal class CompiledOpnaSongBuilder(
     private var envelopeSustainLevel = IntArray(INITIAL_EVENT_CAPACITY)
     private var envelopeAttackLevel = IntArray(INITIAL_EVENT_CAPACITY)
     private var envelopeClockMode = IntArray(INITIAL_EVENT_CAPACITY)
+    private var stateValue = IntArray(INITIAL_EVENT_CAPACITY)
+    private var hardwareLfoDelayKind = IntArray(INITIAL_EVENT_CAPACITY)
+    private var hardwareLfoDelayValue = IntArray(INITIAL_EVENT_CAPACITY)
+    private var hardwareLfoDelayDotted = BooleanArray(INITIAL_EVENT_CAPACITY)
+    private var sourceOrder = IntArray(INITIAL_EVENT_CAPACITY)
+    private var sourceLine = IntArray(INITIAL_EVENT_CAPACITY)
+    private var sourceColumn = IntArray(INITIAL_EVENT_CAPACITY)
+    private var currentSourceOrder = -1
+    private var currentSourceLine = 0
+    private var currentSourceColumn = 0
 
     var size: Int = 0
         private set
@@ -208,6 +237,12 @@ internal class CompiledOpnaSongBuilder(
     fun internFmPatch(sourceId: Int): Int = instrumentBankBuilder.internFm(sourceId)
 
     fun internSsgPatch(sourceId: Int): Int = instrumentBankBuilder.internSsg(sourceId)
+
+    fun beginSource(authoredOrder: Int, line: Int, column: Int) {
+        currentSourceOrder = authoredOrder
+        currentSourceLine = line
+        currentSourceColumn = column
+    }
 
     fun addTempo(atTick: Long, bpm: Float, milliBpm: Int): Boolean {
         var position = 0
@@ -246,15 +281,15 @@ internal class CompiledOpnaSongBuilder(
         selectedPatchId: Int,
         selectedPan: Int,
         cents: Int,
-        selectedPms: Int,
-        selectedAms: Int,
-        delayTick: Int,
         selectedGateValue: Int = 0,
         selectedGateScale: Int = 8,
         selectedGateTailClocks: Int = 0,
         selectedGateMinimumClocks: Int = 0,
         selectedSlotMask: Int = 0,
-        selectedLogicalPart: Int = CompiledOpnaSong.LOGICAL_PART_NONE
+        selectedLogicalPart: Int = CompiledOpnaSong.LOGICAL_PART_NONE,
+        selectedSourceOrder: Int = SOURCE_ORDER_UNSET,
+        selectedSourceLine: Int = 0,
+        selectedSourceColumn: Int = 0
     ): Boolean {
         if (size >= CompiledOpnaSong.MAX_AUTHORED_EVENTS) return false
         ensureEventCapacity(size + 1)
@@ -273,13 +308,19 @@ internal class CompiledOpnaSongBuilder(
         patchId[i] = selectedPatchId
         pan[i] = selectedPan
         detuneCents[i] = cents
-        pms[i] = selectedPms
-        ams[i] = selectedAms
-        lfoDelayTick[i] = delayTick
         gateValue[i] = selectedGateValue
         gateScale[i] = selectedGateScale
         gateTailClocks[i] = selectedGateTailClocks
         gateMinimumClocks[i] = selectedGateMinimumClocks
+        sourceOrder[i] = if (selectedSourceOrder != SOURCE_ORDER_UNSET) {
+            selectedSourceOrder
+        } else if (currentSourceOrder >= 0) {
+            currentSourceOrder
+        } else {
+            i
+        }
+        sourceLine[i] = if (selectedSourceLine > 0) selectedSourceLine else currentSourceLine
+        sourceColumn[i] = if (selectedSourceColumn > 0) selectedSourceColumn else currentSourceColumn
         size++
         val end = atTick + duration.toLong()
         if (end > durationTicks) durationTicks = end
@@ -297,7 +338,7 @@ internal class CompiledOpnaSongBuilder(
         sustainLevel: Int,
         attackLevel: Int
     ): Boolean {
-        if (!add(CompiledOpnaSong.SSG_ENVELOPE_DEFINE, atTick, 0, 0, channelIndex, -1, 0, -1, 0, -1, 0, 0, 0, 0, 0)) return false
+        if (!add(CompiledOpnaSong.SSG_ENVELOPE_DEFINE, atTick, 0, 0, channelIndex, -1, 0, -1, 0, -1, 0, 0)) return false
         val i = size - 1
         envelopeFormat[i] = format
         envelopeAttack[i] = attack
@@ -310,8 +351,88 @@ internal class CompiledOpnaSongBuilder(
     }
 
     fun addSsgEnvelopeMode(atTick: Long, channelIndex: Int, mode: Int): Boolean {
-        if (!add(CompiledOpnaSong.SSG_ENVELOPE_MODE, atTick, 0, 0, channelIndex, -1, 0, -1, 0, -1, 0, 0, 0, 0, 0)) return false
+        if (!add(CompiledOpnaSong.SSG_ENVELOPE_MODE, atTick, 0, 0, channelIndex, -1, 0, -1, 0, -1, 0, 0)) return false
         envelopeClockMode[size - 1] = mode
+        return true
+    }
+
+    fun addSsgHardwareState(
+        type: Int,
+        atTick: Long,
+        channelIndex: Int,
+        value: Int,
+        authoredOrder: Int,
+        line: Int,
+        column: Int
+    ): Boolean {
+        if (!add(
+                type, atTick, 0, 0, channelIndex, -1, 0, -1, 0, -1, 0, 0,
+                selectedSourceOrder = authoredOrder,
+                selectedSourceLine = line,
+                selectedSourceColumn = column
+            )
+        ) return false
+        stateValue[size - 1] = value
+        return true
+    }
+
+    fun addHardwareLfoGlobalControl(
+        type: Int,
+        atTick: Long,
+        value: Int,
+        authoredOrder: Int,
+        line: Int,
+        column: Int
+    ): Boolean = addHardwareLfoControl(
+        type, atTick, -1, CompiledOpnaSong.LOGICAL_PART_NONE, value,
+        CompiledOpnaSong.HW_LFO_DELAY_NONE, 0, false,
+        authoredOrder, line, column
+    )
+
+    fun addHardwareLfoPartControl(
+        type: Int,
+        atTick: Long,
+        channelIndex: Int,
+        logicalPartId: Int,
+        value: Int,
+        delayKind: Int,
+        delayValue: Int,
+        delayDotted: Boolean,
+        authoredOrder: Int,
+        line: Int,
+        column: Int
+    ): Boolean = addHardwareLfoControl(
+        type, atTick, channelIndex, logicalPartId, value,
+        delayKind, delayValue, delayDotted,
+        authoredOrder, line, column
+    )
+
+    private fun addHardwareLfoControl(
+        type: Int,
+        atTick: Long,
+        channelIndex: Int,
+        logicalPartId: Int,
+        value: Int,
+        delayKind: Int,
+        delayValue: Int,
+        delayDotted: Boolean,
+        authoredOrder: Int,
+        line: Int,
+        column: Int
+    ): Boolean {
+        if (!add(
+                type, atTick, 0, 0, channelIndex, -1, 0, -1, 0, -1, 0, 0,
+                selectedLogicalPart = logicalPartId,
+                selectedSourceOrder = authoredOrder,
+                selectedSourceLine = line,
+                selectedSourceColumn = column
+            )
+        ) return false
+        val i = size - 1
+        stateValue[i] = value
+        hardwareLfoDelayKind[i] = delayKind
+        hardwareLfoDelayValue[i] = delayValue
+        hardwareLfoDelayDotted[i] = delayDotted
         return true
     }
 
@@ -327,7 +448,7 @@ internal class CompiledOpnaSongBuilder(
         value4: Int = 0,
         logicalPartId: Int = CompiledOpnaSong.LOGICAL_PART_NONE
     ): Boolean {
-        if (!add(type, atTick, 0, 0, channelIndex, partFamily, 0, -1, 0, -1, 0, 0, 0, 0, 0,
+        if (!add(type, atTick, 0, 0, channelIndex, partFamily, 0, -1, 0, -1, 0, 0,
                 selectedLogicalPart = logicalPartId)) return false
         val i = size - 1
         envelopeFormat[i] = lfoIndex
@@ -342,7 +463,7 @@ internal class CompiledOpnaSongBuilder(
         type: Int, atTick: Long, channelIndex: Int, mask: Int, value: Int,
         logicalPartId: Int = CompiledOpnaSong.LOGICAL_PART_NONE
     ): Boolean {
-        if (!add(type, atTick, 0, 0, channelIndex, -1, 0, -1, 0, -1, 0, 0, 0, 0, 0,
+        if (!add(type, atTick, 0, 0, channelIndex, -1, 0, -1, 0, -1, 0, 0,
                 selectedLogicalPart = logicalPartId)) return false
         val i = size - 1
         slotMask[i] = mask
@@ -354,21 +475,21 @@ internal class CompiledOpnaSongBuilder(
         atTick: Long, mask: Int, selectedPatchId: Int,
         logicalPartId: Int = CompiledOpnaSong.LOGICAL_PART_NONE
     ): Boolean {
-        if (!add(CompiledOpnaSong.FM3_PATCH, atTick, 0, 0, 2, -1, 0, -1, 0, selectedPatchId, 0, 0, 0, 0, 0,
+        if (!add(CompiledOpnaSong.FM3_PATCH, atTick, 0, 0, 2, -1, 0, -1, 0, selectedPatchId, 0, 0,
                 selectedLogicalPart = logicalPartId)) return false
         slotMask[size - 1] = mask
         return true
     }
 
     fun addFmPartControl(type: Int, atTick: Long, logicalPartId: Int, value: Int): Boolean {
-        if (!add(type, atTick, 0, 0, 2, -1, 0, -1, 0, -1, 0, 0, 0, 0, 0,
+        if (!add(type, atTick, 0, 0, 2, -1, 0, -1, 0, -1, 0, 0,
                 selectedLogicalPart = logicalPartId)) return false
         envelopeAttack[size - 1] = value
         return true
     }
 
     fun addRhythmControl(type: Int, atTick: Long, voice: Int, mask: Int, value: Int): Boolean {
-        if (!add(type, atTick, 0, 0, voice, -1, mask, -1, 0, -1, 0, 0, 0, 0, 0)) return false
+        if (!add(type, atTick, 0, 0, voice, -1, mask, -1, 0, -1, 0, 0)) return false
         envelopeAttack[size - 1] = value
         return true
     }
@@ -402,9 +523,6 @@ internal class CompiledOpnaSongBuilder(
         patchId = patchId.copyOf(size),
         pan = pan.copyOf(size),
         detuneCents = detuneCents.copyOf(size),
-        pms = pms.copyOf(size),
-        ams = ams.copyOf(size),
-        lfoDelayTick = lfoDelayTick.copyOf(size),
         gateValue = gateValue.copyOf(size),
         gateScale = gateScale.copyOf(size),
         gateTailClocks = gateTailClocks.copyOf(size),
@@ -417,6 +535,13 @@ internal class CompiledOpnaSongBuilder(
         envelopeSustainLevel = envelopeSustainLevel.copyOf(size),
         envelopeAttackLevel = envelopeAttackLevel.copyOf(size),
         envelopeClockMode = envelopeClockMode.copyOf(size),
+        stateValue = stateValue.copyOf(size),
+        hardwareLfoDelayKind = hardwareLfoDelayKind.copyOf(size),
+        hardwareLfoDelayValue = hardwareLfoDelayValue.copyOf(size),
+        hardwareLfoDelayDotted = hardwareLfoDelayDotted.copyOf(size),
+        sourceOrder = sourceOrder.copyOf(size),
+        sourceLine = sourceLine.copyOf(size),
+        sourceColumn = sourceColumn.copyOf(size),
         playbackGain = 1f
     )
 
@@ -447,9 +572,6 @@ internal class CompiledOpnaSongBuilder(
         patchId = patchId.copyOf(next)
         pan = pan.copyOf(next)
         detuneCents = detuneCents.copyOf(next)
-        pms = pms.copyOf(next)
-        ams = ams.copyOf(next)
-        lfoDelayTick = lfoDelayTick.copyOf(next)
         gateValue = gateValue.copyOf(next)
         gateScale = gateScale.copyOf(next)
         gateTailClocks = gateTailClocks.copyOf(next)
@@ -462,6 +584,13 @@ internal class CompiledOpnaSongBuilder(
         envelopeSustainLevel = envelopeSustainLevel.copyOf(next)
         envelopeAttackLevel = envelopeAttackLevel.copyOf(next)
         envelopeClockMode = envelopeClockMode.copyOf(next)
+        stateValue = stateValue.copyOf(next)
+        hardwareLfoDelayKind = hardwareLfoDelayKind.copyOf(next)
+        hardwareLfoDelayValue = hardwareLfoDelayValue.copyOf(next)
+        hardwareLfoDelayDotted = hardwareLfoDelayDotted.copyOf(next)
+        sourceOrder = sourceOrder.copyOf(next)
+        sourceLine = sourceLine.copyOf(next)
+        sourceColumn = sourceColumn.copyOf(next)
     }
 
     private companion object {
@@ -472,5 +601,6 @@ internal class CompiledOpnaSongBuilder(
         // to the exact used counts, while these setup arrays bound malformed input.
         const val MAX_COMPILED_FM_PATCHES = 256
         const val MAX_COMPILED_SSG_PATCHES = 256
+        const val SOURCE_ORDER_UNSET = Int.MAX_VALUE
     }
 }

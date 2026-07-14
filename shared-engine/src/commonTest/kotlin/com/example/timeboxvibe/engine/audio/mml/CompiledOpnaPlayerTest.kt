@@ -2,6 +2,7 @@ package com.example.timeboxvibe.engine.audio.mml
 
 import com.example.timeboxvibe.engine.ArrangementLanes
 import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaTimeline
+import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaTimelineFactory
 import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
 import com.example.timeboxvibe.engine.audio.opna.OpnaOutputProfile
 import kotlin.test.Test
@@ -11,6 +12,127 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class CompiledOpnaPlayerTest {
+    @Test
+    fun sharedSsgStateUsesAuthoredSourceOrderRatherThanTrackInsertionOrder() {
+        val arrangement = compile(
+            """
+                #MML 2
+                #BPM 120
+                #BAR 4/4
+                H @ssg_noise_slow o4 l1 e |
+                G @ssg_noise o4 l1 c |
+            """.trimIndent()
+        )
+        val song = requireNotNull(arrangement.compiledOpnaSong)
+        val timeline = CompiledOpnaTimelineFactory.build(song, SAMPLE_RATE, 1f)
+        val periods = ArrayList<Int>()
+        val lines = ArrayList<Int>()
+        var index = 0
+        while (index < timeline.eventCount) {
+            if (timeline.eventType[index] == CompiledOpnaTimeline.SSG_NOISE_PERIOD) {
+                periods.add(timeline.controlValues[index * CompiledOpnaTimeline.CONTROL_STRIDE])
+                lines.add(timeline.sourceLine[index])
+            }
+            index++
+        }
+
+        assertEquals(listOf(16, 8), periods)
+        assertEquals(listOf(4, 5), lines)
+        assertEquals(timeline.eventCount, timeline.sourceOrder.size)
+        assertEquals(timeline.eventCount, timeline.sourceLine.size)
+        assertEquals(timeline.eventCount, timeline.sourceColumn.size)
+    }
+
+    @Test
+    fun typedSsgRegisterEventChangesSharedNoiseInTheMiddleOfAnotherPartsNote() {
+        val arrangement = compile(
+            """
+                #MML 2
+                #BPM 120
+                #BAR 4/4
+                G @ssg_noise o4 l1 c |
+                H @square r2 SNP16 r2 |
+            """.trimIndent()
+        )
+        val synth = OpnaLikeSynthesizer(SAMPLE_RATE)
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, SAMPLE_RATE)
+        val midpoint = player.loopLengthSamples.toInt() / 2
+
+        synth.render(FloatArray(midpoint), midpoint, player, 0L)
+        assertEquals(8, synth.ssgNoisePeriodSnapshot())
+
+        synth.render(FloatArray(1), 1, player, midpoint.toLong())
+        assertEquals(16, synth.ssgNoisePeriodSnapshot())
+    }
+
+    @Test
+    fun allTypedSsgHardwareEventsDispatchToTheSharedChipState() {
+        val arrangement = compile(
+            """
+                #MML 2
+                #BPM 120
+                #BAR 4/4
+                G @square ST0 SN1 SNP31 SEP65535 SES15 o4 l1 c |
+            """.trimIndent()
+        )
+        val synth = OpnaLikeSynthesizer(SAMPLE_RATE)
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, SAMPLE_RATE)
+
+        synth.render(FloatArray(1), 1, player, 0L)
+
+        assertEquals(0x37, synth.ssg[0].mixerRegisterSnapshot())
+        assertEquals(31, synth.ssgNoisePeriodSnapshot())
+        assertEquals(65_535, synth.ssgEnvelopePeriodSnapshot())
+        assertEquals(15, synth.ssgEnvelopeShapeSnapshot())
+        assertEquals(1, synth.ssgEnvelopeRestartCountSnapshot())
+    }
+
+    @Test
+    fun sameTimeHardwareEnvelopeRestartsFollowAuthoredSourceOrder() {
+        val arrangement = compile(
+            """
+                #MML 2
+                #BPM 120
+                #BAR 4/4
+                H @ssg_envelope_alt o4 l1 e |
+                G @ssg_envelope o4 l1 c |
+            """.trimIndent()
+        )
+        val synth = OpnaLikeSynthesizer(SAMPLE_RATE)
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, SAMPLE_RATE)
+
+        synth.render(FloatArray(1), 1, player, 0L)
+
+        assertEquals(1_536, synth.ssgEnvelopePeriodSnapshot())
+        assertEquals(10, synth.ssgEnvelopeShapeSnapshot())
+        assertEquals(2, synth.ssgEnvelopeRestartCountSnapshot())
+    }
+
+    @Test
+    fun hardwareEnvelopeRestartStateIsResetAndReplayedForEveryLoop() {
+        val arrangement = compile(
+            """
+                #MML 2
+                #BPM 120
+                #BAR 4/4
+                G @ssg_envelope o4 l1 c |
+            """.trimIndent()
+        )
+        val synth = OpnaLikeSynthesizer(SAMPLE_RATE)
+        val player = MmlArrangementScheduler.createPlayer(arrangement, synth, SAMPLE_RATE)
+        val first = FloatArray(1)
+        val second = FloatArray(1)
+
+        synth.render(first, 1, player, 0L)
+        assertEquals(1, synth.ssgEnvelopeRestartCountSnapshot())
+        player.reset(synth)
+        assertEquals(0, synth.ssgEnvelopeRestartCountSnapshot())
+        synth.render(second, 1, player, 0L)
+
+        assertEquals(1, synth.ssgEnvelopeRestartCountSnapshot())
+        assertContentEquals(first, second)
+    }
+
     @Test
     fun productionProgramExpandsToExactBoundaryCount() {
         val arrangement = assertIs<MmlCompileResult.Success>(
@@ -22,7 +144,7 @@ class CompiledOpnaPlayerTest {
             SAMPLE_RATE
         )
 
-        assertEquals(7_328, player.eventCount)
+        assertEquals(7_356, player.eventCount)
         assertEquals(player.eventCount, player.timeline.eventType.size)
         assertEquals(player.eventCount, player.timeline.sampleTime.size)
     }
@@ -42,10 +164,25 @@ class CompiledOpnaPlayerTest {
         val player = MmlArrangementScheduler.createPlayer(arrangement, synth, SAMPLE_RATE)
         val timeline = player.timeline
 
-        assertEquals(6, timeline.eventCount)
+        assertEquals(10, timeline.eventCount)
         assertEquals(timeline.eventCount, timeline.eventType.size)
         assertEquals(timeline.eventCount, timeline.sampleTime.size)
         assertEquals(timeline.eventCount, timeline.velocity.size)
+        assertContentEquals(
+            intArrayOf(
+                CompiledOpnaTimeline.HW_LFO_RATE,
+                CompiledOpnaTimeline.HW_LFO_ENABLE,
+                CompiledOpnaTimeline.TEMPO,
+                CompiledOpnaTimeline.HW_LFO_PMS,
+                CompiledOpnaTimeline.HW_LFO_AMS,
+                CompiledOpnaTimeline.FM_ON,
+                CompiledOpnaTimeline.DRUM_SHOT
+            ),
+            timeline.eventType.copyOfRange(0, 7)
+        )
+        assertEquals(0, timeline.controlValues[0])
+        assertEquals(0, timeline.controlValues[CompiledOpnaTimeline.CONTROL_STRIDE])
+        assertTrue(timeline.sourceOrder[0] < timeline.sourceOrder[1])
 
         val boundarySample = SAMPLE_RATE / 2L
         var firstAtBoundary = -1
@@ -127,15 +264,15 @@ class CompiledOpnaPlayerTest {
         changedSynth.render(FloatArray(48_000), 48_000, changedPlayer, 0L)
         steadySynth.render(FloatArray(48_000), 48_000, steadyPlayer, 0L)
         assertEquals(
-            steadySynth.ssg[0].softwareEnvelopeLevelOffsetSnapshot(),
-            changedSynth.ssg[0].softwareEnvelopeLevelOffsetSnapshot()
+            steadySynth.ssgSoftwareEnvelopeLevelOffsetSnapshot(0),
+            changedSynth.ssgSoftwareEnvelopeLevelOffsetSnapshot(0)
         )
 
         changedSynth.render(FloatArray(24_000), 24_000, changedPlayer, 48_000L)
         steadySynth.render(FloatArray(24_000), 24_000, steadyPlayer, 48_000L)
         assertTrue(
-            changedSynth.ssg[0].softwareEnvelopeLevelOffsetSnapshot() <
-                steadySynth.ssg[0].softwareEnvelopeLevelOffsetSnapshot()
+            changedSynth.ssgSoftwareEnvelopeLevelOffsetSnapshot(0) <
+                steadySynth.ssgSoftwareEnvelopeLevelOffsetSnapshot(0)
         )
     }
 

@@ -96,9 +96,11 @@ class MmlArrangementSchedulerTest {
             player, CompiledOpnaTimeline.FM_OFF, player.timeline.channel[firstFmOn], player.timeline.noteId[firstFmOn]
         )
         val program = requireNotNull(arrangement.compiledOpnaSong)
+        var fmIndex = 0
+        while (program.eventType[fmIndex] != CompiledOpnaSong.FM_NOTE) fmIndex++
         val expectedFmGateSamples =
-            PmdSampleClock.samplesAt(program, program.startTick[0] + program.gateTick[0], sampleRate) -
-                PmdSampleClock.samplesAt(program, program.startTick[0], sampleRate)
+            PmdSampleClock.samplesAt(program, program.startTick[fmIndex] + program.gateTick[fmIndex], sampleRate) -
+                PmdSampleClock.samplesAt(program, program.startTick[fmIndex], sampleRate)
         assertEquals(
             player.timeline.sampleTime[firstFmOn] + expectedFmGateSamples,
             player.timeline.sampleTime[firstFmOff]
@@ -214,17 +216,13 @@ class MmlArrangementSchedulerTest {
         val buffer = FloatArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
         val deterministicBuffer = FloatArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
         var sampleOffset = 0L
-        var maximumPreClipPeak = 0f
         var maximumOutputPeak = 0f
         var sumSquares = 0.0
         var renderedSamples = 0L
-        var kneeCrossings = 0L
         while (sampleOffset < totalSamples) {
             val frames = minOf(buffer.size.toLong(), totalSamples - sampleOffset).toInt()
             synth.render(buffer, frames, player, sampleOffset)
             deterministicSynth.render(deterministicBuffer, frames, deterministicPlayer, sampleOffset)
-            if (synth.preClampPeak > maximumPreClipPeak) maximumPreClipPeak = synth.preClampPeak
-            kneeCrossings += synth.preClampKneeCrossings
             var i = 0
             while (i < frames) {
                 val sample = buffer[i]
@@ -240,8 +238,8 @@ class MmlArrangementSchedulerTest {
         }
 
         val rms = sqrt(sumSquares / renderedSamples).toFloat()
-        val kneeCrossingRatio = kneeCrossings.toDouble() / renderedSamples
-        assertTrue(maximumPreClipPeak >= 0.10f, "MML pre-clip peak=$maximumPreClipPeak")
+        val kneeCrossingRatio = synth.preClampKneeCrossings.toDouble() / renderedSamples
+        assertTrue(synth.preClampPeak >= 0.10f, "MML pre-clip peak=${synth.preClampPeak}")
         assertTrue(kneeCrossingRatio < 0.001, "MML soft-clip crossing ratio=$kneeCrossingRatio")
         assertTrue(maximumOutputPeak <= 1.0f, "MML output peak=$maximumOutputPeak")
         assertTrue(rms > 0.025f, "MML mix became too quiet: rms=$rms")

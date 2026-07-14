@@ -44,7 +44,9 @@ class SsgHardwareConformanceTest {
         var rateIndex = 0
         while (rateIndex < rates.size) {
             val sampleRate = rates[rateIndex]
-            val voice = SsgVoice(0, SsgSharedState(sampleRate), sampleRate)
+            val shared = SsgSharedState(sampleRate)
+            shared.writeToneEnabled(0, true)
+            val voice = SsgVoice(0, shared, sampleRate)
             voice.noteOn(440f)
             val output = FloatArray(sampleRate)
             voice.render(output, output.size, sampleRate, 1f)
@@ -109,28 +111,37 @@ class SsgHardwareConformanceTest {
     }
 
     @Test
-    fun sharedRegisterWritesResolveInAuthoredVoiceOrder() {
-        val forward = SsgSharedState(48_000)
-        val forwardA = SsgVoice(0, forward, 48_000)
-        val forwardB = SsgVoice(1, forward, 48_000)
-        forwardA.applyPatch(requireNotNull(OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_NOISE)))
-        forwardB.applyPatch(requireNotNull(OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_NOISE_SLOW)))
-        assertEquals(16, forward.noisePeriodSnapshot())
-        forwardA.applyPatch(requireNotNull(OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_ENVELOPE)))
-        forwardB.applyPatch(requireNotNull(OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_ENVELOPE_ALT)))
-        assertEquals(1_024, forward.envelopePeriodSnapshot())
-        assertEquals(12, forward.envelopeShapeSnapshot())
+    fun voicePatchAndResetNeverWriteSharedRegisters() {
+        val shared = SsgSharedState(48_000)
+        shared.writeMixerChannel(0, toneEnabled = false, noiseEnabled = true)
+        shared.writeNoisePeriod(27)
+        shared.writeEnvelopePeriod(4_321)
+        shared.writeEnvelopeShape(14)
+        val voice = SsgVoice(0, shared, 48_000)
 
-        val reverse = SsgSharedState(48_000)
-        val reverseA = SsgVoice(0, reverse, 48_000)
-        val reverseB = SsgVoice(1, reverse, 48_000)
-        reverseB.applyPatch(requireNotNull(OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_NOISE_SLOW)))
-        reverseA.applyPatch(requireNotNull(OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_NOISE)))
-        assertEquals(8, reverse.noisePeriodSnapshot())
-        reverseB.applyPatch(requireNotNull(OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_ENVELOPE_ALT)))
-        reverseA.applyPatch(requireNotNull(OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_ENVELOPE)))
-        assertEquals(1_536, reverse.envelopePeriodSnapshot())
-        assertEquals(10, reverse.envelopeShapeSnapshot())
+        voice.applyPatch(requireNotNull(OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_ENVELOPE_ALT)))
+        voice.reset()
+
+        assertEquals(0x37, shared.mixerRegisterSnapshot())
+        assertEquals(27, shared.noisePeriodSnapshot())
+        assertEquals(4_321, shared.envelopePeriodSnapshot())
+        assertEquals(14, shared.envelopeShapeSnapshot())
+        assertEquals(1, shared.envelopeRestartCountSnapshot())
+    }
+
+    @Test
+    fun retainedSequencerAppliesSsgPatchRegistersAtTheEventBoundary() {
+        val synth = OpnaLikeSynthesizer(8_000)
+        val sequencer = OpnaSequencer(8_000, 120f)
+        val noise = requireNotNull(OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_NOISE))
+        sequencer.noteSsgControlledRaw(0, 60, 0L, 100L, 1f, patch = noise)
+
+        val output = FloatArray(1)
+        synth.render(output, output.size, sequencer, 0L)
+
+        assertEquals(0x37, synth.ssg[0].mixerRegisterSnapshot())
+        assertEquals(8, synth.ssgNoisePeriodSnapshot())
+        assertTrue(output[0] != 0f)
     }
 
     @Test
@@ -144,6 +155,75 @@ class SsgHardwareConformanceTest {
                 SsgLevelLaw.fixedAmplitude(13) / SsgLevelLaw.fixedAmplitude(14) - expectedStep
             ) < 0.000001f
         )
+    }
+
+    @Test
+    fun hardwareEnvelopeKeepsAllThirtyTwoDacLevelsSeparateFromFixedVolume() {
+        assertEquals(0f, SsgLevelLaw.envelopeAmplitude(0))
+        assertEquals(1f, SsgLevelLaw.envelopeAmplitude(31))
+        var level = 1
+        var previous = SsgLevelLaw.envelopeAmplitude(0)
+        while (level < 32) {
+            val amplitude = SsgLevelLaw.envelopeAmplitude(level)
+            assertTrue(amplitude > previous, "envelope DAC level $level must be distinct")
+            val expected = 10.0.pow((level - 31) * 0.75 / 20.0).toFloat()
+            assertTrue(abs(amplitude - expected) < 0.000001f)
+            previous = amplitude
+            level++
+        }
+
+        assertTrue(SsgLevelLaw.envelopeAmplitude(2) != SsgLevelLaw.fixedAmplitude(1))
+        assertEquals(
+            SsgLevelLaw.envelopeAmplitude(3),
+            SsgLevelLaw.fixedAmplitude(1)
+        )
+    }
+
+    @Test
+    fun preparedHardwareEnvelopeExposesEveryFiveBitLevel() {
+        val state = SsgSharedState(7_812)
+        state.writeEnvelopePeriod(1)
+        state.writeEnvelopeShape(12)
+        assertEquals(0, state.envelopeLevelSnapshot())
+
+        var expected = 1
+        while (expected <= 31) {
+            state.prepare(1)
+            assertEquals(expected, state.envelopeLevelSnapshot())
+            expected++
+        }
+    }
+
+    @Test
+    fun hardwareEnvelopeShapeBoundariesMatchContinueAlternateAndHoldBits() {
+        assertEnvelopeBoundary(shape = 8, initial = 31, boundary = 0, transition = 31, afterTransition = 30)
+        assertEnvelopeBoundary(shape = 9, initial = 31, boundary = 0, transition = 0, afterTransition = 0)
+        assertEnvelopeBoundary(shape = 10, initial = 31, boundary = 0, transition = 0, afterTransition = 1)
+        assertEnvelopeBoundary(shape = 11, initial = 31, boundary = 0, transition = 31, afterTransition = 31)
+        assertEnvelopeBoundary(shape = 12, initial = 0, boundary = 31, transition = 0, afterTransition = 1)
+        assertEnvelopeBoundary(shape = 13, initial = 0, boundary = 31, transition = 31, afterTransition = 31)
+        assertEnvelopeBoundary(shape = 14, initial = 0, boundary = 31, transition = 31, afterTransition = 30)
+        assertEnvelopeBoundary(shape = 15, initial = 0, boundary = 31, transition = 0, afterTransition = 0)
+    }
+
+    @Test
+    fun hardwareEnvelopeStateIsInvariantToPreparationChunkSize() {
+        val whole = SsgSharedState(7_812)
+        val split = SsgSharedState(7_812)
+        whole.writeEnvelopePeriod(1)
+        split.writeEnvelopePeriod(1)
+        whole.writeEnvelopeShape(14)
+        split.writeEnvelopeShape(14)
+
+        whole.prepare(64)
+        var frame = 0
+        while (frame < 64) {
+            split.prepare(1)
+            assertEquals(whole.envelopeAt(frame), split.envelopeAt(0), "frame $frame")
+            frame++
+        }
+        assertEquals(whole.envelopeLevelSnapshot(), split.envelopeLevelSnapshot())
+        assertEquals(whole.envelopeRestartCountSnapshot(), split.envelopeRestartCountSnapshot())
     }
 
     @Test
@@ -180,5 +260,24 @@ class SsgHardwareConformanceTest {
         val output = FloatArray(512)
         synth.render(output, output.size)
         return output
+    }
+
+    private fun assertEnvelopeBoundary(
+        shape: Int,
+        initial: Int,
+        boundary: Int,
+        transition: Int,
+        afterTransition: Int
+    ) {
+        val state = SsgSharedState(7_812)
+        state.writeEnvelopePeriod(1)
+        state.writeEnvelopeShape(shape)
+        assertEquals(initial, state.envelopeLevelSnapshot(), "shape $shape initial")
+        state.prepare(31)
+        assertEquals(boundary, state.envelopeLevelSnapshot(), "shape $shape boundary")
+        state.prepare(1)
+        assertEquals(transition, state.envelopeLevelSnapshot(), "shape $shape transition")
+        state.prepare(1)
+        assertEquals(afterTransition, state.envelopeLevelSnapshot(), "shape $shape after transition")
     }
 }

@@ -34,10 +34,6 @@ object SongCatalog {
         SongDefinition(MmlSongBank.RIN_TO_SHITE_KEY, "RIN TO SHITE", SongKind.MML, DEFAULT_PREVIEW_MS) { volume ->
             val arrangement = MmlSongBank.getArrangement(MmlSongBank.RIN_TO_SHITE_KEY, volume)
             if (arrangement == null) null else SongPlayback.Arrangement(arrangement)
-        },
-        SongDefinition(MmlSongBank.LLS_LOGO_KEY, "LOTUS LAND STORY / LOGO", SongKind.MML, DEFAULT_PREVIEW_MS) { volume ->
-            val arrangement = MmlSongBank.getArrangement(MmlSongBank.LLS_LOGO_KEY, volume)
-            if (arrangement == null) null else SongPlayback.Arrangement(arrangement)
         }
     )
 

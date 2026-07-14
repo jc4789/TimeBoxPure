@@ -2,6 +2,7 @@ package com.example.timeboxvibe.engine.audio.mml
 
 import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaSong
 import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaTimeline
+import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaTimelineFactory
 import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
 import com.example.timeboxvibe.engine.audio.opna.PmdPerformanceLaws
 import kotlin.math.abs
@@ -30,14 +31,17 @@ class MmlV2Test {
 
         assertEquals(2, program.dialectVersion)
         assertEquals(6, program.lfoRate)
-        assertEquals(7, program.eventCount)
+        assertEquals(16, program.eventCount)
         assertEquals(CompiledOpnaSong.TICKS_PER_QUARTER * 4L, program.durationTicks)
-        assertEquals(5, program.detuneCents[0])
-        assertEquals(3, program.pms[0])
-        assertEquals(1, program.ams[0])
-        assertEquals(960, program.durationTick[0])
-        assertEquals(840, program.gateTick[0])
-        assertEquals(67, program.targetMidi[1])
+        val notes = eventIndices(program, CompiledOpnaSong.FM_NOTE)
+        assertEquals(5, program.detuneCents[notes[0]])
+        val pms = eventIndices(program, CompiledOpnaSong.HW_LFO_PMS)
+        val ams = eventIndices(program, CompiledOpnaSong.HW_LFO_AMS)
+        assertEquals(3, program.stateValue[pms.last()])
+        assertEquals(1, program.stateValue[ams.last()])
+        assertEquals(960, program.durationTick[notes[0]])
+        assertEquals(840, program.gateTick[notes[0]])
+        assertEquals(67, program.targetMidi[notes[1]])
     }
 
     @Test
@@ -47,10 +51,11 @@ class MmlV2Test {
             assertIs<MmlCompileResult.Success>(MmlCompiler.compile(source)).arrangement.compiledOpnaSong
         )
 
-        assertEquals(480, program.durationTick[0])
-        assertEquals(440, program.gateTick[0])
-        assertEquals(440, program.gateTick[1])
-        assertEquals(920, program.gateTick[2])
+        val notes = eventIndices(program, CompiledOpnaSong.FM_NOTE)
+        assertEquals(480, program.durationTick[notes[0]])
+        assertEquals(440, program.gateTick[notes[0]])
+        assertEquals(440, program.gateTick[notes[1]])
+        assertEquals(920, program.gateTick[notes[2]])
     }
 
     @Test
@@ -72,10 +77,11 @@ class MmlV2Test {
         assertContentEquals(first.gateTick, second.gateTick)
         assertTrue(first.gateTailClocks.any { it == 1 })
         assertTrue(first.gateTailClocks.any { it == 3 })
+        val notes = eventIndices(first, CompiledOpnaSong.FM_NOTE)
         var i = 0
-        while (i < first.eventCount) {
-            assertTrue(first.gateTick[i] in 60..100)
-            assertTrue(first.gateMinimumClocks[i] == 2)
+        while (i < notes.size) {
+            assertTrue(first.gateTick[notes[i]] in 60..100)
+            assertTrue(first.gateMinimumClocks[notes[i]] == 2)
             i++
         }
     }
@@ -91,12 +97,13 @@ class MmlV2Test {
         """.trimIndent()
         val arrangement = assertIs<MmlCompileResult.Success>(MmlCompiler.compile(source)).arrangement
         val program = assertNotNull(arrangement.compiledOpnaSong)
-        assertEquals(4, program.eventCount)
-        assertEquals(480, program.durationTick[0])
-        assertEquals(240, program.gateTick[0])
-        assertEquals(480, program.gateTick[1])
-        assertEquals(240, program.gateTick[2])
-        assertEquals(240, program.gateTick[3])
+        assertEquals(8, program.eventCount)
+        val notes = eventIndices(program, CompiledOpnaSong.FM_NOTE)
+        assertEquals(480, program.durationTick[notes[0]])
+        assertEquals(240, program.gateTick[notes[0]])
+        assertEquals(480, program.gateTick[notes[1]])
+        assertEquals(240, program.gateTick[notes[2]])
+        assertEquals(240, program.gateTick[notes[3]])
 
         val player = MmlArrangementScheduler.createPlayer(arrangement, OpnaLikeSynthesizer(8_000), 8_000)
         val boundary = 8_000L
@@ -124,17 +131,26 @@ class MmlV2Test {
         val program = assertNotNull(
             assertIs<MmlCompileResult.Success>(MmlCompiler.compile(source)).arrangement.compiledOpnaSong
         )
-        assertEquals(6, program.eventCount)
-        assertEquals(CompiledOpnaSong.SSG_ENVELOPE_DEFINE, program.eventType[0])
-        assertEquals(CompiledOpnaSong.SSG_ENVELOPE_MODE, program.eventType[1])
-        assertEquals(CompiledOpnaSong.SSG_NOTE, program.eventType[2])
-        assertEquals(CompiledOpnaSong.SSG_ENVELOPE_MODE, program.eventType[3])
-        assertEquals(CompiledOpnaSong.SSG_ENVELOPE_DEFINE, program.eventType[4])
-        assertEquals(CompiledOpnaSong.SSG_NOTE, program.eventType[5])
-        assertEquals(PmdPerformanceLaws.ENVELOPE_LEGACY, program.envelopeFormat[0])
-        assertEquals(PmdPerformanceLaws.ENVELOPE_EXTENDED, program.envelopeFormat[4])
-        assertEquals(7, program.envelopeSustainLevel[4])
-        assertEquals(3, program.envelopeAttackLevel[4])
+        assertEquals(10, program.eventCount)
+        assertContentEquals(
+            intArrayOf(
+                CompiledOpnaSong.HW_LFO_RATE,
+                CompiledOpnaSong.HW_LFO_ENABLE,
+                CompiledOpnaSong.SSG_TONE_ENABLE,
+                CompiledOpnaSong.SSG_NOISE_ENABLE,
+                CompiledOpnaSong.SSG_ENVELOPE_DEFINE,
+                CompiledOpnaSong.SSG_ENVELOPE_MODE,
+                CompiledOpnaSong.SSG_NOTE,
+                CompiledOpnaSong.SSG_ENVELOPE_MODE,
+                CompiledOpnaSong.SSG_ENVELOPE_DEFINE,
+                CompiledOpnaSong.SSG_NOTE
+            ),
+            program.eventType
+        )
+        assertEquals(PmdPerformanceLaws.ENVELOPE_LEGACY, program.envelopeFormat[4])
+        assertEquals(PmdPerformanceLaws.ENVELOPE_EXTENDED, program.envelopeFormat[8])
+        assertEquals(7, program.envelopeSustainLevel[8])
+        assertEquals(3, program.envelopeAttackLevel[8])
     }
 
     @Test
@@ -146,8 +162,8 @@ class MmlV2Test {
         val playerA = MmlArrangementScheduler.createPlayer(arrangement, synthA, sampleRate)
         val playerB = MmlArrangementScheduler.createPlayer(arrangement, synthB, sampleRate)
 
-        assertTrue(synthA.lfo.enabled)
-        assertEquals(11, playerA.eventCount)
+        assertTrue(!synthA.lfo.enabled, "Timeline state must not be applied during player construction")
+        assertEquals(20, playerA.eventCount)
         assertEquals(2, count(playerA.timeline, CompiledOpnaTimeline.FM_ON))
         assertEquals(1, count(playerA.timeline, CompiledOpnaTimeline.SSG_ON))
         assertEquals(4, count(playerA.timeline, CompiledOpnaTimeline.DRUM_SHOT))
@@ -156,6 +172,7 @@ class MmlV2Test {
         val b = FloatArray(4096)
         synthA.render(a, a.size, playerA, 0L)
         synthB.render(b, b.size, playerB, 0L)
+        assertTrue(synthA.lfo.enabled)
         assertTrue(a.contentEquals(b))
         assertTrue(a.any { abs(it) > 0.0001f })
         assertTrue(a.all { it.isFinite() })
@@ -188,7 +205,7 @@ class MmlV2Test {
         val arrangement = assertIs<MmlCompileResult.Success>(MmlCompiler.compile(source)).arrangement
         val program = assertNotNull(arrangement.compiledOpnaSong)
         assertTrue(program.fm3Extended)
-        assertEquals(3, program.eventCount)
+        assertEquals(7, program.eventCount)
         val fm3Notes = program.eventType.indices.filter { program.eventType[it] == CompiledOpnaSong.FM3_OPERATOR_NOTE }
         assertEquals(CompiledOpnaSong.FM3_PART_BASE, program.logicalPart[fm3Notes[0]])
         assertEquals(CompiledOpnaSong.FM3_PART_BASE + 1, program.logicalPart[fm3Notes[1]])
@@ -219,7 +236,7 @@ class MmlV2Test {
             A @lead o4 ${'$'}phrase |
         """.trimIndent()
         val program = assertNotNull(assertIs<MmlCompileResult.Success>(MmlCompiler.compile(source)).arrangement.compiledOpnaSong)
-        assertEquals(4, program.eventCount)
+        assertEquals(8, program.eventCount)
     }
 
     @Test
@@ -232,11 +249,12 @@ class MmlV2Test {
         """.trimIndent()
         val arrangement = assertIs<MmlCompileResult.Success>(MmlCompiler.compile(source)).arrangement
         val program = assertNotNull(arrangement.compiledOpnaSong)
-        assertEquals(7, program.eventCount)
+        assertEquals(11, program.eventCount)
+        val notes = eventIndices(program, CompiledOpnaSong.FM_POLY_NOTE)
+        assertEquals(7, notes.size)
         var eventIndex = 0
-        while (eventIndex < program.eventCount) {
-            assertEquals(CompiledOpnaSong.FM_POLY_NOTE, program.eventType[eventIndex])
-            assertEquals(0L, program.startTick[eventIndex])
+        while (eventIndex < notes.size) {
+            assertEquals(0L, program.startTick[notes[eventIndex]])
             eventIndex++
         }
 
@@ -277,11 +295,8 @@ class MmlV2Test {
             MmlCompiler.compile("#MML 2\n#BPM 120\n#BAR 4/4\nA @strings V80 Q8 P1 o4 l8 c d e f g a b >c |")
         ).arrangement
         val program = assertNotNull(arrangement.compiledOpnaSong)
-        var eventIndex = 0
-        while (eventIndex < program.eventCount) {
-            assertEquals(CompiledOpnaSong.FM_POLY_NOTE, program.eventType[eventIndex])
-            eventIndex++
-        }
+        val notes = eventIndices(program, CompiledOpnaSong.FM_POLY_NOTE)
+        assertEquals(8, notes.size)
         val synth = OpnaLikeSynthesizer(48_000)
         val player = MmlArrangementScheduler.createPlayer(arrangement, synth, 48_000)
         synth.render(FloatArray(13_000), 13_000, player, 0L)
@@ -336,6 +351,96 @@ class MmlV2Test {
         assertEquals(83_763L, player.loopLengthSamples)
     }
 
+    @Test
+    fun hardwareLfoCommandsBecomeExactOrderedSemanticState() {
+        val source = """
+            #MML 2
+            #BPM 120
+            #PMDCLOCK 24
+            #BAR 4/4
+            #LFO 5
+            A @54 #1,6 H2,1,24 o4 c4 H3 d4 H4,2,l8. e4 #0 f4 |
+        """.trimIndent()
+        val arrangement = assertIs<MmlCompileResult.Success>(MmlCompiler.compile(source)).arrangement
+        val song = assertNotNull(arrangement.compiledOpnaSong)
+
+        assertEquals(19, song.eventCount)
+        assertEquals(2, count(song, CompiledOpnaSong.HW_LFO_RATE))
+        assertEquals(3, count(song, CompiledOpnaSong.HW_LFO_ENABLE))
+        assertEquals(4, count(song, CompiledOpnaSong.HW_LFO_PMS))
+        assertEquals(4, count(song, CompiledOpnaSong.HW_LFO_AMS))
+        assertEquals(2, count(song, CompiledOpnaSong.HW_LFO_DELAY))
+
+        val delayEvents = indices(song, CompiledOpnaSong.HW_LFO_DELAY)
+        assertEquals(CompiledOpnaSong.HW_LFO_DELAY_RAW_CLOCKS, song.hardwareLfoDelayKind[delayEvents[0]])
+        assertEquals(24, song.hardwareLfoDelayValue[delayEvents[0]])
+        assertEquals(false, song.hardwareLfoDelayDotted[delayEvents[0]])
+        assertEquals(CompiledOpnaSong.HW_LFO_DELAY_NOTE_LENGTH, song.hardwareLfoDelayKind[delayEvents[1]])
+        assertEquals(8, song.hardwareLfoDelayValue[delayEvents[1]])
+        assertEquals(true, song.hardwareLfoDelayDotted[delayEvents[1]])
+        assertEquals(0, countAtTick(song, CompiledOpnaSong.HW_LFO_DELAY, 480L))
+
+        val amsAtSecondNote = indexAtTick(song, CompiledOpnaSong.HW_LFO_AMS, 480L)
+        assertEquals(0, song.stateValue[amsAtSecondNote])
+
+        val timeline = CompiledOpnaTimelineFactory.build(song, 8_000, 1f)
+        assertEquals(24, timeline.eventCount)
+        assertEquals(timeline.eventCount, timeline.eventType.size)
+        assertEquals(timeline.eventCount, timeline.sampleTime.size)
+        val firstOn = timeline.eventType.indexOf(CompiledOpnaTimeline.FM_ON)
+        assertContentEquals(
+            intArrayOf(
+                CompiledOpnaTimeline.HW_LFO_RATE,
+                CompiledOpnaTimeline.HW_LFO_ENABLE,
+                CompiledOpnaTimeline.HW_LFO_RATE,
+                CompiledOpnaTimeline.HW_LFO_ENABLE,
+                CompiledOpnaTimeline.TEMPO,
+                CompiledOpnaTimeline.HW_LFO_PMS,
+                CompiledOpnaTimeline.HW_LFO_AMS,
+                CompiledOpnaTimeline.HW_LFO_PMS,
+                CompiledOpnaTimeline.HW_LFO_AMS,
+                CompiledOpnaTimeline.HW_LFO_DELAY
+            ),
+            timeline.eventType.copyOfRange(0, firstOn)
+        )
+        var ordered = 1
+        while (ordered < firstOn) {
+            if (timeline.eventType[ordered] != CompiledOpnaTimeline.TEMPO) {
+                assertTrue(timeline.sourceOrder[ordered - 1] <= timeline.sourceOrder[ordered] ||
+                    timeline.eventType[ordered - 1] == CompiledOpnaTimeline.TEMPO)
+            }
+            ordered++
+        }
+        val rawDelay = timeline.eventType.indexOf(CompiledOpnaTimeline.HW_LFO_DELAY)
+        val rawBase = rawDelay * CompiledOpnaTimeline.CONTROL_STRIDE
+        assertContentEquals(
+            intArrayOf(CompiledOpnaSong.HW_LFO_DELAY_RAW_CLOCKS, 24, 0),
+            timeline.controlValues.copyOfRange(rawBase, rawBase + 3)
+        )
+    }
+
+    @Test
+    fun fm3HardwareLfoStateMustUseThePhysicalChannelControlLane() {
+        val rejected = assertIs<MmlCompileResult.Failure>(
+            MmlCompiler.compile(
+                "#MML 2\n#BPM 120\n#BAR 4/4\n#FM3EXTEND ON\n" +
+                    "C @effect\nC1 H2,1 o4 l1 c |"
+            )
+        )
+        assertTrue(rejected.diagnostics.any { it.reason.contains("shared physical-channel state") })
+
+        val accepted = assertIs<MmlCompileResult.Success>(
+            MmlCompiler.compile(
+                "#MML 2\n#BPM 120\n#BAR 4/4\n#FM3EXTEND ON\n" +
+                    "C @effect H2,1\nC1 o4 l1 c |"
+            )
+        )
+        val song = assertNotNull(accepted.arrangement.compiledOpnaSong)
+        val pms = song.eventType.indexOf(CompiledOpnaSong.HW_LFO_PMS)
+        assertEquals(2, song.channel[pms])
+        assertEquals(CompiledOpnaSong.LOGICAL_PART_NONE, song.logicalPart[pms])
+    }
+
     private fun count(timeline: CompiledOpnaTimeline, type: Int): Int {
         var result = 0
         var i = 0
@@ -345,4 +450,38 @@ class MmlV2Test {
         }
         return result
     }
+
+    private fun count(song: CompiledOpnaSong, type: Int): Int = indices(song, type).size
+
+    private fun countAtTick(song: CompiledOpnaSong, type: Int, tick: Long): Int {
+        var result = 0
+        var i = 0
+        while (i < song.eventCount) {
+            if (song.eventType[i] == type && song.startTick[i] == tick) result++
+            i++
+        }
+        return result
+    }
+
+    private fun indexAtTick(song: CompiledOpnaSong, type: Int, tick: Long): Int {
+        var i = 0
+        while (i < song.eventCount) {
+            if (song.eventType[i] == type && song.startTick[i] == tick) return i
+            i++
+        }
+        error("No event type $type at tick $tick")
+    }
+
+    private fun indices(song: CompiledOpnaSong, type: Int): IntArray {
+        val result = IntArray(song.eventType.count { it == type })
+        var output = 0
+        var i = 0
+        while (i < song.eventCount) {
+            if (song.eventType[i] == type) result[output++] = i
+            i++
+        }
+        return result
+    }
+
+    private fun eventIndices(song: CompiledOpnaSong, type: Int): IntArray = indices(song, type)
 }

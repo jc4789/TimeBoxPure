@@ -29,7 +29,9 @@ class LogoSongIngestionTest {
         assertContentEquals(intArrayOf(2, 2, 4, 4), intArrayOf(patch.op0.mul, patch.op1.mul, patch.op2.mul, patch.op3.mul))
         assertContentEquals(intArrayOf(3, 7, 3, 7), intArrayOf(patch.op0.detune, patch.op1.detune, patch.op2.detune, patch.op3.detune))
         assertContentEquals(intArrayOf(30, 31, 0, 0), intArrayOf(patch.op0.tl, patch.op1.tl, patch.op2.tl, patch.op3.tl))
+        assertContentEquals(intArrayOf(3, 3, 0, 0), intArrayOf(patch.op0.ks, patch.op1.ks, patch.op2.ks, patch.op3.ks))
         assertContentEquals(intArrayOf(15, 15, 13, 12), intArrayOf(patch.op0.ar, patch.op1.ar, patch.op2.ar, patch.op3.ar))
+        assertContentEquals(intArrayOf(0, 0, 0, 0), intArrayOf(patch.op0.ams, patch.op1.ams, patch.op2.ams, patch.op3.ams))
         assertContentEquals(intArrayOf(0, 0, 2, 2), intArrayOf(patch.op0.dr, patch.op1.dr, patch.op2.dr, patch.op3.dr))
         assertContentEquals(intArrayOf(0, 0, 2, 6), intArrayOf(patch.op0.sr, patch.op1.sr, patch.op2.sr, patch.op3.sr))
         assertContentEquals(intArrayOf(0, 0, 13, 13), intArrayOf(patch.op0.sl, patch.op1.sl, patch.op2.sl, patch.op3.sl))
@@ -41,7 +43,7 @@ class LogoSongIngestionTest {
         val success = assertIs<MmlCompileResult.Success>(MmlSongBank.llsLogoResult)
         val program = assertNotNull(success.arrangement.compiledOpnaSong)
 
-        assertEquals(227, program.eventCount)
+        assertEquals(239, program.eventCount)
         assertEquals(3_960L, program.durationTicks)
         assertEquals(5, program.tempoChangeCount)
         assertContentEquals(longArrayOf(3_360L, 3_480L, 3_600L, 3_720L, 3_840L), program.tempoTick)
@@ -60,14 +62,20 @@ class LogoSongIngestionTest {
         assertSsgTrace(program, 2, 120L, 17, 85)
 
         val player = MmlArrangementScheduler.createPlayer(success.arrangement, OpnaLikeSynthesizer(48_000), 48_000)
-        assertEquals(429, player.eventCount)
-        assertEquals(CompiledOpnaTimeline.TEMPO, player.timeline.eventType[0])
+        assertEquals(441, player.eventCount)
+        assertContentEquals(
+            intArrayOf(
+                CompiledOpnaTimeline.HW_LFO_RATE,
+                CompiledOpnaTimeline.HW_LFO_ENABLE,
+                CompiledOpnaTimeline.TEMPO
+            ),
+            player.timeline.eventType.copyOf(3)
+        )
     }
 
     @Test
-    fun catalogEntryRendersDeterministicallyAtProductAndOfflineRates() {
-        val song = assertNotNull(SongCatalog.byId(MmlSongBank.LLS_LOGO_KEY))
-        assertEquals("LOTUS LAND STORY / LOGO", song.displayTitle)
+    fun researchFixtureStaysOutOfCatalogAndRendersDeterministically() {
+        assertEquals(null, SongCatalog.byId(MmlSongBank.LLS_LOGO_KEY))
         assertDeterministicPrefix(48_000)
         assertDeterministicPrefix(55_466)
         assertUnmasteredPrefixIsFinite(48_000)
@@ -156,7 +164,7 @@ class LogoSongIngestionTest {
         val synth = OpnaLikeSynthesizer(sampleRate)
         val player = MmlArrangementScheduler.createPlayer(arrangement, synth, sampleRate)
         val raw = FloatArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
-        player.renderMono(synth, raw, 0, raw.size, 0L)
+        synth.renderRawCore(raw, raw.size, player, 0L)
         assertTrue(raw.any { it != 0f })
         assertTrue(raw.all { it.isFinite() })
     }

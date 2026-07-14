@@ -1,7 +1,7 @@
 """Offline PMD corpus inventory and normalized trace oracle.
 
 This tool reads user-supplied Touhou archives through THTK, scans PMD M86/M26
-part streams, ranks commands not preserved by the current TH04 import path, and
+part streams, reports conservative opcode/subcommand capabilities, and
 optionally verifies the production Bad Apple MML lanes. It is never imported by
 runtime code and never writes extracted music into the repository.
 """
@@ -22,11 +22,12 @@ from pathlib import Path
 from typing import Iterable
 
 from pmd_corpus_format import (
+    CAPABILITY_EXACT,
+    COMMAND_CAPABILITIES,
     COMMAND_NAMES,
-    CURRENT_IMPORT_PRESERVED,
-    CURRENT_IMPORT_STRUCTURAL,
     FEATURE_OPCODE_GROUPS,
     FIXED_PARAMETER_COUNTS,
+    capability_for_command,
 )
 
 
@@ -43,8 +44,15 @@ BAD_APPLE_WINDOW_START = 288
 BAD_APPLE_WINDOW_END = 5280
 PMD_TO_MML_TICKS = 20
 MAX_TRACE_STEPS = 100_000
-REPORT_SCHEMA_VERSION = 1
-NORMALIZED_ORACLE_SCHEMA_VERSION = 1
+REPORT_SCHEMA_VERSION = 2
+NORMALIZED_ORACLE_SCHEMA_VERSION = 2
+REQUIRED_INDEPENDENT_CHECKPOINT_TRACES = 4
+INDEPENDENT_CHECKPOINT_DERIVATION_KIND = "INDEPENDENT_REGISTER_OR_STATE_TRACE"
+SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
+
+# R0 does not yet have the required independent state/register checkpoint
+# fixtures. Keep this explicit and empty instead of relabeling semantic traces.
+INDEPENDENT_CHECKPOINT_TRACES: tuple[dict, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -298,7 +306,10 @@ def scan_song(name: str, payload: bytes) -> dict:
         parts[10]["rhythm_pattern_selects"],
     )
     command_counts: Counter[int] = Counter()
-    locations: list[dict] = []
+    capability_counts: Counter[str] = Counter()
+    capability_by_key: dict[str, dict] = {}
+    capability_locations: dict[str, list[dict]] = defaultdict(list)
+    non_exact_locations: list[dict] = []
     errors: list[str] = []
     for part in parts:
         if part["error"] is not None:
@@ -306,15 +317,22 @@ def scan_song(name: str, payload: bytes) -> dict:
         for command in part["commands"]:
             opcode = command["opcode"]
             command_counts[opcode] += 1
-            if opcode not in CURRENT_IMPORT_PRESERVED and opcode not in CURRENT_IMPORT_STRUCTURAL:
-                locations.append(
-                    {
-                        "part": part["part"],
-                        "offset": command["offset"],
-                        "opcode": opcode,
-                        "name": command["name"],
-                    }
-                )
+            capability = capability_for_command(opcode, command["parameters"])
+            key = capability["key"]
+            capability_counts[key] += 1
+            capability_by_key[key] = capability
+            location = {
+                "part": part["part"],
+                "offset": command["offset"],
+                "opcode": opcode,
+                "name": command["name"],
+                "capability_key": key,
+                "capability_state": capability["state"],
+            }
+            if len(capability_locations[key]) < 12:
+                capability_locations[key].append(location)
+            if capability["state"] != CAPABILITY_EXACT:
+                non_exact_locations.append(location)
     if rhythm["error"] is not None:
         errors.append(rhythm["error"])
     return {
@@ -330,7 +348,15 @@ def scan_song(name: str, payload: bytes) -> dict:
         "voice_data_offset": pointers[12],
         "voice_and_metadata_bytes": len(data) - pointers[12],
         "command_counts": {f"0x{opcode:02X}": count for opcode, count in sorted(command_counts.items())},
-        "unpreserved_locations": locations,
+        "capability_usages": [
+            {
+                **capability_by_key[key],
+                "occurrences": capability_counts[key],
+                "sample_locations": capability_locations[key],
+            }
+            for key in sorted(capability_counts)
+        ],
+        "non_exact_locations": non_exact_locations,
         "errors": errors,
     }
 
@@ -491,6 +517,7 @@ def decode_fm_voice(payload: bytes, patch_id: int) -> dict | None:
             for operator in range(4):
                 dt_mul = record[1 + operator]
                 ks_ar = record[9 + operator]
+                am_dr = record[13 + operator]
                 sl_rr = record[21 + operator]
                 operators.append(
                     {
@@ -499,7 +526,8 @@ def decode_fm_voice(payload: bytes, patch_id: int) -> dict | None:
                         "tl": record[5 + operator] & 0x7F,
                         "ks": (ks_ar >> 6) & 0x03,
                         "ar": ks_ar & 0x1F,
-                        "dr": record[13 + operator] & 0x1F,
+                        "am": (am_dr >> 7) & 0x01,
+                        "dr": am_dr & 0x1F,
                         "sr": record[17 + operator] & 0x1F,
                         "sl": (sl_rr >> 4) & 0x0F,
                         "rr": sl_rr & 0x0F,
@@ -540,8 +568,14 @@ def normalized_control(control: dict) -> dict:
     return result
 
 
-def build_normalized_song_oracle(name: str, payload: bytes) -> dict:
+def build_normalized_song_oracle(name: str, payload: bytes, provenance: dict) -> dict:
     """Build compact deterministic semantic data; no source/archive bytes are retained."""
+    entry_sha256 = sha256_bytes(payload)
+    if provenance["entry_sha256"] != entry_sha256:
+        raise PmdScanError(
+            f"Oracle provenance hash mismatch for {name}: "
+            f"expected {provenance['entry_sha256']}, got {entry_sha256}"
+        )
     scan = scan_song(name, payload)
     used_part_indices = [index for index, part in enumerate(scan["parts"]) if part["notes"] > 0]
     parts = []
@@ -583,7 +617,7 @@ def build_normalized_song_oracle(name: str, payload: bytes) -> dict:
     oracle = {
         "schema_version": NORMALIZED_ORACLE_SCHEMA_VERSION,
         "song": name,
-        "source_sha256": sha256_bytes(payload),
+        "source_sha256": entry_sha256,
         "source_size": len(payload),
         "parts": parts,
         "patches": patches,
@@ -593,6 +627,11 @@ def build_normalized_song_oracle(name: str, payload: bytes) -> dict:
             "control_counts": dict(sorted(control_counts.items())),
         },
     }
+    oracle["archive_id"] = provenance["archive_id"]
+    oracle["archive_sha256"] = provenance["archive_sha256"]
+    oracle["entry_sha256"] = provenance["entry_sha256"]
+    oracle["format"] = provenance["format"]
+    oracle["driver_profile"] = provenance["driver_profile"]
     canonical = json.dumps(oracle, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     oracle["oracle_sha256"] = sha256_bytes(canonical)
     return oracle
@@ -897,22 +936,24 @@ def audit_bad_apple(payload: bytes, mml_bank: Path) -> dict:
     return {"sha256": digest, "passed": not failed, "lanes": lanes}
 
 
-def build_unsupported_ranking(songs: Iterable[dict]) -> list[dict]:
-    occurrences: Counter[int] = Counter()
-    song_hashes: dict[int, set[str]] = defaultdict(set)
-    locations: dict[int, list[dict]] = defaultdict(list)
+def build_non_exact_ranking(songs: Iterable[dict]) -> list[dict]:
+    occurrences: Counter[str] = Counter()
+    song_hashes: dict[str, set[str]] = defaultdict(set)
+    locations: dict[str, list[dict]] = defaultdict(list)
+    details: dict[str, dict] = {}
     seen_payloads: set[str] = set()
     for song in songs:
         digest = song["sha256"]
         if digest in seen_payloads:
             continue
         seen_payloads.add(digest)
-        for location in song["unpreserved_locations"]:
-            opcode = location["opcode"]
-            occurrences[opcode] += 1
-            song_hashes[opcode].add(digest)
-            if len(locations[opcode]) < 12:
-                locations[opcode].append(
+        for location in song["non_exact_locations"]:
+            key = location["capability_key"]
+            occurrences[key] += 1
+            song_hashes[key].add(digest)
+            details[key] = location
+            if len(locations[key]) < 12:
+                locations[key].append(
                     {
                         "song": song["name"],
                         "sha256": digest,
@@ -921,18 +962,305 @@ def build_unsupported_ranking(songs: Iterable[dict]) -> list[dict]:
                     }
                 )
     ranking = []
-    for opcode, count in occurrences.items():
+    for key, count in occurrences.items():
+        detail = details[key]
         ranking.append(
             {
-                "opcode": f"0x{opcode:02X}",
-                "name": COMMAND_NAMES[opcode],
-                "unique_songs": len(song_hashes[opcode]),
+                "capability_key": key,
+                "opcode": f"0x{detail['opcode']:02X}",
+                "name": detail["name"],
+                "state": detail["capability_state"],
+                "unique_songs": len(song_hashes[key]),
                 "occurrences": count,
-                "sample_locations": locations[opcode],
+                "sample_locations": locations[key],
             }
         )
-    ranking.sort(key=lambda item: (-item["unique_songs"], -item["occurrences"], item["opcode"]))
+    ranking.sort(
+        key=lambda item: (-item["unique_songs"], -item["occurrences"], item["capability_key"])
+    )
     return ranking
+
+
+def build_import_assessments(
+    songs: Iterable[dict],
+    product_candidates: Iterable[str],
+    research_fixtures: Iterable[str],
+    independent_checkpoint_audit: dict | None = None,
+) -> list[dict]:
+    """Assess requested entries without making offline reports runtime dependencies."""
+    supplied_checkpoint_traces = (
+        independent_checkpoint_audit.get("traces", [])
+        if isinstance(independent_checkpoint_audit, dict)
+        else []
+    )
+    revalidated_checkpoint_audit = build_independent_checkpoint_audit(supplied_checkpoint_traces)
+    checkpoint_ready = bool(
+        revalidated_checkpoint_audit["passed"]
+        and isinstance(independent_checkpoint_audit, dict)
+        and not independent_checkpoint_audit.get("validation_errors", [])
+    )
+    requested: list[tuple[str, bool]] = []
+    seen_requests: set[str] = set()
+    product_upper = {name.upper() for name in product_candidates}
+    research_upper = {name.upper() for name in research_fixtures}
+    overlap = product_upper & research_upper
+    if overlap:
+        raise PmdScanError(
+            "An entry cannot be both a product candidate and a non-catalog research fixture: "
+            + ", ".join(sorted(overlap))
+        )
+    for name in product_candidates:
+        upper = name.upper()
+        if upper not in seen_requests:
+            requested.append((name, True))
+            seen_requests.add(upper)
+    for name in research_fixtures:
+        upper = name.upper()
+        if upper not in seen_requests:
+            requested.append((name, False))
+            seen_requests.add(upper)
+
+    unique_matches: dict[str, dict[str, dict]] = defaultdict(dict)
+    for song in songs:
+        unique_matches[song["name"].upper()].setdefault(song["sha256"], song)
+
+    assessments = []
+    for requested_name, is_product in requested:
+        matches = list(unique_matches.get(requested_name.upper(), {}).values())
+        if not matches:
+            assessments.append(
+                {
+                    "song": requested_name,
+                    "mode": "PRODUCT_CANDIDATE" if is_product else "NON_CATALOG_RESEARCH",
+                    "catalog_eligible": False,
+                    "passed": False,
+                    "error": "not found",
+                }
+            )
+            continue
+        if len(matches) != 1:
+            assessments.append(
+                {
+                    "song": requested_name,
+                    "mode": "PRODUCT_CANDIDATE" if is_product else "NON_CATALOG_RESEARCH",
+                    "catalog_eligible": False,
+                    "passed": False,
+                    "error": "multiple distinct entry payloads; select an unambiguous archive/input",
+                    "entry_sha256s": sorted(song["sha256"] for song in matches),
+                }
+            )
+            continue
+        song = matches[0]
+        non_exact = [usage for usage in song["capability_usages"] if usage["state"] != CAPABILITY_EXACT]
+        provenance = {
+            "archive_id": song["archive_id"],
+            "archive_sha256": song["archive_sha256"],
+            "entry_sha256": song["sha256"],
+            "format": song["format"],
+            "driver_profile": song["profile"],
+        }
+        if is_product:
+            capabilities_exact = not non_exact and not song["errors"]
+            passed = capabilities_exact and checkpoint_ready
+            assessments.append(
+                {
+                    "song": requested_name,
+                    "mode": "PRODUCT_CANDIDATE",
+                    "catalog_eligible": passed,
+                    "passed": passed,
+                    "capabilities_exact": capabilities_exact,
+                    "global_checkpoint_ready": checkpoint_ready,
+                    "admission_blockers": [
+                        blocker
+                        for blocker, blocked in (
+                            ("candidate uses non-EXACT capabilities or has scan errors", not capabilities_exact),
+                            ("global four-trace independent checkpoint gate is incomplete", not checkpoint_ready),
+                        )
+                        if blocked
+                    ],
+                    **provenance,
+                    "non_exact_capabilities": [
+                        {
+                            "capability_key": usage["key"],
+                            "name": usage["name"],
+                            "state": usage["state"],
+                            "occurrences": usage["occurrences"],
+                        }
+                        for usage in non_exact
+                    ],
+                }
+            )
+        else:
+            assessments.append(
+                {
+                    "song": requested_name,
+                    "mode": "NON_CATALOG_RESEARCH",
+                    "catalog_eligible": False,
+                    "passed": not song["errors"],
+                    "exception": "Non-EXACT capabilities are permitted only for this explicit non-catalog fixture.",
+                    **provenance,
+                    "non_exact_capabilities": [
+                        {
+                            "capability_key": usage["key"],
+                            "name": usage["name"],
+                            "state": usage["state"],
+                            "occurrences": usage["occurrences"],
+                        }
+                        for usage in non_exact
+                    ],
+                }
+            )
+    return assessments
+
+
+def _is_nonempty_string(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _checkpoint_trace_schema_errors(trace: object, index: int) -> list[str]:
+    prefix = f"trace[{index}]"
+    if not isinstance(trace, dict):
+        return [f"{prefix} must be an object"]
+    errors: list[str] = []
+    for field in (
+        "name", "song", "part", "archive_id", "archive_sha256", "entry_sha256",
+        "format", "driver_profile",
+    ):
+        if not _is_nonempty_string(trace.get(field)):
+            errors.append(f"{prefix}.{field} must be a nonempty string")
+    for field in ("archive_sha256", "entry_sha256"):
+        value = trace.get(field)
+        if _is_nonempty_string(value) and SHA256_PATTERN.fullmatch(value) is None:
+            errors.append(f"{prefix}.{field} must be a 64-digit SHA-256")
+    archive_id = trace.get("archive_id")
+    archive_hash = trace.get("archive_sha256")
+    if (
+        _is_nonempty_string(archive_id)
+        and _is_nonempty_string(archive_hash)
+        and archive_id.lower() != f"sha256:{archive_hash.lower()}"
+    ):
+        errors.append(f"{prefix}.archive_id must be the matching sha256: archive identity")
+    part = trace.get("part")
+    if _is_nonempty_string(part) and part.upper() not in PMD_PART_NAMES:
+        errors.append(f"{prefix}.part must be a PMD part A through K")
+    source_format = trace.get("format")
+    song = trace.get("song")
+    if _is_nonempty_string(source_format) and source_format.upper() not in ("M86", "M26"):
+        errors.append(f"{prefix}.format must be M86 or M26")
+    elif (
+        _is_nonempty_string(source_format)
+        and _is_nonempty_string(song)
+        and not song.upper().endswith(f".{source_format.upper()}")
+    ):
+        errors.append(f"{prefix}.song extension must match format")
+    driver_profile = trace.get("driver_profile")
+    expected_driver_profile = {
+        "M86": "PMD86_YM2608_86PCM",
+        "M26": "PMD_OPN_26K",
+    }.get(source_format.upper() if _is_nonempty_string(source_format) else "")
+    if (
+        expected_driver_profile is not None
+        and _is_nonempty_string(driver_profile)
+        and driver_profile != expected_driver_profile
+    ):
+        errors.append(
+            f"{prefix}.driver_profile must be {expected_driver_profile} for {source_format.upper()}"
+        )
+
+    derivation = trace.get("derivation")
+    if not isinstance(derivation, dict):
+        errors.append(f"{prefix}.derivation must be an object")
+    else:
+        if derivation.get("kind") != INDEPENDENT_CHECKPOINT_DERIVATION_KIND:
+            errors.append(
+                f"{prefix}.derivation.kind must be {INDEPENDENT_CHECKPOINT_DERIVATION_KIND}"
+            )
+        if not _is_nonempty_string(derivation.get("method")):
+            errors.append(f"{prefix}.derivation.method must be a nonempty string")
+        if not _is_nonempty_string(derivation.get("source")):
+            errors.append(f"{prefix}.derivation.source must be a nonempty string")
+        if derivation.get("independent_from_timebox_runtime") is not True:
+            errors.append(
+                f"{prefix}.derivation.independent_from_timebox_runtime must be true"
+            )
+
+    checkpoints = trace.get("checkpoints")
+    if not isinstance(checkpoints, list) or not checkpoints:
+        errors.append(f"{prefix}.checkpoints must be a nonempty list")
+    else:
+        for checkpoint_index, checkpoint in enumerate(checkpoints):
+            checkpoint_prefix = f"{prefix}.checkpoints[{checkpoint_index}]"
+            if not isinstance(checkpoint, dict):
+                errors.append(f"{checkpoint_prefix} must be an object")
+                continue
+            tick = checkpoint.get("tick")
+            if isinstance(tick, bool) or not isinstance(tick, int) or tick < 0:
+                errors.append(f"{checkpoint_prefix}.tick must be a nonnegative integer")
+            registers = checkpoint.get("registers")
+            state = checkpoint.get("state")
+            if not (
+                isinstance(registers, dict) and bool(registers)
+                or isinstance(state, dict) and bool(state)
+            ):
+                errors.append(
+                    f"{checkpoint_prefix} must contain nonempty registers or state"
+                )
+    return errors
+
+
+def build_independent_checkpoint_audit(traces: Iterable[dict] | None = None) -> dict:
+    declared = tuple(INDEPENDENT_CHECKPOINT_TRACES if traces is None else traces)
+    accepted: list[dict] = []
+    validation_errors: list[str] = []
+    seen_names: set[str] = set()
+    seen_songs: set[str] = set()
+    seen_parts: set[str] = set()
+    seen_source_hashes: set[str] = set()
+    for index, trace in enumerate(declared):
+        errors = _checkpoint_trace_schema_errors(trace, index)
+        if errors:
+            validation_errors.extend(errors)
+            continue
+        name_key = trace["name"].strip().casefold()
+        song_key = trace["song"].strip().casefold()
+        part_key = trace["part"].strip().casefold()
+        source_hash = trace["entry_sha256"].lower()
+        if name_key in seen_names:
+            validation_errors.append(f"trace[{index}].name duplicates an earlier trace")
+            continue
+        if song_key in seen_songs:
+            validation_errors.append(
+                f"trace[{index}].song duplicates an earlier named song"
+            )
+            continue
+        if part_key in seen_parts:
+            validation_errors.append(f"trace[{index}].part duplicates an earlier part")
+            continue
+        if source_hash in seen_source_hashes:
+            validation_errors.append(
+                f"trace[{index}].entry_sha256 duplicates an earlier source identity"
+            )
+            continue
+        seen_names.add(name_key)
+        seen_songs.add(song_key)
+        seen_parts.add(part_key)
+        seen_source_hashes.add(source_hash)
+        accepted.append(trace)
+    available = len(accepted)
+    passed = available >= REQUIRED_INDEPENDENT_CHECKPOINT_TRACES and not validation_errors
+    return {
+        "required_trace_count": REQUIRED_INDEPENDENT_CHECKPOINT_TRACES,
+        "declared_trace_count": len(declared),
+        "available_trace_count": available,
+        "passed": passed,
+        "traces": accepted,
+        "validation_errors": validation_errors,
+        "missing_evidence": (
+            None
+            if passed
+            else "Four diverse, named, independently derived state/register checkpoint traces are not present."
+        ),
+    }
 
 
 def build_feature_summary(songs: Iterable[dict]) -> list[dict]:
@@ -973,28 +1301,45 @@ def audit_corpus(
     mml_bank: Path,
     run_bad_apple: bool,
     oracle_names: list[str] | None = None,
+    product_candidates: list[str] | None = None,
+    research_fixtures: list[str] | None = None,
 ) -> dict:
     archive_reports = []
     songs = []
-    payload_by_name_and_hash: dict[tuple[str, str], bytes] = {}
+    source_by_name_and_hash: dict[tuple[str, str], dict] = {}
     bad_apple_payload: bytes | None = None
     for archive in archives:
         entries = list_archive(thdat, archive)
         payloads = extract_entries(thdat, archive, entries)
         archive_hash = sha256_file(archive)
+        archive_id = f"sha256:{archive_hash}"
         archive_song_reports = []
         for entry in entries:
             payload = payloads[entry.name]
             song = scan_song(entry.name, payload)
+            song["archive_id"] = archive_id
             song["archive_sha256"] = archive_hash
             song["stored_size"] = entry.stored_size
             songs.append(song)
             archive_song_reports.append(song)
-            payload_by_name_and_hash[(entry.name.upper(), song["sha256"])] = payload
+            source_by_name_and_hash.setdefault(
+                (entry.name.upper(), song["sha256"]),
+                {
+                    "payload": payload,
+                    "provenance": {
+                        "archive_id": archive_id,
+                        "archive_sha256": archive_hash,
+                        "entry_sha256": song["sha256"],
+                        "format": song["format"],
+                        "driver_profile": song["profile"],
+                    },
+                },
+            )
             if entry.name.upper() == "ST02.M86" and song["sha256"] == BAD_APPLE_SHA256:
                 bad_apple_payload = payload
         archive_reports.append(
             {
+                "archive_id": archive_id,
                 "path": str(archive),
                 "sha256": archive_hash,
                 "m86_entries": sum(1 for entry in entries if entry.name.upper().endswith(".M86")),
@@ -1009,8 +1354,8 @@ def audit_corpus(
     for requested_name in trace_names:
         matches = sorted(
             (
-                (digest, payload)
-                for (name, digest), payload in payload_by_name_and_hash.items()
+                (digest, source)
+                for (name, digest), source in source_by_name_and_hash.items()
                 if name == requested_name.upper()
             ),
             key=lambda item: item[0],
@@ -1018,15 +1363,22 @@ def audit_corpus(
         if not matches:
             traces.append({"song": requested_name, "error": "not found"})
             continue
-        digest, payload = matches[0]
-        traced = trace_part(payload, 0, trace_note_limit)
-        traces.append({"song": requested_name, "sha256": digest, **traced})
+        digest, source = matches[0]
+        traced = trace_part(source["payload"], 0, trace_note_limit)
+        traces.append(
+            {
+                "song": requested_name,
+                "sha256": digest,
+                **source["provenance"],
+                **traced,
+            }
+        )
     oracles = []
     for requested_name in oracle_names or []:
         matches = sorted(
             (
-                (digest, payload)
-                for (name, digest), payload in payload_by_name_and_hash.items()
+                (digest, source)
+                for (name, digest), source in source_by_name_and_hash.items()
                 if name == requested_name.upper()
             ),
             key=lambda item: item[0],
@@ -1034,12 +1386,19 @@ def audit_corpus(
         if not matches:
             oracles.append({"song": requested_name, "error": "not found"})
             continue
-        _, payload = matches[0]
-        oracles.append(compact_normalized_oracle(build_normalized_song_oracle(requested_name.upper(), payload)))
+        _, source = matches[0]
+        oracles.append(
+            compact_normalized_oracle(
+                build_normalized_song_oracle(
+                    requested_name.upper(), source["payload"], source["provenance"]
+                )
+            )
+        )
     errors = []
     for song in songs:
         for error in song["errors"]:
             errors.append({"song": song["name"], "sha256": song["sha256"], "error": error})
+    checkpoint_audit = build_independent_checkpoint_audit()
     report = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "archives": archive_reports,
@@ -1048,8 +1407,16 @@ def audit_corpus(
         "unique_m86_count": len({song["sha256"] for song in songs if song["format"] == "M86"}),
         "unique_m26_count": len({song["sha256"] for song in songs if song["format"] == "M26"}),
         "scan_errors": errors,
+        "capability_table": [COMMAND_CAPABILITIES[key] for key in sorted(COMMAND_CAPABILITIES)],
+        "independent_checkpoint_audit": checkpoint_audit,
         "feature_summary": build_feature_summary(songs),
-        "unsupported_ranking": build_unsupported_ranking(songs),
+        "non_exact_ranking": build_non_exact_ranking(songs),
+        "import_assessments": build_import_assessments(
+            songs,
+            product_candidates or [],
+            research_fixtures or [],
+            checkpoint_audit,
+        ),
         "traces": traces,
         "normalized_oracles": oracles,
         "bad_apple_audit": None,
@@ -1066,10 +1433,22 @@ def write_json(path: Path, report: dict) -> None:
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def write_compact_json(path: Path, value: dict) -> None:
+    """Write a checked-in semantic oracle without report-only whitespace."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+
+
 def write_csv(path: Path, ranking: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=("opcode", "name", "unique_songs", "occurrences"))
+        writer = csv.DictWriter(
+            stream,
+            fieldnames=("capability_key", "opcode", "name", "state", "unique_songs", "occurrences"),
+        )
         writer.writeheader()
         for item in ranking:
             writer.writerow({key: item[key] for key in writer.fieldnames})
@@ -1087,10 +1466,17 @@ def print_report(report: dict) -> None:
         f"unique_M86={report['unique_m86_count']} unique_M26={report['unique_m26_count']} "
         f"scan_errors={len(report['scan_errors'])}"
     )
-    print("UNPRESERVED COMMAND RANKING")
-    for item in report["unsupported_ranking"]:
+    checkpoint_audit = report["independent_checkpoint_audit"]
+    print(
+        f"INDEPENDENT CHECKPOINT TRACES passed={checkpoint_audit['passed']} "
+        f"available={checkpoint_audit['available_trace_count']} "
+        f"required={checkpoint_audit['required_trace_count']}"
+    )
+    print("NON-EXACT CAPABILITY RANKING")
+    for item in report["non_exact_ranking"]:
         print(
-            f"{item['opcode']} {item['name']} songs={item['unique_songs']} "
+            f"{item['capability_key']} {item['name']} state={item['state']} "
+            f"songs={item['unique_songs']} "
             f"occurrences={item['occurrences']}"
         )
     print("FEATURE SUMMARY")
@@ -1119,6 +1505,18 @@ def print_report(report: dict) -> None:
                 f"ORACLE {oracle['song']} sha256={oracle['source_sha256']} "
                 f"parts={oracle['summary']['part_count']} notes={oracle['summary']['note_count']} "
                 f"oracle_sha256={oracle['oracle_sha256']}"
+            )
+    for assessment in report["import_assessments"]:
+        if "error" in assessment:
+            print(
+                f"IMPORT {assessment['song']} mode={assessment['mode']} "
+                f"passed=False error={assessment['error']}"
+            )
+        else:
+            print(
+                f"IMPORT {assessment['song']} mode={assessment['mode']} "
+                f"passed={assessment['passed']} catalog_eligible={assessment['catalog_eligible']} "
+                f"non_exact={len(assessment['non_exact_capabilities'])}"
             )
     audit = report["bad_apple_audit"]
     if audit is not None:
@@ -1154,6 +1552,14 @@ def main(argv: list[str] | None = None) -> int:
         "--oracle-song", action="append", default=[],
         help="Emit a full normalized semantic oracle for the named archive entry",
     )
+    parser.add_argument(
+        "--product-candidate", action="append", default=[],
+        help="Require every used opcode/subcommand to be EXACT before catalog admission",
+    )
+    parser.add_argument(
+        "--research-fixture", action="append", default=[],
+        help="Explicitly allow non-EXACT commands for a non-catalog research fixture",
+    )
     parser.add_argument("--bad-apple-audit", action="store_true")
     parser.add_argument("--json-out", type=Path)
     parser.add_argument(
@@ -1173,6 +1579,8 @@ def main(argv: list[str] | None = None) -> int:
         args.mml_bank,
         args.bad_apple_audit,
         args.oracle_song,
+        args.product_candidate,
+        args.research_fixture,
     )
     print_report(report)
     if args.json_out is not None:
@@ -1180,15 +1588,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.oracle_out is not None:
         if len(report["normalized_oracles"]) != 1:
             parser.error("--oracle-out requires exactly one --oracle-song")
-        write_json(args.oracle_out, report["normalized_oracles"][0])
+        write_compact_json(args.oracle_out, report["normalized_oracles"][0])
     if args.csv_out is not None:
-        write_csv(args.csv_out, report["unsupported_ranking"])
+        write_csv(args.csv_out, report["non_exact_ranking"])
     failed = bool(report["scan_errors"])
     if any("error" in trace for trace in report["traces"]):
         failed = True
     if any("error" in oracle for oracle in report["normalized_oracles"]):
         failed = True
     if report["bad_apple_audit"] is not None and not report["bad_apple_audit"]["passed"]:
+        failed = True
+    if any(not assessment["passed"] for assessment in report["import_assessments"]):
+        failed = True
+    if report["independent_checkpoint_audit"]["validation_errors"]:
         failed = True
     return 1 if args.strict and failed else 0
 

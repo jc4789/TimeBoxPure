@@ -7,8 +7,12 @@ import kotlin.test.assertTrue
 class SsgVoiceDeterminismTest {
     @Test
     fun testDeterminismAndSquare() {
-        val ssg1 = SsgVoice(0)
-        val ssg2 = SsgVoice(0)
+        val shared1 = SsgSharedState()
+        val shared2 = SsgSharedState()
+        shared1.writeToneEnabled(0, true)
+        shared2.writeToneEnabled(0, true)
+        val ssg1 = SsgVoice(0, shared1)
+        val ssg2 = SsgVoice(0, shared2)
 
         ssg1.noteOn(440f)
         ssg2.noteOn(440f)
@@ -22,7 +26,9 @@ class SsgVoiceDeterminismTest {
         assertTrue(buf1.contentEquals(buf2))
 
         val bufOneSec = FloatArray(44100)
-        val ssg = SsgVoice(0)
+        val shared = SsgSharedState(44_100)
+        shared.writeToneEnabled(0, true)
+        val ssg = SsgVoice(0, shared, 44_100)
         ssg.noteOn(440f)
         ssg.render(bufOneSec, 44100, 44100, 1.0f)
 
@@ -41,66 +47,109 @@ class SsgVoiceDeterminismTest {
 
     @Test
     fun llsLegacySoftwareEnvelopeFollowsPmdTickStages() {
-        val voice = SsgVoice(0)
+        val harness = EnvelopeHarness()
+        val voice = harness.voice
         val patch = requireNotNull(OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_LLS_SQUARE))
         voice.applyPatch(patch)
-        voice.configureSoftwareEnvelope(PmdPerformanceLaws.ENVELOPE_LEGACY, 2, -1, 24, 1, 0, 0)
-        voice.setSoftwareEnvelopeClockMode(PmdPerformanceLaws.ENVELOPE_CLOCK_NORMAL)
-        voice.setSoftwareEnvelopeTempo(180_000, 24)
-        voice.noteOn(440f)
+        harness.configure(PmdPerformanceLaws.ENVELOPE_LEGACY, 2, -1, 24, 1, 0, 0)
+        harness.setClockAndTempo(PmdPerformanceLaws.ENVELOPE_CLOCK_NORMAL, 180_000)
+        harness.noteOn()
 
-        voice.render(FloatArray(1_400), 1_400, 48_000, 1f)
-        assertEquals(-1, voice.softwareEnvelopeLevelOffsetSnapshot())
+        harness.render(1_400)
+        assertEquals(-1, harness.level())
 
-        voice.render(FloatArray(16_000), 16_000, 48_000, 1f)
-        assertEquals(-2, voice.softwareEnvelopeLevelOffsetSnapshot())
+        harness.render(16_000)
+        assertEquals(-2, harness.level())
 
-        val beforeRelease = voice.softwareEnvelopeLevelOffsetSnapshot()
-        voice.noteOff()
-        voice.render(FloatArray(700), 700, 48_000, 1f)
-        assertTrue(voice.softwareEnvelopeLevelOffsetSnapshot() < beforeRelease)
+        val beforeRelease = harness.level()
+        harness.noteOff()
+        harness.render(700)
+        assertTrue(harness.level() < beforeRelease)
     }
 
     @Test
     fun normalEnvelopeClockTracksTempoButExtendedClockDoesNot() {
         val slow = envelopeVoice(PmdPerformanceLaws.ENVELOPE_CLOCK_NORMAL, 60_000)
         val fast = envelopeVoice(PmdPerformanceLaws.ENVELOPE_CLOCK_NORMAL, 120_000)
-        slow.render(FloatArray(5_000), 5_000, 48_000, 1f)
-        fast.render(FloatArray(5_000), 5_000, 48_000, 1f)
-        assertTrue(fast.softwareEnvelopeLevelOffsetSnapshot() < slow.softwareEnvelopeLevelOffsetSnapshot())
+        slow.render(5_000)
+        fast.render(5_000)
+        assertTrue(fast.level() < slow.level())
 
         val extendedSlow = envelopeVoice(PmdPerformanceLaws.ENVELOPE_CLOCK_EXTENDED, 60_000)
         val extendedFast = envelopeVoice(PmdPerformanceLaws.ENVELOPE_CLOCK_EXTENDED, 240_000)
-        extendedSlow.render(FloatArray(5_000), 5_000, 48_000, 1f)
-        extendedFast.render(FloatArray(5_000), 5_000, 48_000, 1f)
+        extendedSlow.render(5_000)
+        extendedFast.render(5_000)
         assertEquals(
-            extendedSlow.softwareEnvelopeLevelOffsetSnapshot(),
-            extendedFast.softwareEnvelopeLevelOffsetSnapshot()
+            extendedSlow.level(),
+            extendedFast.level()
         )
     }
 
     @Test
     fun extendedEnvelopeRunsAttackDecayAndReleaseAtExClock() {
-        val voice = SsgVoice(0)
-        voice.configureSoftwareEnvelope(PmdPerformanceLaws.ENVELOPE_EXTENDED, 31, 31, 0, 15, 8, 0)
-        voice.setSoftwareEnvelopeClockMode(PmdPerformanceLaws.ENVELOPE_CLOCK_EXTENDED)
-        voice.setSoftwareEnvelopeTempo(60_000, 24)
-        voice.noteOn(440f)
-        assertEquals(0, voice.softwareEnvelopeLevelOffsetSnapshot())
+        val harness = EnvelopeHarness()
+        harness.configure(PmdPerformanceLaws.ENVELOPE_EXTENDED, 31, 31, 0, 15, 8, 0)
+        harness.setClockAndTempo(PmdPerformanceLaws.ENVELOPE_CLOCK_EXTENDED, 60_000)
+        harness.noteOn()
+        assertEquals(0, harness.level())
 
-        voice.render(FloatArray(900), 900, 48_000, 1f)
-        assertTrue(voice.softwareEnvelopeLevelOffsetSnapshot() < 0)
-        voice.noteOff()
-        voice.render(FloatArray(900), 900, 48_000, 1f)
-        assertTrue(!voice.enabled)
+        harness.render(900)
+        assertTrue(harness.level() < 0)
+        harness.noteOff()
+        harness.render(900)
+        assertTrue(!harness.voice.enabled)
     }
 
-    private fun envelopeVoice(clockMode: Int, tempoMilli: Int): SsgVoice {
+    private fun envelopeVoice(clockMode: Int, tempoMilli: Int): EnvelopeHarness {
+        val harness = EnvelopeHarness()
+        harness.configure(PmdPerformanceLaws.ENVELOPE_LEGACY, 0, 0, 1, 1, 0, 0)
+        harness.setClockAndTempo(clockMode, tempoMilli)
+        harness.noteOn()
+        return harness
+    }
+
+    private class EnvelopeHarness {
         val voice = SsgVoice(0)
-        voice.configureSoftwareEnvelope(PmdPerformanceLaws.ENVELOPE_LEGACY, 0, 0, 1, 1, 0, 0)
-        voice.setSoftwareEnvelopeClockMode(clockMode)
-        voice.setSoftwareEnvelopeTempo(tempoMilli, 24)
-        voice.noteOn(440f)
-        return voice
+        private val performance = PmdPerformanceState(SAMPLE_RATE)
+
+        fun configure(type: Int, al: Int, dd: Int, sr: Int, rr: Int, sl: Int, ar: Int) {
+            performance.configureSsgEnvelope(0, type, al, dd, sr, rr, sl, ar)
+        }
+
+        fun setClockAndTempo(clockMode: Int, tempoMilli: Int) {
+            performance.setSsgEnvelopeClockMode(0, clockMode)
+            performance.setTempo(tempoMilli, 24)
+        }
+
+        fun noteOn() {
+            performance.setSsgBaseLevel(0, voice.fixedLevelSnapshot())
+            performance.noteOnSsg(0)
+            voice.noteOn(440f)
+        }
+
+        fun noteOff() {
+            voice.noteOff(performance.noteOffSsg(0))
+        }
+
+        fun level(): Int = performance.ssgEnvelopeLevelOffsetSnapshot(0)
+
+        fun render(frames: Int) {
+            val output = FloatArray(frames)
+            var rendered = 0
+            while (rendered < frames) {
+                val count = minOf(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK, frames - rendered)
+                performance.setSsgBaseLevel(0, voice.fixedLevelSnapshot())
+                performance.prepare(count)
+                voice.renderDriven(
+                    output, count, SAMPLE_RATE, 1f, rendered,
+                    sharedPrepared = false, driverFrame = performance.ssgFrame(0)
+                )
+                rendered += count
+            }
+        }
+
+        companion object {
+            private const val SAMPLE_RATE = 48_000
+        }
     }
 }

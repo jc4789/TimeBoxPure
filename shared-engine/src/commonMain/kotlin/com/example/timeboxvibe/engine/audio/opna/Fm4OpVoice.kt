@@ -14,7 +14,6 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private val opSpec: Array<OperatorSpec?> = arrayOfNulls(AudioLaws.FM_OPERATORS)
     private var patch: FmPatch? = null
     private var configuredOperatorMask: Int = 0
-    private var pmdPerformanceState: PmdPerformanceState? = null
     private var channelAlgorithm: Int = 0
     private var channelFeedback: Int = 0
     private var channelTotalLevel: Float = 1f
@@ -29,17 +28,11 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private var detuneCents: Int = 0
     private var targetMidi: Int = -1
     private var requestedSlideFrames: Int = 0
-    private var lfoDelayFrames: Int = 0
     private var lfoDelayRemaining: Int = 0
     private var currentPmQ20: Int = 0
     private var currentAmAttenuation: Int = 0
-    private var currentSoftwarePitch1Q20: Int = 0
-    private var currentSoftwarePitch2Q20: Int = 0
-    private var currentSoftwareVolume1: Int = 0
-    private var currentSoftwareVolume2: Int = 0
-    private var softwareLfoActive = false
-    private val softwareLfo1 = PmdSoftwareLfo(sampleRate, PmdPerformanceLaws.SOFTWARE_LFO_RANDOM_SEED)
-    private val softwareLfo2 = PmdSoftwareLfo(sampleRate, PmdPerformanceLaws.SOFTWARE_LFO_RANDOM_SEED xor 0x2468ACE0)
+    private val currentDriverPitchQ20 = IntArray(AudioLaws.FM_OPERATORS)
+    private val currentDriverVolumeOffset = IntArray(AudioLaws.FM_OPERATORS)
     private val rampStartStep = LongArray(AudioLaws.FM_OPERATORS)
     private val rampTargetStep = LongArray(AudioLaws.FM_OPERATORS)
     private var rampFrames: Int = 0
@@ -55,9 +48,6 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private val slotKeyOnDelayFrames = IntArray(AudioLaws.FM_OPERATORS)
     private val pendingKeyOnFrames = IntArray(AudioLaws.FM_OPERATORS)
     private val pendingKeyOn = BooleanArray(AudioLaws.FM_OPERATORS)
-
-    var channelAms: Int = 0
-    var channelPms: Int = 0
 
     var enableOversampling: Boolean = false
         set(value) {
@@ -82,8 +72,6 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         channelAlgorithm = p.algorithm.coerceIn(0, 7)
         channelFeedback = p.feedback.coerceIn(0, 7)
         channelTotalLevel = p.totalLevel
-        channelAms = p.ams.coerceIn(0, 3)
-        channelPms = p.pms.coerceIn(0, 7)
         setupOpState(0, p.op0)
         setupOpState(1, p.op1)
         setupOpState(2, p.op2)
@@ -110,10 +98,6 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             opIndex++
         }
         updateEnvelopeSampleRates()
-    }
-
-    internal fun attachPmdPerformanceState(state: PmdPerformanceState) {
-        pmdPerformanceState = state
     }
 
     private fun updateEnvelopeSampleRates() {
@@ -209,6 +193,8 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     internal fun slotPendingKeyOnSnapshot(opIdx: Int): Boolean =
         pendingKeyOn[opIdx.coerceIn(0, AudioLaws.FM_OPERATORS - 1)]
 
+    internal fun hardwareLfoDelayRemainingSnapshot(): Int = lfoDelayRemaining
+
     internal fun channelTotalLevelSnapshot(): Float = channelTotalLevel
 
     internal fun feedbackHistorySnapshot(): Long =
@@ -235,47 +221,18 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         return OpnPitch.phaseStep29(packedPitch, spec, effectiveSampleRate, detuneCents)
     }
 
-    internal fun setPerformanceControls(
+    internal fun setNoteControls(
         pan: Int,
         cents: Int,
-        pms: Int,
-        ams: Int,
         delayFrames: Int,
         slideTargetMidi: Int,
         slideFrames: Int
     ) {
-        panOverride = pan.coerceIn(0, 2)
+        panOverride = pan.coerceIn(0, 3)
         detuneCents = cents.coerceIn(-1_200, 1_200)
-        channelPms = pms.coerceIn(0, 7)
-        channelAms = ams.coerceIn(0, 3)
-        lfoDelayFrames = delayFrames.coerceAtLeast(0)
+        lfoDelayRemaining = delayFrames.coerceAtLeast(0)
         targetMidi = slideTargetMidi
         requestedSlideFrames = slideFrames.coerceAtLeast(0)
-    }
-
-    internal fun configureSoftwareLfo(index: Int, delay: Int, speed: Int, depthA: Int, depthB: Int) {
-        softwareLfo(index).configure(delay, speed, depthA, depthB)
-    }
-
-    internal fun setSoftwareLfoSwitch(index: Int, value: Int) {
-        softwareLfo(index).setSwitch(value)
-        softwareLfoActive = softwareLfo1.enabled || softwareLfo2.enabled
-    }
-
-    internal fun setSoftwareLfoWaveform(index: Int, value: Int) {
-        softwareLfo(index).setWaveform(value)
-    }
-
-    internal fun setSoftwareLfoClockMode(index: Int, value: Int) {
-        softwareLfo(index).setClockMode(value)
-    }
-
-    internal fun setSoftwareLfoTlMask(index: Int, value: Int) {
-        softwareLfo(index).setTlMask(value)
-    }
-
-    internal fun setSoftwareLfoDepthEvolution(index: Int, speed: Int, depth: Int, time: Int) {
-        softwareLfo(index).setDepthEvolution(speed, depth, time)
     }
 
     internal fun setSlotDetune(slotMask: Int, value: Int, relative: Boolean) {
@@ -319,12 +276,8 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         }
     }
 
-    internal fun setSoftwareLfoTempo(bpmMilli: Int, clocksPerQuarter: Int) {
-        softwareLfo1.setTempo(bpmMilli, clocksPerQuarter)
-        softwareLfo2.setTempo(bpmMilli, clocksPerQuarter)
-    }
-
     fun noteOn(midi: Int) {
+        lfoDelayRemaining = 0
         noteOnInternal(midi, NO_ADSR_OVERRIDE, NO_ADSR_OVERRIDE, NO_ADSR_OVERRIDE, NO_ADSR_OVERRIDE)
     }
 
@@ -335,6 +288,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         sustain: Float?,
         release: Float?
     ) {
+        lfoDelayRemaining = 0
         noteOnInternal(
             midi,
             attack ?: NO_ADSR_OVERRIDE,
@@ -391,9 +345,6 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             targetMidi = -1
             requestedSlideFrames = 0
         }
-        lfoDelayRemaining = lfoDelayFrames
-        softwareLfo1.noteOn()
-        softwareLfo2.noteOn()
         var i = 0
         while (i < AudioLaws.FM_OPERATORS) {
             val op = opState[i]
@@ -440,8 +391,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         midi: Int,
         slideTargetMidi: Int = -1,
         slideFrames: Int = 0,
-        cents: Int = 0,
-        fm3Part: Int = -1
+        cents: Int = 0
     ) {
         val pitch = OpnPitch.nearestBlockFnumForMidi(midi)
         specialMode = true
@@ -478,11 +428,6 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             }
             index++
         }
-        lfoDelayRemaining = lfoDelayFrames
-        if (fm3Part >= 0) pmdPerformanceState?.noteOn(fm3Part) else {
-            softwareLfo1.noteOn()
-            softwareLfo2.noteOn()
-        }
     }
 
     internal fun noteOffOperator(operator: Int) {
@@ -509,9 +454,8 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         op0Feedback2 = 0
         lowPassPrev = 0f
         specialMode = false
-        softwareLfo1.reset()
-        softwareLfo2.reset()
-        softwareLfoActive = false
+        currentDriverPitchQ20.fill(0)
+        currentDriverVolumeOffset.fill(0)
         var i = 0
         while (i < AudioLaws.FM_OPERATORS) {
             opState[i].phase = 0u
@@ -536,24 +480,16 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         op0Feedback2 = 0
         lowPassPrev = 0f
         noteGain = 1f
-        channelAms = 0
-        channelPms = 0
         panOverride = -1
         detuneCents = 0
         targetMidi = -1
         requestedSlideFrames = 0
-        lfoDelayFrames = 0
         lfoDelayRemaining = 0
         rampFrames = 0
         rampPosition = 0
         specialMode = false
-        softwareLfo1.reset()
-        softwareLfo2.reset()
-        softwareLfoActive = false
-        currentSoftwarePitch1Q20 = 0
-        currentSoftwarePitch2Q20 = 0
-        currentSoftwareVolume1 = 0
-        currentSoftwareVolume2 = 0
+        currentDriverPitchQ20.fill(0)
+        currentDriverVolumeOffset.fill(0)
         var i = 0
         while (i < AudioLaws.FM_OPERATORS) {
             opState[i].reset()
@@ -584,13 +520,20 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         startFrame: Int = 0,
         lfo: Lfo? = null
     ) {
+        renderDriven(buffer, frames, sampleRate, gainScale, startFrame, lfo, null, null)
+    }
+
+    internal fun renderDriven(
+        buffer: FloatArray,
+        frames: Int,
+        sampleRate: Int,
+        gainScale: Float,
+        startFrame: Int,
+        lfo: Lfo?,
+        driverFrame: PmdModulationFrame?,
+        fm3DriverFrames: Array<PmdModulationFrame?>?
+    ) {
         if (configuredOperatorMask == 0) {
-            if (!softwareLfoActive) return
-            var frame = 0
-            while (frame < frames) {
-                setLfoFrame(null, 0, clockFrame = true)
-                frame++
-            }
             return
         }
 
@@ -603,9 +546,9 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             var frame = 0
             while (frame < frames) {
                 val first = frame * 2
-                setLfoFrame(lfo, frame, clockFrame = true)
+                setLfoFrame(lfo, frame, clockFrame = true, driverFrame, fm3DriverFrames)
                 oversampleBuffer[first] = renderOne(clockEnvelope = true) * combinedGain
-                setLfoFrame(lfo, frame, clockFrame = false)
+                setLfoFrame(lfo, frame, clockFrame = false, driverFrame, fm3DriverFrames)
                 oversampleBuffer[first + 1] = renderOne(clockEnvelope = false) * combinedGain
                 frame++
             }
@@ -613,7 +556,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         } else {
             var i = 0
             while (i < frames) {
-                setLfoFrame(lfo, i, clockFrame = true)
+                setLfoFrame(lfo, i, clockFrame = true, driverFrame, fm3DriverFrames)
                 val sample = renderOne(clockEnvelope = true)
                 buffer[startFrame + i] += sample * combinedGain
                 i++
@@ -757,34 +700,30 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private fun basePhaseAddress(op: OperatorState): Int =
         ((op.phase shr PHASE_ADDRESS_SHIFT) and PHASE_ADDRESS_MASK_UINT).toInt()
 
-    private fun setLfoFrame(lfo: Lfo?, frame: Int, clockFrame: Boolean) {
+    private fun setLfoFrame(
+        lfo: Lfo?,
+        frame: Int,
+        clockFrame: Boolean,
+        driverFrame: PmdModulationFrame?,
+        fm3DriverFrames: Array<PmdModulationFrame?>?
+    ) {
         val delayed = lfoDelayRemaining > 0
         if (clockFrame && delayed) lfoDelayRemaining--
         if (lfo == null || delayed) {
             currentPmQ20 = 0
             currentAmAttenuation = 0
         } else {
-            val pmDepth = OpnaLfoLaws.pmsDepthQ20(channelPms)
+            val pmDepth = OpnaLfoLaws.pmsDepthQ20(driverFrame?.hardwarePms ?: 0)
             currentPmQ20 = (lfo.pmAt(frame) * pmDepth) shr 10
-            val amDepth = OpnaLfoLaws.amsDepthAttenuation(channelAms)
+            val amDepth = OpnaLfoLaws.amsDepthAttenuation(driverFrame?.hardwareAms ?: 0)
             currentAmAttenuation = (lfo.amAt(frame) * amDepth) shr 10
         }
-        if (softwareLfoActive) {
-            currentSoftwarePitch1Q20 = softwareLfo1.pitchValue() shl 9
-            currentSoftwarePitch2Q20 = softwareLfo2.pitchValue() shl 9
-            currentSoftwareVolume1 = softwareLfo1.volumeValue()
-            currentSoftwareVolume2 = softwareLfo2.volumeValue()
-            if (clockFrame) {
-                softwareLfo1.advanceSample()
-                softwareLfo2.advanceSample()
-            }
-        } else {
-            currentSoftwarePitch1Q20 = 0
-            currentSoftwarePitch2Q20 = 0
-            currentSoftwareVolume1 = 0
-            currentSoftwareVolume2 = 0
+        var operator = 0
+        while (operator < AudioLaws.FM_OPERATORS) {
+            val selected = if (specialMode) fm3DriverFrames?.get(operator) else driverFrame
+            copyDriverFrame(selected, frame, operator)
+            operator++
         }
-        if (specialMode) pmdPerformanceState?.prepareFrame(clockFrame)
     }
 
     private fun operatorAttenuation(op: OperatorState, opIndex: Int, clockEnvelope: Boolean): Int {
@@ -795,59 +734,42 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             op.opnEnvelope.currentAttenuation()
         }
         var result = envelope + if (op.amEnabled) currentAmAttenuation else 0
-        if (specialMode) {
-            val state = pmdPerformanceState
-            if (state != null) {
-                val part = state.partForOperator(opIndex)
-                result += state.volumeOffset(part, opIndex, isCarrier(opIndex, channelAlgorithm))
-            }
-        } else {
-            if (currentSoftwareVolume1 != 0 && softwareLfoTargetsOperator(softwareLfo1, opIndex)) {
-                result -= currentSoftwareVolume1 * 8
-            }
-            if (currentSoftwareVolume2 != 0 && softwareLfoTargetsOperator(softwareLfo2, opIndex)) {
-                result -= currentSoftwareVolume2 * 8
-            }
-        }
+        result += currentDriverVolumeOffset[opIndex]
         return result
     }
 
     private fun advancePhase(op: OperatorState, opIndex: Int) {
         val base = op.phaseStep.toLong()
-        var softwarePitch = 0
-        if (specialMode) {
-            val state = pmdPerformanceState
-            if (state != null) softwarePitch = state.pitchQ20(state.partForOperator(opIndex), opIndex)
-        } else {
-            if (softwareLfoTargetsPitchOperator(softwareLfo1, opIndex)) softwarePitch += currentSoftwarePitch1Q20
-            if (softwareLfoTargetsPitchOperator(softwareLfo2, opIndex)) softwarePitch += currentSoftwarePitch2Q20
-        }
+        val softwarePitch = currentDriverPitchQ20[opIndex]
         val delta = (base * (currentPmQ20 + softwarePitch).toLong()) shr 20
         op.phase += (base + delta).coerceAtLeast(0L).toUInt()
     }
 
-    private fun softwareLfoTargetsOperator(lfo: PmdSoftwareLfo, opIndex: Int): Boolean {
-        if (!lfo.targetsVolume) return false
-        val selected = lfo.tlMask()
-        return if (selected == 0) {
-            isCarrier(opIndex, patch?.algorithm ?: 0)
-        } else {
-            (selected and (1 shl opIndex)) != 0
+    private fun copyDriverFrame(frame: PmdModulationFrame?, frameIndex: Int, operator: Int) {
+        if (frame == null) {
+            currentDriverPitchQ20[operator] = 0
+            currentDriverVolumeOffset[operator] = 0
+            return
         }
+        val bit = 1 shl operator
+        var pitch = 0
+        if (frame.pitchTarget1 && (frame.tlMask1 == 0 || (frame.tlMask1 and bit) != 0)) {
+            pitch += frame.pitch1Q20[frameIndex]
+        }
+        if (frame.pitchTarget2 && (frame.tlMask2 == 0 || (frame.tlMask2 and bit) != 0)) {
+            pitch += frame.pitch2Q20[frameIndex]
+        }
+        var attenuation = frame.baseAttenuation
+        val carrier = isCarrier(operator, channelAlgorithm)
+        if (frame.volumeTarget1 && (if (frame.tlMask1 == 0) carrier else (frame.tlMask1 and bit) != 0)) {
+            attenuation -= frame.volume1[frameIndex] * 8
+        }
+        if (frame.volumeTarget2 && (if (frame.tlMask2 == 0) carrier else (frame.tlMask2 and bit) != 0)) {
+            attenuation -= frame.volume2[frameIndex] * 8
+        }
+        currentDriverPitchQ20[operator] = pitch
+        currentDriverVolumeOffset[operator] = attenuation
     }
-
-    private fun softwareLfoTargetsPitchOperator(lfo: PmdSoftwareLfo, opIndex: Int): Boolean {
-        if (!lfo.targetsPitch) return false
-        if (!specialMode) return true
-        val mask = lfo.tlMask()
-        return mask == 0 || (mask and (1 shl opIndex)) != 0
-    }
-
-    private fun softwareLfo(index: Int): PmdSoftwareLfo = if (index == 0) softwareLfo1 else softwareLfo2
-
-    internal fun softwareLfoValueSnapshot(index: Int): Int = softwareLfo(index).valueSnapshot()
-
-    internal fun softwareLfoTlMaskSnapshot(index: Int): Int = softwareLfo(index).tlMask()
 
     private fun configurePitchRamp(p: FmPatch) {
         rampPosition = 0

@@ -22,7 +22,7 @@ class RinToShiteSongTest {
         assertEquals(2, program.dialectVersion)
         assertEquals(-1, program.lfoRate)
         assertEquals(10L * 4L * CompiledOpnaSong.TICKS_PER_QUARTER, program.durationTicks)
-        assertEquals(271, program.eventCount)
+        assertEquals(283, program.eventCount)
         assertTrue(program.durationMilliseconds() in 17_000L..18_000L)
         assertTrue(MmlSongBank.RIN_TO_SHITE_MML.contains("A @brass V72 Q8 p3 l8"))
         assertTrue(MmlSongBank.RIN_TO_SHITE_MML.contains("B @strings V62 Q8 p2 l2"))
@@ -46,7 +46,7 @@ class RinToShiteSongTest {
         val playerA = MmlArrangementScheduler.createPlayer(arrangement, synthA, sampleRate)
         val playerB = MmlArrangementScheduler.createPlayer(arrangement, synthB, sampleRate)
 
-        assertEquals(543, playerA.eventCount)
+        assertEquals(555, playerA.eventCount)
         assertEquals(playerA.eventCount, playerB.eventCount)
         assertTrue(playerA.loopLengthSamples > 0L)
 

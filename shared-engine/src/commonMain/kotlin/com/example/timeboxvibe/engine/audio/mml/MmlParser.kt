@@ -10,6 +10,11 @@ data class MmlDiagnostic(val line: Int, val column: Int, val reason: String)
 enum class MmlChannelId { A, B, C, D, E, F, G, H, I, C1, C2, C3, C4, K, R }
 
 sealed class MmlCommand(open val line: Int, open val column: Int) {
+    /** Canonical authored order assigned after all logical-part sources are parsed. */
+    internal var sourceOrder: Int = -1
+    /** Occurrence order after loop expansion within this logical source. */
+    internal var expansionOccurrence: Int = -1
+
     data class Instrument(val value: String, override val line: Int, override val column: Int) : MmlCommand(line, column)
     data class Volume(val value: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
     data class FineVolume(val value: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
@@ -100,10 +105,23 @@ sealed class MmlCommand(open val line: Int, open val column: Int) {
     data class HardwareLfo(
         val pms: Int,
         val ams: Int,
-        val delayDenominator: Int?,
+        val delayKind: Int,
+        val delayValue: Int,
+        val delayDotted: Boolean,
         override val line: Int,
         override val column: Int
     ) : MmlCommand(line, column)
+    data class HardwareLfoGlobal(
+        val enabled: Boolean,
+        val rate: Int?,
+        override val line: Int,
+        override val column: Int
+    ) : MmlCommand(line, column)
+    data class SsgToneEnable(val enabled: Boolean, override val line: Int, override val column: Int) : MmlCommand(line, column)
+    data class SsgNoiseEnable(val enabled: Boolean, override val line: Int, override val column: Int) : MmlCommand(line, column)
+    data class SsgNoisePeriod(val period: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
+    data class SsgHardwareEnvelopePeriod(val period: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
+    data class SsgHardwareEnvelopeShape(val shape: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
     data class SoftwareLfoDefine(
         val index: Int,
         val delay: Int,
@@ -148,6 +166,9 @@ sealed class MmlCommand(open val line: Int, open val column: Int) {
         const val LINK_NONE = 0
         const val LINK_TIE = 1
         const val LINK_SLUR = 2
+        const val HARDWARE_LFO_DELAY_NONE = 0
+        const val HARDWARE_LFO_DELAY_RAW_CLOCKS = 1
+        const val HARDWARE_LFO_DELAY_NOTE_LENGTH = 2
     }
 }
 
@@ -184,17 +205,17 @@ object MmlParser {
         private val lines = mutableListOf<Int>()
         private val columns = mutableListOf<Int>()
 
-        fun append(value: String, start: Int, line: Int) {
-            var i = start
-            while (i < value.length) {
-                text.append(value[i])
+        fun append(value: ExpandedLine, line: Int) {
+            var i = 0
+            while (i < value.text.length) {
+                text.append(value.text[i])
                 lines.add(line)
-                columns.add(i + 1)
+                columns.add(value.columns[i])
                 i++
             }
             text.append(' ')
             lines.add(line)
-            columns.add(value.length + 1)
+            columns.add(if (value.columns.isEmpty()) 1 else value.columns[value.columns.lastIndex] + 1)
         }
 
         fun build(): ChannelSource {
@@ -209,6 +230,8 @@ object MmlParser {
             return ChannelSource(text.toString(), lineMap, columnMap)
         }
     }
+
+    private data class ExpandedLine(val text: String, val columns: IntArray)
 
     private data class ChannelSource(val text: String, val lines: IntArray, val columns: IntArray) {
         fun lineAt(index: Int): Int = lines[index.coerceIn(0, lines.lastIndex)]
@@ -334,19 +357,31 @@ object MmlParser {
                         currentChannel = null
                         currentRhythmPattern = patternId
                         val builder = rhythmPatternSources[patternId] ?: ChannelSourceBuilder().also { rhythmPatternSources[patternId] = it }
-                        val expanded = expandMacros(line.substring(labelEnd), macroNames, macroBodies, lineIndex + 1, diagnostics)
-                        builder.append(expanded, 0, lineIndex + 1)
+                        val expanded = expandMacros(
+                            line.substring(labelEnd), labelEnd, macroNames, macroBodies,
+                            lineIndex + 1, diagnostics
+                        )
+                        builder.append(expanded, lineIndex + 1)
                     } else if (channel != null) {
                         currentChannel = channel
                         currentRhythmPattern = -1
-                        val expanded = expandMacros(line.substring(labelEnd), macroNames, macroBodies, lineIndex + 1, diagnostics)
-                        sources[channel.ordinal].append(expanded, 0, lineIndex + 1)
+                        val expanded = expandMacros(
+                            line.substring(labelEnd), labelEnd, macroNames, macroBodies,
+                            lineIndex + 1, diagnostics
+                        )
+                        sources[channel.ordinal].append(expanded, lineIndex + 1)
                     } else if (currentRhythmPattern >= 0) {
-                        val expanded = expandMacros(line.substring(first), macroNames, macroBodies, lineIndex + 1, diagnostics)
-                        rhythmPatternSources[currentRhythmPattern]!!.append(expanded, 0, lineIndex + 1)
+                        val expanded = expandMacros(
+                            line.substring(first), first, macroNames, macroBodies,
+                            lineIndex + 1, diagnostics
+                        )
+                        rhythmPatternSources[currentRhythmPattern]!!.append(expanded, lineIndex + 1)
                     } else if (currentChannel != null) {
-                        val expanded = expandMacros(line.substring(first), macroNames, macroBodies, lineIndex + 1, diagnostics)
-                        sources[currentChannel.ordinal].append(expanded, 0, lineIndex + 1)
+                        val expanded = expandMacros(
+                            line.substring(first), first, macroNames, macroBodies,
+                            lineIndex + 1, diagnostics
+                        )
+                        sources[currentChannel.ordinal].append(expanded, lineIndex + 1)
                     } else {
                         diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "Music data requires a preceding channel A, B, C, D, E, or R"))
                     }
@@ -368,6 +403,7 @@ object MmlParser {
                     MmlChannelId.entries[i], 0, commands, diagnostics
                 )
             }
+            assignExpansionOccurrences(commands)
             resultTracks.add(MmlTrack(MmlChannelId.entries[i], commands))
             i++
         }
@@ -379,6 +415,7 @@ object MmlParser {
                 val patternSource = builder.build()
                 val commands = mutableListOf<MmlCommand>()
                 parseCommands(patternSource, 0, patternSource.text.length, dialectVersion, MmlChannelId.R, 0, commands, diagnostics)
+                assignExpansionOccurrences(commands)
                 rhythmPatterns.add(MmlRhythmPattern(i, commands))
             }
             i++
@@ -392,6 +429,7 @@ object MmlParser {
             diagnostics.add(MmlDiagnostic(1, 1, "#PMDCLOCK and #EnvelopeSpeed require #MML 2"))
         }
         if (diagnostics.isNotEmpty()) return MmlParseResult.Failure(diagnostics)
+        assignSourceOrder(resultTracks, rhythmPatterns)
         return MmlParseResult.Success(
             MmlDocument(
                 bpm!!,
@@ -494,9 +532,19 @@ object MmlParser {
                     diagnostics.add(MmlDiagnostic(source.lineAt(i), source.columnAt(i), "Expanded loop exceeds parser command capacity"))
                     return
                 }
-                var repeatIndex = 0
+                output.addAll(loopCommands)
+                var repeatIndex = 1
                 while (repeatIndex < repeatCount) {
-                    output.addAll(loopCommands)
+                    parseCommands(
+                        source,
+                        i + 1,
+                        close,
+                        dialectVersion,
+                        channel,
+                        loopDepth + 1,
+                        output,
+                        diagnostics
+                    )
                     repeatIndex++
                 }
                 i = repeatEnd
@@ -746,32 +794,117 @@ object MmlParser {
                 } else {
                     diagnostics.add(MmlDiagnostic(source.lineAt(tokenStart), source.columnAt(tokenStart), "*/ *A/ *B requires one switch value"))
                 }
+            } else if (raw == '#') {
+                val tokenStart = i
+                i++
+                while (i < end && text[i].isWhitespace()) i++
+                val switchValue = parseUnsignedInteger(text, i, end)
+                i = switchValue.second
+                var rate: Int? = null
+                if (i < end && text[i] == ',') {
+                    i++
+                    while (i < end && text[i].isWhitespace()) i++
+                    val parsedRate = parseUnsignedInteger(text, i, end)
+                    rate = parsedRate.first
+                    i = parsedRate.second
+                }
+                val selectedSwitch = switchValue.first
+                if (selectedSwitch == null || selectedSwitch !in 0..1 || (selectedSwitch == 1 && rate == null)) {
+                    diagnostics.add(
+                        MmlDiagnostic(
+                            source.lineAt(tokenStart), source.columnAt(tokenStart),
+                            "OPNA hardware LFO requires #0[,rate] or #1,rate"
+                        )
+                    )
+                } else {
+                    output.add(
+                        MmlCommand.HardwareLfoGlobal(
+                            selectedSwitch == 1,
+                            rate,
+                            source.lineAt(tokenStart),
+                            source.columnAt(tokenStart)
+                        )
+                    )
+                }
             } else if (raw == 'H') {
                 val tokenStart = i
                 i++
                 val pmsStart = i
                 while (i < end && text[i].isDigit()) i++
                 val pms = text.substring(pmsStart, i).toIntOrNull()
-                if (i >= end || text[i] != ',') {
-                    diagnostics.add(MmlDiagnostic(source.lineAt(tokenStart), source.columnAt(tokenStart), "H requires H<pms>,<ams>[,l<delay>]"))
-                } else {
+                var ams = 0
+                var delayKind = MmlCommand.HARDWARE_LFO_DELAY_NONE
+                var delayValue = 0
+                var delayDotted = false
+                var valid = pms != null
+                if (i < end && text[i] == ',') {
                     i++
                     val amsStart = i
                     while (i < end && text[i].isDigit()) i++
-                    val ams = text.substring(amsStart, i).toIntOrNull()
-                    var delay: Int? = null
+                    val parsedAms = text.substring(amsStart, i).toIntOrNull()
+                    if (parsedAms == null) valid = false else ams = parsedAms
                     if (i < end && text[i] == ',') {
                         i++
-                        if (i < end && text[i].lowercaseChar() == 'l') i++
+                        if (i < end && text[i].lowercaseChar() == 'l') {
+                            delayKind = MmlCommand.HARDWARE_LFO_DELAY_NOTE_LENGTH
+                            i++
+                        } else {
+                            delayKind = MmlCommand.HARDWARE_LFO_DELAY_RAW_CLOCKS
+                        }
                         val delayStart = i
                         while (i < end && text[i].isDigit()) i++
-                        delay = text.substring(delayStart, i).toIntOrNull()
+                        val parsedDelay = text.substring(delayStart, i).toIntOrNull()
+                        if (parsedDelay == null) valid = false else delayValue = parsedDelay
+                        if (delayKind == MmlCommand.HARDWARE_LFO_DELAY_NOTE_LENGTH && i < end && text[i] == '.') {
+                            delayDotted = true
+                            i++
+                        }
                     }
-                    if (pms == null || ams == null || (i > tokenStart && delay == null && text[i - 1] == ',')) {
-                        diagnostics.add(MmlDiagnostic(source.lineAt(tokenStart), source.columnAt(tokenStart), "H requires H<pms>,<ams>[,l<delay>]"))
-                    } else {
-                        output.add(MmlCommand.HardwareLfo(pms, ams, delay, source.lineAt(tokenStart), source.columnAt(tokenStart)))
-                    }
+                }
+                if (!valid) {
+                    diagnostics.add(MmlDiagnostic(source.lineAt(tokenStart), source.columnAt(tokenStart), "H requires H<pms>[,<ams>][,<clocks>|,l<length>[.]]"))
+                } else {
+                    output.add(
+                        MmlCommand.HardwareLfo(
+                            pms!!, ams, delayKind, delayValue, delayDotted,
+                            source.lineAt(tokenStart), source.columnAt(tokenStart)
+                        )
+                    )
+                }
+            } else if (raw == 'S') {
+                val tokenStart = i
+                i++
+                val kindStart = i
+                while (i < end && text[i].isLetter()) i++
+                val kind = text.substring(kindStart, i).uppercase()
+                val parsed = parseUnsignedInteger(text, i, end)
+                i = parsed.second
+                val value = parsed.first
+                val locationLine = source.lineAt(tokenStart)
+                val locationColumn = source.columnAt(tokenStart)
+                when (kind) {
+                    "T" -> if (value == 0 || value == 1) {
+                        output.add(MmlCommand.SsgToneEnable(value == 1, locationLine, locationColumn))
+                    } else diagnostics.add(MmlDiagnostic(locationLine, locationColumn, "ST requires ST0 or ST1"))
+                    "N" -> if (value == 0 || value == 1) {
+                        output.add(MmlCommand.SsgNoiseEnable(value == 1, locationLine, locationColumn))
+                    } else diagnostics.add(MmlDiagnostic(locationLine, locationColumn, "SN requires SN0 or SN1"))
+                    "NP" -> if (value != null) {
+                        output.add(MmlCommand.SsgNoisePeriod(value, locationLine, locationColumn))
+                    } else diagnostics.add(MmlDiagnostic(locationLine, locationColumn, "SNP requires a noise period 1..31"))
+                    "EP" -> if (value != null) {
+                        output.add(MmlCommand.SsgHardwareEnvelopePeriod(value, locationLine, locationColumn))
+                    } else diagnostics.add(MmlDiagnostic(locationLine, locationColumn, "SEP requires an envelope period 1..65535"))
+                    "ES" -> if (value != null) {
+                        output.add(MmlCommand.SsgHardwareEnvelopeShape(value, locationLine, locationColumn))
+                    } else diagnostics.add(MmlDiagnostic(locationLine, locationColumn, "SES requires a shape 0..15 and explicitly restarts the envelope"))
+                    else -> diagnostics.add(
+                        MmlDiagnostic(
+                            locationLine,
+                            locationColumn,
+                            "SSG hardware commands are ST, SN, SNP, SEP, and SES"
+                        )
+                    )
                 }
             } else if (raw == 'E') {
                 val tokenStart = i
@@ -1052,6 +1185,43 @@ object MmlParser {
         return ParsedIntegerList(values, index)
     }
 
+    private fun assignSourceOrder(tracks: List<MmlTrack>, rhythmPatterns: List<MmlRhythmPattern>) {
+        val commands = ArrayList<MmlCommand>()
+        var trackIndex = 0
+        while (trackIndex < tracks.size) {
+            commands.addAll(tracks[trackIndex].commands)
+            trackIndex++
+        }
+        var patternIndex = 0
+        while (patternIndex < rhythmPatterns.size) {
+            commands.addAll(rhythmPatterns[patternIndex].commands)
+            patternIndex++
+        }
+        commands.sortWith(
+            compareBy<MmlCommand> { it.line }
+                .thenBy { it.expansionOccurrence }
+                .thenBy { it.column }
+        )
+        var sourceOrder = 0
+        var commandIndex = 0
+        while (commandIndex < commands.size) {
+            val command = commands[commandIndex]
+            if (command.sourceOrder < 0) {
+                command.sourceOrder = sourceOrder
+                sourceOrder++
+            }
+            commandIndex++
+        }
+    }
+
+    private fun assignExpansionOccurrences(commands: List<MmlCommand>) {
+        var occurrence = 0
+        while (occurrence < commands.size) {
+            commands[occurrence].expansionOccurrence = occurrence
+            occurrence++
+        }
+    }
+
     private fun firstNonWhitespace(value: String): Int {
         var i = 0
         while (i < value.length) {
@@ -1079,20 +1249,24 @@ object MmlParser {
 
     private fun expandMacros(
         source: String,
+        columnOffset: Int,
         names: List<String>,
         bodies: List<String>,
         line: Int,
         diagnostics: MutableList<MmlDiagnostic>
-    ): String {
+    ): ExpandedLine {
         var current = source
+        var currentColumns = IntArray(source.length) { columnOffset + it + 1 }
         var depth = 0
         while (current.indexOf('$') >= 0 && depth < MAX_MACRO_DEPTH) {
             val output = StringBuilder()
+            val outputColumns = mutableListOf<Int>()
             var i = 0
             var changed = false
             while (i < current.length) {
                 if (current[i] != '$') {
                     output.append(current[i])
+                    outputColumns.add(currentColumns[i])
                     i++
                 } else {
                     val tokenStart = i
@@ -1102,23 +1276,38 @@ object MmlParser {
                     val name = current.substring(nameStart, i).lowercase()
                     val macroIndex = names.indexOf(name)
                     if (name.isEmpty() || macroIndex < 0) {
-                        diagnostics.add(MmlDiagnostic(line, tokenStart + 1, "Unknown MML macro '$name'"))
-                        return current
+                        diagnostics.add(MmlDiagnostic(line, currentColumns[tokenStart], "Unknown MML macro '$name'"))
+                        return ExpandedLine(current, currentColumns)
                     }
-                    output.append(bodies[macroIndex])
+                    val body = bodies[macroIndex]
+                    output.append(body)
+                    var bodyIndex = 0
+                    while (bodyIndex < body.length) {
+                        outputColumns.add(currentColumns[tokenStart])
+                        bodyIndex++
+                    }
                     changed = true
                 }
                 if (output.length > MAX_MACRO_CHARACTERS) {
-                    diagnostics.add(MmlDiagnostic(line, 1, "Expanded macros exceed parser capacity"))
-                    return current
+                    diagnostics.add(MmlDiagnostic(line, currentColumns[0], "Expanded macros exceed parser capacity"))
+                    return ExpandedLine(current, currentColumns)
                 }
             }
             current = output.toString()
+            currentColumns = IntArray(outputColumns.size)
+            var columnIndex = 0
+            while (columnIndex < outputColumns.size) {
+                currentColumns[columnIndex] = outputColumns[columnIndex]
+                columnIndex++
+            }
             if (!changed) break
             depth++
         }
-        if (current.indexOf('$') >= 0) diagnostics.add(MmlDiagnostic(line, 1, "Macro expansion exceeds depth $MAX_MACRO_DEPTH"))
-        return current
+        if (current.indexOf('$') >= 0) {
+            val unresolved = current.indexOf('$')
+            diagnostics.add(MmlDiagnostic(line, currentColumns[unresolved], "Macro expansion exceeds depth $MAX_MACRO_DEPTH"))
+        }
+        return ExpandedLine(current, currentColumns)
     }
 
     private fun findLoopClose(value: String, start: Int, end: Int): Int {

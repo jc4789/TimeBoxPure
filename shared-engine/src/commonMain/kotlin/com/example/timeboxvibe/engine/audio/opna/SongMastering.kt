@@ -25,6 +25,8 @@ internal class SongMastering(sampleRate: Int) {
     fun reset() {
         filterStateL = 0f
         filterStateR = 0f
+        preClampPeak = 0f
+        preClampKneeCrossings = 0
         masterEq.reset()
         stereoResonator.reset()
     }
@@ -75,8 +77,8 @@ internal class SongMastering(sampleRate: Int) {
             buffer[i] = softClip(filtered)
             i++
         }
-        preClampPeak = peak
-        preClampKneeCrossings = kneeCrossings
+        if (peak > preClampPeak) preClampPeak = peak
+        preClampKneeCrossings += kneeCrossings
     }
 
     private fun applyGainAndClampStereo(buffer: FloatArray, frames: Int) {
@@ -107,8 +109,8 @@ internal class SongMastering(sampleRate: Int) {
             buffer[i] = softClip(filtered)
             i++
         }
-        preClampPeak = peak
-        preClampKneeCrossings = kneeCrossings
+        if (peak > preClampPeak) preClampPeak = peak
+        preClampKneeCrossings += kneeCrossings
     }
 
     companion object {

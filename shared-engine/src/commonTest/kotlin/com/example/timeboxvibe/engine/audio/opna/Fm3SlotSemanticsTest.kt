@@ -213,15 +213,11 @@ class Fm3SlotSemanticsTest {
         val voice = Fm4OpVoice(8_000)
         voice.applyPatch(OpnaPatchBank.Pc98Effect)
         val level = voice.channelTotalLevelSnapshot()
-        val pms = voice.channelPms
-        val ams = voice.channelAms
         val pan = voice.getPan()
 
         voice.applyPatchToSlots(OpnaPatchBank.Pc98Piano, 12)
 
         assertEquals(level, voice.channelTotalLevelSnapshot())
-        assertEquals(pms, voice.channelPms)
-        assertEquals(ams, voice.channelAms)
         assertEquals(pan, voice.getPan())
         assertEquals(OpnaPatchBank.Pc98Piano.algorithm, voice.algorithmSnapshot())
         assertEquals(OpnaPatchBank.Pc98Effect.feedback, voice.feedbackSnapshot())

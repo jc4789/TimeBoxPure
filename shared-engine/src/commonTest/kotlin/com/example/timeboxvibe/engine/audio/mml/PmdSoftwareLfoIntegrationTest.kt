@@ -17,11 +17,31 @@ class PmdSoftwareLfoIntegrationTest {
     fun pmdControlsRemainOrderedBeforeSameTickKeyOn() {
         val arrangement = compile(LFO_SOURCE)
         val song = assertNotNull(arrangement.compiledOpnaSong)
-        assertEquals(CompiledOpnaSong.SOFTWARE_LFO_CLOCK, song.eventType[0])
-        assertEquals(CompiledOpnaSong.SOFTWARE_LFO_DEFINE, song.eventType[1])
-        assertEquals(CompiledOpnaSong.SOFTWARE_LFO_WAVE, song.eventType[2])
-        assertEquals(CompiledOpnaSong.SOFTWARE_LFO_SWITCH, song.eventType[3])
-        assertEquals(CompiledOpnaSong.SOFTWARE_LFO_TL_MASK, song.eventType[4])
+        val fmControls = IntArray(5)
+        var controlCount = 0
+        var sourceIndex = 0
+        while (sourceIndex < song.eventCount && controlCount < fmControls.size) {
+            if (song.eventType[sourceIndex] in CompiledOpnaSong.SOFTWARE_LFO_DEFINE..CompiledOpnaSong.SOFTWARE_LFO_DEPTH &&
+                song.operator[sourceIndex] == 0
+            ) fmControls[controlCount++] = sourceIndex
+            sourceIndex++
+        }
+        assertEquals(5, controlCount)
+        assertContentEquals(
+            intArrayOf(
+                CompiledOpnaSong.SOFTWARE_LFO_CLOCK,
+                CompiledOpnaSong.SOFTWARE_LFO_DEFINE,
+                CompiledOpnaSong.SOFTWARE_LFO_WAVE,
+                CompiledOpnaSong.SOFTWARE_LFO_SWITCH,
+                CompiledOpnaSong.SOFTWARE_LFO_TL_MASK
+            ),
+            IntArray(fmControls.size) { song.eventType[fmControls[it]] }
+        )
+        var ordered = 1
+        while (ordered < fmControls.size) {
+            assertTrue(song.sourceOrder[fmControls[ordered - 1]] < song.sourceOrder[fmControls[ordered]])
+            ordered++
+        }
 
         val player = MmlArrangementScheduler.createPlayer(arrangement, OpnaLikeSynthesizer(48_000), 48_000)
         var lastControl = -1
@@ -53,8 +73,8 @@ class PmdSoftwareLfoIntegrationTest {
         drySynth.render(dry, dry.size, dryPlayer, 0L)
 
         assertNotEquals(dry.contentHashCode(), wet.contentHashCode())
-        assertEquals(28, wetSynth.fm[0].softwareLfoValueSnapshot(0))
-        assertEquals(12, wetSynth.ssg[0].softwareLfoValueSnapshot(1))
+        assertEquals(28, wetSynth.fmSoftwareLfoValueSnapshot(0, 0))
+        assertEquals(12, wetSynth.ssgSoftwareLfoValueSnapshot(0, 1))
     }
 
     @Test

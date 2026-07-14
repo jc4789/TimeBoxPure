@@ -99,6 +99,19 @@ class OpnaFmDifferentialConformanceTest {
     }
 
     @Test
+    fun everyAlgorithmAndFeedbackPairMatchesTheIndependentRegisterStepTrace() {
+        var algorithm = 0
+        while (algorithm < 8) {
+            var feedback = 0
+            while (feedback < 8) {
+                compareTrace(algorithm, feedback, frames = 24)
+                feedback++
+            }
+            algorithm++
+        }
+    }
+
+    @Test
     fun mulZeroThroughFifteenAndSignedDetuneMatchRegisterPhaseLaw() {
         val packed = (4 shl 11) or 1_038
         var multiple = 0
@@ -168,9 +181,16 @@ class OpnaFmDifferentialConformanceTest {
         lfo.enabled = true
         lfo.prepare(166)
         lfo.prepare(1)
-        val pmQ20 = (lfo.pmAt(0) * OpnaLfoLaws.pmsDepthQ20(7)) shr 10
-        val amAttenuation = (lfo.amAt(0) * OpnaLfoLaws.amsDepthAttenuation(3)) shr 10
-        voice.render(FloatArray(1), 1, SAMPLE_RATE, 1f, lfo = lfo)
+        // Independent checkpoint under the documented sine hypothesis at rate 7/sample 166.
+        assertEquals(1_023, lfo.pmAt(0))
+        assertEquals(1_023, lfo.amAt(0))
+        val pmQ20 = 49_542 // (signed Q10 1023 * independent PMS7 depth 49591) >> 10
+        val amAttenuation = 125 // (AM Q10 1023 * independent AMS3 depth 126) >> 10
+        val driver = PmdModulationFrame().also {
+            it.hardwarePms = 7
+            it.hardwareAms = 3
+        }
+        voice.renderDriven(FloatArray(1), 1, SAMPLE_RATE, 1f, 0, lfo, driver, null)
         var operator = 0
         while (operator < 4) {
             val base = referencePhaseStep((4 shl 11) or 1_038, operators[operator]).toLong()

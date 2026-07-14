@@ -34,7 +34,10 @@ class OpnaRhythmSemanticsTest {
         var expectedIndex = 0
         var event = 0
         while (event < player.eventCount && expectedIndex < expected.size) {
-            if (player.timeline.sampleTime[event] == 0L && player.timeline.eventType[event] != CompiledOpnaTimeline.TEMPO) {
+            if (player.timeline.sampleTime[event] == 0L &&
+                player.timeline.eventType[event] in
+                    CompiledOpnaTimeline.RHYTHM_CONTROL_SHOT..CompiledOpnaTimeline.RHYTHM_VOICE_PAN
+            ) {
                 assertEquals(expected[expectedIndex++], player.timeline.eventType[event])
             }
             event++
@@ -133,7 +136,10 @@ class OpnaRhythmSemanticsTest {
         var found = 0
         var event = 0
         while (event < player.eventCount) {
-            if (player.timeline.sampleTime[event] == 0L && player.timeline.eventType[event] != CompiledOpnaTimeline.TEMPO) {
+            if (player.timeline.sampleTime[event] == 0L &&
+                player.timeline.eventType[event] in
+                    CompiledOpnaTimeline.RHYTHM_CONTROL_SHOT..CompiledOpnaTimeline.RHYTHM_VOICE_PAN
+            ) {
                 assertEquals(expected[found++], player.timeline.eventType[event])
             }
             event++

@@ -72,6 +72,8 @@ class Lfo(private val sampleRate: Int = 48_000) {
     internal fun phaseRemainderSnapshot(): Long = phaseRemainder
 
     fun reset() {
+        enabled = false
+        rate = 0
         resetPhase()
         var i = 0
         while (i < pmBuffer.size) {

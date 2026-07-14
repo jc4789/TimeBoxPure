@@ -8,6 +8,9 @@ class OpnaLfoConformanceTest {
     @Test
     fun everyHardwareRateAdvancesByItsManualFrequency() {
         val sampleRate = 48_000
+        // Independent manual values: do not derive the oracle from production LFO laws.
+        val rateMilliHertz = intArrayOf(3_980, 5_560, 6_020, 6_370, 6_880, 9_630, 48_100, 72_200)
+        val phaseCycle = 4_294_967_296L
         var rate = 0
         while (rate < 8) {
             val lfo = Lfo(sampleRate)
@@ -19,7 +22,7 @@ class OpnaLfoConformanceTest {
                 lfo.prepare(count)
                 remaining -= count
             }
-            val numerator = OpnaLfoLaws.rateMilliHertz(rate).toLong() * OpnaLfoLaws.PHASE_CYCLE
+            val numerator = rateMilliHertz[rate].toLong() * phaseCycle
             assertEquals((numerator / 1_000L).toUInt(), lfo.phaseSnapshot(), "rate=$rate")
             assertEquals(
                 (numerator % 1_000L) * sampleRate.toLong(),
@@ -128,6 +131,10 @@ class OpnaLfoConformanceTest {
         val voice = Fm4OpVoice(48_000)
         voice.applyPatch(patch)
         voice.noteOn(69)
+        val driver = PmdModulationFrame().also {
+            it.hardwarePms = patch.pms
+            it.hardwareAms = patch.ams
+        }
         val lfo = Lfo(48_000)
         lfo.rate = 7
         lfo.enabled = withLfo
@@ -136,7 +143,7 @@ class OpnaLfoConformanceTest {
         while (offset < output.size) {
             val count = minOf(1_024, output.size - offset)
             lfo.prepare(count)
-            voice.render(output, count, 48_000, 1f, offset, lfo)
+            voice.renderDriven(output, count, 48_000, 1f, offset, lfo, driver, null)
             offset += count
         }
         return output

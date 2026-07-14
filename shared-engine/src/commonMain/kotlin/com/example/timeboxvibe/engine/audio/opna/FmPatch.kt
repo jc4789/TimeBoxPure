@@ -10,5 +10,6 @@ data class FmPatch(
     val totalLevel: Float = 0.5f,
     val pms: Int = 0,
     val ams: Int = 0,
+    /** YM output-enable combination: 0=both, 1=left, 2=right, 3=neither. */
     val pan: Int = 0
 )

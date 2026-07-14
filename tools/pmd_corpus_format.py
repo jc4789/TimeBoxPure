@@ -48,16 +48,131 @@ COMMAND_NAMES = {
     0xB2: "master_transpose", 0xB1: "gate_random_mode",
 }
 
-# Commands represented by the current authored MML/runtime primitive program.
-# This is intentionally broader than the original Bad-Apple-only comparison.
-CURRENT_IMPORT_PRESERVED = {
-    0xFF, 0xFE, 0xFD, 0xFC, 0xFB, 0xFA, 0xF5, 0xF4, 0xF3, 0xF2, 0xF1, 0xF0,
-    0xEC, 0xEB, 0xEA, 0xE9, 0xE8, 0xE7, 0xE6, 0xE5, 0xE4, 0xE3, 0xE2, 0xE1,
-    0xE0, 0xDF, 0xDA, 0xD6, 0xD5, 0xD4, 0xCF, 0xCE, 0xCB, 0xCA, 0xC8, 0xC7,
-    0xC6, 0xC5, 0xC4, 0xC3, 0xC2, 0xC1, 0xBF, 0xBE, 0xBD, 0xBC, 0xBB, 0xBA,
-    0xB9, 0xB8, 0xB7, 0xB6, 0xB5, 0xB3, 0xB2, 0xB1,
-}
-CURRENT_IMPORT_STRUCTURAL = {0xF9, 0xF8, 0xF7, 0xF6}
+CAPABILITY_EXACT = "EXACT"
+CAPABILITY_PARTIAL = "PARTIAL"
+CAPABILITY_OBSERVED_ONLY = "OBSERVED_ONLY"
+CAPABILITY_UNSUPPORTED = "UNSUPPORTED"
+
+# An opcode/subcommand is the capability key. These are the seven downstream
+# layers which must all have positive, auditable evidence before that key can
+# be reported as EXACT. Merely decoding bytes is intentionally insufficient.
+CAPABILITY_EVIDENCE_LAYERS = (
+    "normalized_observation",
+    "authoring_syntax",
+    "compiled_song_event",
+    "timeline_event",
+    "runtime_dispatch",
+    "reset_behavior",
+    "independent_verification",
+)
+
+EVIDENCE_CONNECTED = "CONNECTED"
+EVIDENCE_APPROXIMATE = "APPROXIMATE"
+EVIDENCE_MISSING = "MISSING"
+
+
+def derive_capability_state(evidence: dict[str, dict[str, str]]) -> str:
+    """Derive support from evidence; callers cannot hand-assert EXACT."""
+    levels = tuple(evidence[layer]["level"] for layer in CAPABILITY_EVIDENCE_LAYERS)
+    if all(level == EVIDENCE_CONNECTED for level in levels):
+        return CAPABILITY_EXACT
+    if all(level == EVIDENCE_MISSING for level in levels):
+        return CAPABILITY_UNSUPPORTED
+    runtime_layers = (
+        "authoring_syntax",
+        "compiled_song_event",
+        "timeline_event",
+        "runtime_dispatch",
+        "reset_behavior",
+    )
+    if (
+        evidence["normalized_observation"]["level"] != EVIDENCE_MISSING
+        and all(evidence[layer]["level"] == EVIDENCE_MISSING for layer in runtime_layers)
+    ):
+        return CAPABILITY_OBSERVED_ONLY
+    return CAPABILITY_PARTIAL
+
+
+def _missing_evidence() -> dict[str, dict[str, str]]:
+    return {
+        layer: {"level": EVIDENCE_MISSING, "evidence": "No audited evidence recorded."}
+        for layer in CAPABILITY_EVIDENCE_LAYERS
+    }
+
+
+def _observed_capability(opcode: int, subcommand: str | None = None) -> dict:
+    evidence = _missing_evidence()
+    evidence["normalized_observation"] = {
+        "level": EVIDENCE_CONNECTED,
+        "evidence": (
+            "Offline scanner retains opcode, command name, source offset, and exact parameter bytes."
+        ),
+    }
+    capability = {
+        "key": capability_key(opcode, subcommand),
+        "opcode": opcode,
+        "name": COMMAND_NAMES[opcode],
+        "subcommand": subcommand,
+        "evidence": evidence,
+    }
+    capability["state"] = derive_capability_state(evidence)
+    return capability
+
+
+def capability_key(opcode: int, subcommand: str | None = None) -> str:
+    base = f"0x{opcode:02X}"
+    return base if subcommand is None else f"{base}/{subcommand}"
+
+
+def _subcommand_for(opcode: int, parameters: list[int] | tuple[int, ...]) -> str | None:
+    if opcode == 0xFC:
+        if not parameters:
+            return "missing"
+        value = parameters[0]
+        return "value_00_FA" if value < 0xFB else f"sub_{value:02X}"
+    if opcode == 0xC0:
+        if not parameters:
+            return "missing"
+        value = parameters[0]
+        return "value_00_F4" if value < 0xF5 else f"sub_{value:02X}"
+    return None
+
+
+# R0 starts deliberately conservative. Every decoded command can be retained
+# for offline observation, but none is promoted to EXACT until later repair
+# phases record all seven downstream evidence links here.
+COMMAND_CAPABILITIES: dict[str, dict] = {}
+for _opcode in sorted(COMMAND_NAMES):
+    if _opcode == 0xFC:
+        _variants = ("value_00_FA", "sub_FB", "sub_FC", "sub_FD", "sub_FE", "sub_FF")
+    elif _opcode == 0xC0:
+        _variants = (
+            "value_00_F4", "sub_F5", "sub_F6", "sub_F7", "sub_F8", "sub_F9",
+            "sub_FA", "sub_FB", "sub_FC", "sub_FD", "sub_FE", "sub_FF",
+        )
+    else:
+        _variants = (None,)
+    for _variant in _variants:
+        _capability = _observed_capability(_opcode, _variant)
+        COMMAND_CAPABILITIES[_capability["key"]] = _capability
+
+
+def capability_for_command(opcode: int, parameters: list[int] | tuple[int, ...]) -> dict:
+    subcommand = _subcommand_for(opcode, parameters)
+    key = capability_key(opcode, subcommand)
+    capability = COMMAND_CAPABILITIES.get(key)
+    if capability is not None:
+        return capability
+    # A malformed or previously unknown subcommand must fail closed.
+    evidence = _missing_evidence()
+    return {
+        "key": key,
+        "opcode": opcode,
+        "name": COMMAND_NAMES.get(opcode, f"unknown_0x{opcode:02X}"),
+        "subcommand": subcommand,
+        "evidence": evidence,
+        "state": derive_capability_state(evidence),
+    }
 
 FEATURE_OPCODE_GROUPS = {
     "tempo": {0xFC},

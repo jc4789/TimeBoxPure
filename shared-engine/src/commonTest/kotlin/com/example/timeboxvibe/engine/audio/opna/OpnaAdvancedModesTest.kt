@@ -13,8 +13,12 @@ class OpnaAdvancedModesTest {
         dryVoice.applyPatch(OpnaPatchBank.Pc98Brass)
         wetVoice.applyPatch(OpnaPatchBank.Pc98Brass)
         dryVoice.noteOn(69)
+        val driver = PmdModulationFrame().also {
+            it.hardwarePms = 7
+            it.hardwareAms = 3
+        }
+        wetVoice.setNoteControls(0, 0, 0, -1, 0)
         wetVoice.noteOn(69)
-        wetVoice.setPerformanceControls(0, 0, 7, 3, 0, -1, 0)
         val lfo = Lfo(48_000)
         lfo.enabled = true
         lfo.rate = 7
@@ -27,7 +31,7 @@ class OpnaAdvancedModesTest {
         while (offset < frames) {
             val count = minOf(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK, frames - offset)
             lfo.prepare(count)
-            wetVoice.render(wet, count, 48_000, 1f, offset, lfo)
+            wetVoice.renderDriven(wet, count, 48_000, 1f, offset, lfo, driver, null)
             offset += count
         }
         assertFalse(dry.contentEquals(wet))
@@ -66,6 +70,12 @@ class OpnaAdvancedModesTest {
         val patch = OpnaPatchBank.ssgPatch(OpnaPatchBank.SSG_ENVELOPE)!!
         a.applyPatch(patch)
         b.applyPatch(patch)
+        sharedA.writeMixerChannel(0, patch.toneEnabled, patch.noiseEnabled)
+        sharedB.writeMixerChannel(0, patch.toneEnabled, patch.noiseEnabled)
+        sharedA.writeEnvelopePeriod(patch.envelopePeriod)
+        sharedB.writeEnvelopePeriod(patch.envelopePeriod)
+        sharedA.writeEnvelopeShape(patch.envelopeShape)
+        sharedB.writeEnvelopeShape(patch.envelopeShape)
         a.noteOn(440f)
         b.noteOn(440f)
         val outA = FloatArray(2048)

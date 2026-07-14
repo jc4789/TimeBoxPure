@@ -169,8 +169,10 @@ internal class PmdSoftwareLfo(
         if (!enabled || held) return
         if (delayRemaining > 0) {
             delayRemaining--
+            if (delayRemaining == 0) establishImmediateWaveValue()
             return
         }
+        if (!started && establishImmediateWaveValue()) return
         speedRemaining--
         if (speedRemaining > 0) return
         speedRemaining = interval()
@@ -182,17 +184,32 @@ internal class PmdSoftwareLfo(
     }
 
     private fun clockSquare() {
-        if (!started) {
-            value = signed16(depthA * depthB)
-            started = true
-        } else {
-            value = signed16(-value)
-        }
-        if (speed == 255) held = true
+        value = signed16(-value)
         completedCycle()
     }
 
     private fun clockRandom() {
+        assignRandomValue()
+        completedCycle()
+    }
+
+    /** Square/random establish their first value at the delay edge, before the speed hold. */
+    private fun establishImmediateWaveValue(): Boolean {
+        when (waveform) {
+            WAVE_SQUARE -> value = signed16(depthA * depthB)
+            WAVE_RANDOM -> {
+                assignRandomValue()
+                completedCycle()
+            }
+            else -> return false
+        }
+        started = true
+        speedRemaining = interval()
+        if (speed == 255) held = true
+        return true
+    }
+
+    private fun assignRandomValue() {
         var next = randomState
         next = next xor (next shl 13)
         next = next xor (next ushr 17)
@@ -200,8 +217,6 @@ internal class PmdSoftwareLfo(
         randomState = next
         val peak = kotlin.math.abs(depthA * depthB)
         value = if (peak == 0) 0 else (next.toUInt() % (peak * 2 + 1).toUInt()).toInt() - peak
-        if (speed == 255) held = true
-        completedCycle()
     }
 
     private fun clockStepped() {

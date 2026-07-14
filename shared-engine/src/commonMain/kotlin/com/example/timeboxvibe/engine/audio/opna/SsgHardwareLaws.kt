@@ -33,17 +33,29 @@ internal object SsgHardwareLaws {
 internal object SsgLevelLaw {
     private const val DAC_MAX_LEVEL = 31
     private const val DAC_STEP_DB = 0.75
+    private const val FIXED_LEVEL_COUNT = 16
+    private const val ENVELOPE_LEVEL_COUNT = DAC_MAX_LEVEL + 1
     private const val FIXED_LEVEL_STRIDE = 2
     private const val FIXED_LEVEL_BIAS = 1
 
-    private val fixedAmplitude = FloatArray(16) { level ->
+    private val fixedAmplitude = FloatArray(FIXED_LEVEL_COUNT) { level ->
         if (level == 0) {
             0f
         } else {
             val dacLevel = level * FIXED_LEVEL_STRIDE + FIXED_LEVEL_BIAS
-            10.0.pow((dacLevel - DAC_MAX_LEVEL) * DAC_STEP_DB / 20.0).toFloat()
+            amplitudeForDacLevel(dacLevel)
         }
     }
 
-    fun fixedAmplitude(level: Int): Float = fixedAmplitude[level.coerceIn(0, 15)]
+    private val envelopeAmplitude = FloatArray(ENVELOPE_LEVEL_COUNT) { level ->
+        if (level == 0) 0f else amplitudeForDacLevel(level)
+    }
+
+    fun fixedAmplitude(level: Int): Float = fixedAmplitude[level.coerceIn(0, FIXED_LEVEL_COUNT - 1)]
+
+    fun envelopeAmplitude(level: Int): Float =
+        envelopeAmplitude[level.coerceIn(0, ENVELOPE_LEVEL_COUNT - 1)]
+
+    private fun amplitudeForDacLevel(level: Int): Float =
+        10.0.pow((level - DAC_MAX_LEVEL) * DAC_STEP_DB / 20.0).toFloat()
 }

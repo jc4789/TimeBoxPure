@@ -18,12 +18,12 @@ class CompiledOpnaTimeline internal constructor(
     internal val patchId: IntArray,
     internal val pan: IntArray,
     internal val detuneCents: IntArray,
-    internal val pms: IntArray,
-    internal val ams: IntArray,
-    internal val lfoDelayFrames: IntArray,
     internal val targetMidi: IntArray,
     internal val slideFrames: IntArray,
-    internal val controlValues: IntArray
+    internal val controlValues: IntArray,
+    internal val sourceOrder: IntArray,
+    internal val sourceLine: IntArray,
+    internal val sourceColumn: IntArray
 ) {
     companion object {
         internal const val FM_ON = 0
@@ -62,6 +62,16 @@ class CompiledOpnaTimeline internal constructor(
         internal const val SSG_DRUM_SHOT = 33
         internal const val FM_PART_VOLUME = 34
         internal const val FM_PART_SLOT_MASK = 35
+        internal const val SSG_TONE_ENABLE = 36
+        internal const val SSG_NOISE_ENABLE = 37
+        internal const val SSG_NOISE_PERIOD = 38
+        internal const val SSG_HARDWARE_ENVELOPE_PERIOD = 39
+        internal const val SSG_HARDWARE_ENVELOPE_SHAPE = 40
+        internal const val HW_LFO_ENABLE = 41
+        internal const val HW_LFO_RATE = 42
+        internal const val HW_LFO_PMS = 43
+        internal const val HW_LFO_AMS = 44
+        internal const val HW_LFO_DELAY = 45
 
         internal const val CONTROL_STRIDE = 8
     }
@@ -85,6 +95,8 @@ internal object CompiledOpnaTimelineFactory {
                 CompiledOpnaSong.SSG_ENVELOPE_MODE,
                 CompiledOpnaSong.FM_PART_VOLUME,
                 CompiledOpnaSong.FM_PART_SLOT_MASK,
+                in CompiledOpnaSong.SSG_TONE_ENABLE..CompiledOpnaSong.SSG_HARDWARE_ENVELOPE_SHAPE,
+                in CompiledOpnaSong.HW_LFO_ENABLE..CompiledOpnaSong.HW_LFO_DELAY,
                 in CompiledOpnaSong.SOFTWARE_LFO_DEFINE..CompiledOpnaSong.SSG_DRUM_SHOT -> 1
                 else -> 2
             }
@@ -107,6 +119,11 @@ internal object CompiledOpnaTimelineFactory {
 
         sourceIndex = 0
         while (sourceIndex < song.eventCount) {
+            draft.beginSource(
+                song.sourceOrder[sourceIndex],
+                song.sourceLine[sourceIndex],
+                song.sourceColumn[sourceIndex]
+            )
             addSourceEvent(draft, song, sourceIndex, mixGain)
             sourceIndex++
         }
@@ -128,6 +145,14 @@ internal object CompiledOpnaTimelineFactory {
                 song.channel[sourceIndex],
                 song.envelopeClockMode[sourceIndex]
             )
+            return
+        }
+        if (sourceType in CompiledOpnaSong.SSG_TONE_ENABLE..CompiledOpnaSong.SSG_HARDWARE_ENVELOPE_SHAPE) {
+            draft.addSsgHardwareState(song, sourceIndex)
+            return
+        }
+        if (sourceType in CompiledOpnaSong.HW_LFO_ENABLE..CompiledOpnaSong.HW_LFO_DELAY) {
+            draft.addHardwareLfoState(song, sourceIndex)
             return
         }
         if (sourceType in CompiledOpnaSong.SOFTWARE_LFO_DEFINE..CompiledOpnaSong.SOFTWARE_LFO_DEPTH) {
@@ -157,7 +182,7 @@ internal object CompiledOpnaTimelineFactory {
             draft.addNote(
                 CompiledOpnaTimeline.SSG_DRUM_SHOT, eventTick, ORDER_KEY_ON,
                 0, -1, 0, song.midi[sourceIndex], shotVelocity, 0, -1, song.pan[sourceIndex],
-                0, 0, 0, 0L, -1, 0L
+                0, -1, 0L
             )
             return
         }
@@ -166,7 +191,7 @@ internal object CompiledOpnaTimelineFactory {
             draft.addNote(
                 CompiledOpnaTimeline.DRUM_SHOT, eventTick, ORDER_KEY_ON,
                 0, -1, 0, song.midi[sourceIndex], velocity, 0, -1, song.pan[sourceIndex],
-                0, 0, 0, 0L, -1, 0L
+                0, -1, 0L
             )
             return
         }
@@ -192,30 +217,23 @@ internal object CompiledOpnaTimelineFactory {
             }
             else -> error("Unknown compiled OPNA source event $sourceType")
         }
-        var resolvedPms = song.pms[sourceIndex]
-        var resolvedAms = song.ams[sourceIndex]
         if (sourceType == CompiledOpnaSong.SSG_NOTE) {
             requireNotNull(song.instrumentBank.ssgPatch(song.patchId[sourceIndex]))
-            resolvedPms = 0
-            resolvedAms = 0
         } else {
-            val patch = requireNotNull(song.instrumentBank.fmPatch(song.patchId[sourceIndex]))
-            if (resolvedPms < 0) resolvedPms = patch.pms
-            if (resolvedAms < 0) resolvedAms = patch.ams
+            requireNotNull(song.instrumentBank.fmPatch(song.patchId[sourceIndex]))
         }
         val id = sourceIndex + 1
         draft.addNote(
             onType, eventTick, ORDER_KEY_ON, song.channel[sourceIndex], song.operator[sourceIndex], song.slotMask[sourceIndex],
             song.midi[sourceIndex], velocity, id, song.patchId[sourceIndex], song.pan[sourceIndex],
-            song.detuneCents[sourceIndex], resolvedPms, resolvedAms,
-            eventTick + song.lfoDelayTick[sourceIndex], song.targetMidi[sourceIndex],
+            song.detuneCents[sourceIndex], song.targetMidi[sourceIndex],
             eventTick + song.durationTick[sourceIndex], song.logicalPart[sourceIndex]
         )
         val gateEnd = eventTick + song.gateTick[sourceIndex]
         draft.addNote(
             offType, gateEnd, if (gateEnd == eventTick) ORDER_ZERO_GATE_OFF else ORDER_KEY_OFF,
             song.channel[sourceIndex], song.operator[sourceIndex], song.slotMask[sourceIndex], song.midi[sourceIndex],
-            0f, id, -1, 0, 0, 0, 0, gateEnd, -1, gateEnd, song.logicalPart[sourceIndex]
+            0f, id, -1, 0, 0, -1, gateEnd, song.logicalPart[sourceIndex]
         )
     }
 
@@ -223,6 +241,9 @@ internal object CompiledOpnaTimelineFactory {
 
 private class TimelineDraft(private val capacity: Int) {
     private var size = 0
+    private var currentSourceOrder = Int.MAX_VALUE
+    private var currentSourceLine = 0
+    private var currentSourceColumn = 0
     private val eventType = IntArray(capacity)
     private val tickTime = LongArray(capacity)
     private val eventOrder = IntArray(capacity)
@@ -236,12 +257,18 @@ private class TimelineDraft(private val capacity: Int) {
     private val patchId = IntArray(capacity)
     private val pan = IntArray(capacity)
     private val detuneCents = IntArray(capacity)
-    private val pms = IntArray(capacity)
-    private val ams = IntArray(capacity)
-    private val lfoDelayEndTick = LongArray(capacity)
     private val targetMidi = IntArray(capacity)
     private val slideEndTick = LongArray(capacity)
     private val controlValues = IntArray(capacity * CompiledOpnaTimeline.CONTROL_STRIDE)
+    private val sourceOrder = IntArray(capacity) { Int.MAX_VALUE }
+    private val sourceLine = IntArray(capacity)
+    private val sourceColumn = IntArray(capacity)
+
+    fun beginSource(authoredOrder: Int, line: Int, column: Int) {
+        currentSourceOrder = authoredOrder
+        currentSourceLine = line
+        currentSourceColumn = column
+    }
 
     fun addControl(type: Int, atTick: Long, order: Int, channelIndex: Int, value: Int) {
         val i = reserve(type, atTick, order, channelIndex)
@@ -263,6 +290,47 @@ private class TimelineDraft(private val capacity: Int) {
         controlValues[base + 4] = song.envelopeRelease[source]
         controlValues[base + 5] = song.envelopeSustainLevel[source]
         controlValues[base + 6] = song.envelopeAttackLevel[source]
+    }
+
+    fun addSsgHardwareState(song: CompiledOpnaSong, source: Int) {
+        val type = CompiledOpnaTimeline.SSG_TONE_ENABLE +
+            (song.eventType[source] - CompiledOpnaSong.SSG_TONE_ENABLE)
+        val i = reserve(
+            type,
+            song.startTick[source],
+            ORDER_STATE,
+            song.channel[source],
+            song.sourceOrder[source],
+            song.sourceLine[source],
+            song.sourceColumn[source]
+        )
+        controlValues[i * CompiledOpnaTimeline.CONTROL_STRIDE] = song.stateValue[source]
+    }
+
+    fun addHardwareLfoState(song: CompiledOpnaSong, source: Int) {
+        val type = CompiledOpnaTimeline.HW_LFO_ENABLE +
+            (song.eventType[source] - CompiledOpnaSong.HW_LFO_ENABLE)
+        val order = if (song.eventType[source] == CompiledOpnaSong.HW_LFO_ENABLE ||
+            song.eventType[source] == CompiledOpnaSong.HW_LFO_RATE
+        ) ORDER_GLOBAL else ORDER_STATE
+        val i = reserve(
+            type,
+            song.startTick[source],
+            order,
+            song.channel[source],
+            song.sourceOrder[source],
+            song.sourceLine[source],
+            song.sourceColumn[source]
+        )
+        logicalPart[i] = song.logicalPart[source]
+        val base = i * CompiledOpnaTimeline.CONTROL_STRIDE
+        if (song.eventType[source] == CompiledOpnaSong.HW_LFO_DELAY) {
+            controlValues[base] = song.hardwareLfoDelayKind[source]
+            controlValues[base + 1] = song.hardwareLfoDelayValue[source]
+            controlValues[base + 2] = if (song.hardwareLfoDelayDotted[source]) 1 else 0
+        } else {
+            controlValues[base] = song.stateValue[source]
+        }
     }
 
     fun addSoftwareLfo(song: CompiledOpnaSong, source: Int) {
@@ -332,9 +400,6 @@ private class TimelineDraft(private val capacity: Int) {
         selectedPatchId: Int,
         selectedPan: Int,
         cents: Int,
-        selectedPms: Int,
-        selectedAms: Int,
-        delayEndTick: Long,
         targetMidiNote: Int,
         portamentoEndTick: Long,
         logicalPartId: Int = CompiledOpnaSong.LOGICAL_PART_NONE
@@ -349,20 +414,28 @@ private class TimelineDraft(private val capacity: Int) {
         patchId[i] = selectedPatchId
         pan[i] = selectedPan
         detuneCents[i] = cents
-        pms[i] = selectedPms
-        ams[i] = selectedAms
-        lfoDelayEndTick[i] = delayEndTick
         targetMidi[i] = targetMidiNote
         slideEndTick[i] = portamentoEndTick
     }
 
-    private fun reserve(type: Int, atTick: Long, order: Int, channelIndex: Int): Int {
+    private fun reserve(
+        type: Int,
+        atTick: Long,
+        order: Int,
+        channelIndex: Int,
+        authoredOrder: Int = currentSourceOrder,
+        line: Int = currentSourceLine,
+        column: Int = currentSourceColumn
+    ): Int {
         check(size < capacity) { "Timeline boundary count changed between passes" }
         val i = size++
         eventType[i] = type
         tickTime[i] = atTick
         eventOrder[i] = order
         channel[i] = channelIndex
+        sourceOrder[i] = authoredOrder
+        sourceLine[i] = line
+        sourceColumn[i] = column
         return i
     }
 
@@ -381,12 +454,12 @@ private class TimelineDraft(private val capacity: Int) {
         val sortedPatchId = IntArray(size)
         val sortedPan = IntArray(size)
         val sortedDetune = IntArray(size)
-        val sortedPms = IntArray(size)
-        val sortedAms = IntArray(size)
-        val sortedDelay = IntArray(size)
         val sortedTarget = IntArray(size)
         val sortedSlide = IntArray(size)
         val sortedControls = IntArray(size * CompiledOpnaTimeline.CONTROL_STRIDE)
+        val sortedSourceOrder = IntArray(size)
+        val sortedSourceLine = IntArray(size)
+        val sortedSourceColumn = IntArray(size)
         var i = 0
         while (i < size) {
             val source = order[i]
@@ -403,14 +476,10 @@ private class TimelineDraft(private val capacity: Int) {
             sortedPatchId[i] = patchId[source]
             sortedPan[i] = pan[source]
             sortedDetune[i] = detuneCents[source]
-            sortedPms[i] = pms[source]
-            sortedAms[i] = ams[source]
-            sortedDelay[i] = if (isNoteOn(eventType[source])) {
-                (PmdSampleClock.samplesAt(song, lfoDelayEndTick[source], sampleRate) - startSample).toInt()
-            } else {
-                0
-            }
             sortedTarget[i] = targetMidi[source]
+            sortedSourceOrder[i] = sourceOrder[source]
+            sortedSourceLine[i] = sourceLine[source]
+            sortedSourceColumn[i] = sourceColumn[source]
             sortedSlide[i] = if (isNoteOn(eventType[source])) {
                 (PmdSampleClock.samplesAt(song, slideEndTick[source], sampleRate) - startSample).toInt()
             } else {
@@ -433,8 +502,9 @@ private class TimelineDraft(private val capacity: Int) {
         return CompiledOpnaTimeline(
             size, PmdSampleClock.samplesAt(song, song.durationTicks, sampleRate), song.pmdClocksPerQuarter, song.instrumentBank,
             sortedType, sortedTime, sortedChannel, sortedLogicalPart, sortedOperator, sortedSlotMask, sortedMidi, sortedVelocity,
-            sortedNoteId, sortedPatchId, sortedPan, sortedDetune, sortedPms, sortedAms,
-            sortedDelay, sortedTarget, sortedSlide, sortedControls
+            sortedNoteId, sortedPatchId, sortedPan, sortedDetune,
+            sortedTarget, sortedSlide, sortedControls,
+            sortedSourceOrder, sortedSourceLine, sortedSourceColumn
         )
     }
 
@@ -473,6 +543,7 @@ private class TimelineDraft(private val capacity: Int) {
     private fun comesBefore(first: Int, second: Int): Boolean {
         if (tickTime[first] != tickTime[second]) return tickTime[first] < tickTime[second]
         if (eventOrder[first] != eventOrder[second]) return eventOrder[first] < eventOrder[second]
+        if (sourceOrder[first] != sourceOrder[second]) return sourceOrder[first] < sourceOrder[second]
         return first < second
     }
 }
