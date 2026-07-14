@@ -1,111 +1,153 @@
-# YM2608/PMD Architecture Repair Plan
+# YM2608/PMD アーキテクチャ修理計画（改訂版）
 
-Date: 2026-07-13
+原案日: 2026-07-13  
+改訂日: 2026-07-14
 
-## Objective
+## 目的
 
-Repair the early YM2608/PMD implementation so the engine can accept additional songs without accumulating Bad Apple-specific behavior, hidden driver state, or unsupported PMD semantics.
+初期の YM2608/PMD 実装を修理し、Bad Apple 固有の挙動、隠れたドライバ状態、表現不能な PMD セマンティクスを増やすことなく、追加の楽曲を受け入れられる音源へ戻す。
 
-The repaired system must remain:
+修理後も、以下の条件を維持する。
 
-- clean-room and independently derived;
-- procedural and assetless at runtime;
-- Kotlin Multiplatform in `commonMain`;
-- allocation-free in audio callbacks;
-- driven by embedded, human-readable MML and compact instrument definitions;
-- deterministic across render chunk sizes and loop resets;
-- explicit about what is exact, approximate, unsupported, or awaiting listening approval.
+- クリーンルームかつ独立実装であること。
+- 実行時は完全に手続き生成され、外部アセットを必要としないこと。
+- 共有エンジンは Kotlin Multiplatform の `commonMain` に留めること。
+- 音声コールバック内でヒープ割り当てを行わないこと。
+- 埋め込みの可読 MML と、小さく監査可能な音色定義を入力とすること。
+- レンダリングのチャンクサイズやループリセットにかかわらず決定論的であること。
+- 正確な挙動、近似挙動、未対応挙動、試聴承認待ちの挙動を明確に区別すること。
 
-This is a repair of the architecture in `IMPLEMENTATION_PLAN.md` lines 94–220. It is not a request for a PMD binary interpreter, an emulator transplant, a sample-based rhythm system, or a new application framework.
+これは `IMPLEMENTATION_PLAN.md` の設計、特に行 94〜220 で定義されたアーキテクチャを修復するための計画である。
 
-## Current Disposition
+PMD バイナリインタープリタ、既存エミュレータの移植、サンプルベースのリズム音源、新しいアプリケーションフレームワークを導入する計画ではない。
 
-The audit found that the foundation is usable but not ready for unrestricted catalog expansion.
+## 現状判定
 
-| Area | Disposition | Main reason |
+監査の結果、基礎部分は再利用可能だが、無制限にカタログ曲を追加できる状態ではない。
+
+| 領域 | 判定 | 主な理由 |
 |---|---|---|
-| Phase 0 corpus/oracle | Partial | Capability reporting can claim support that the runtime cannot represent; the four traces are semantic part-A traces rather than independent register/state traces. |
-| Phase 1 exact timeline | Pass | Exact-size arrays, canonical ordering, cursor playback, deterministic reset, and production routing are structurally sound. |
-| Phase 2 timing/gate/envelope | Pass with evidence gaps | Generalized timing, gates, randomization, and software envelopes exist, but independent PMD vectors remain limited. |
-| Phase 3 SSG core | Partial and blocking | Hardware-envelope amplitude is reduced from 32 steps to 16, and shared SSG register controls are not explicit timeline events. |
-| Phase 4 LFO | Fail and blocking | Software-LFO timing defects exist; hardware LFO remains approximate and is not an ordered runtime program state. |
-| Phase 5 FM conformance | Partial | Useful core differential tests exist, but coverage, raw pan/output separation, patch-field proof, and human A/B acceptance remain incomplete. |
+| Phase 0 コーパス／オラクル | 部分実装 | 実行時に表現できない命令まで対応済みと報告できる。既存の4トレースも、独立したレジスタ／状態トレースではなく、主に意味的なパートトレースである。 |
+| Phase 1 正確サイズのタイムライン | 合格 | 正確サイズ配列、正規順序、カーソル再生、決定論的リセット、製品経路の統合は構造的に成立している。 |
+| Phase 2 タイミング／ゲート／エンベロープ | 証拠不足付き合格 | 一般化されたタイミング、ゲート、乱数化、ソフトウェアエンベロープは存在するが、独立した PMD 検証ベクトルが不足している。 |
+| Phase 3 SSG コア | 部分実装、阻害要因 | ハードウェアエンベロープの32段階が16段階へ潰されている。共有 SSG レジスタ操作が型付きタイムラインイベントではなく、`SsgVoice.applyPatch()` の副作用になっている。 |
+| Phase 4 LFO | 失敗、阻害要因 | PMD ソフトウェア LFO のタイミング不具合がある。ハードウェア LFO は近似のままで、初期化や PMS／AMS／遅延が順序付き実行時状態として完全には表現されていない。 |
+| Phase 5 FM 適合確認 | 部分実装 | 有用な差分テストはあるが、生描画コアとタイムライン対応の生レンダー経路が正式に分離されていない。出力境界、パッチ項目証明、人間による複数曲 A/B 確認も未完了である。 |
 
-No new production catalog song should be accepted until the blocking Phase 3 and Phase 4 repairs below are complete. A test-only song fixture may be used during implementation only when every required command is explicitly classified and unsupported behavior fails closed.
+以下の Phase 3 と Phase 4 の阻害要因が解消されるまで、新しい製品カタログ曲を追加してはならない。
 
-## Governing Architecture
+実装中のテスト専用曲は使用してよいが、使用する全命令を明示的に分類し、未対応挙動を必ず失敗として閉じること。
 
-### Three representations
+## 基本アーキテクチャ
 
-Keep the three representations separate:
+### 3つの表現
 
-1. **Offline PMD observation model**
-   - Reads legally supplied `.M86`/`.M26` archives through tooling only.
-   - Records hashes, commands, normalized semantic traces, and independent state/register checkpoints.
-   - May emit ignored reports or compact test-only semantic oracles.
-   - Never becomes a runtime dependency.
+以下の3表現を混同しない。
 
-2. **Authored MML/control model**
-   - Embedded, human-readable MML remains the source of truth.
-   - Compact Kotlin instrument definitions remain auditable.
-   - Unsupported source behavior must be rejected or explicitly documented; it must not silently disappear.
+1. **オフライン PMD 観測モデル**
+   - 合法的に提供された `.M86`／`.M26` アーカイブを、ツール上だけで読む。
+   - ハッシュ、命令、正規化された意味トレース、独立した状態／レジスタ検査点を記録する。
+   - 無視対象のレポートや、テスト専用の小さな意味オラクルを生成してよい。
+   - 実行時依存には絶対にしない。
 
-3. **Runtime primitive program**
-   - Exact-size, canonically ordered structure-of-arrays data only.
-   - Contains all state required to reproduce playback and loop reset.
-   - Does not retain parser objects, catalog objects, file paths, JSON, archive data, or PMD binaries.
+2. **MML／制御のオーサリングモデル**
+   - 埋め込みの可読 MML を正本とする。
+   - Kotlin の小さな音色定義を監査可能な形で維持する。
+   - 元データに存在する未対応挙動は、拒否するか明示的に記録する。
+   - 未対応命令を黙って捨ててはならない。
 
-### Runtime ownership
+3. **実行時プリミティブプログラム**
+   - 正確サイズかつ正規順序の、構造体配列形式のみを使用する。
+   - 再生とループリセットを再現するために必要な全状態を含む。
+   - パーサーオブジェクト、カタログオブジェクト、ファイルパス、JSON、アーカイブデータ、PMD バイナリを保持しない。
 
-Enforce four distinct ownership domains:
+### 実行時の所有権
 
-- `OpnaChipState`: physical FM/SSG/hardware-LFO/rhythm generator and register state.
-- `PmdPerformanceState`: logical-part driver state, including volume, detune, gates, slot masks, software envelopes, and two software LFOs per applicable part.
-- `OpnaOutputProfile`: named board/chip bus ratios and optional board-response hypotheses.
-- `SongMastering`: playback gain, song EQ, product filtering, resonator state, and soft clipping.
+次の4領域を分離する。
 
-`OpnaChipState` must not own `PmdPerformanceState`. Physical voices must not become the lifetime owner of PMD part state. The synthesizer may coordinate the four domains, but their reset and mutation boundaries must remain explicit.
+- `OpnaChipState`
+  - 物理的な FM／SSG／ハードウェア LFO／リズム生成器と、チップレジスタ相当状態だけを所有する。
+  - PMD 論理パート状態、出力プロファイル選択、製品マスタリングを所有しない。
 
-### Event ordering
+- `PmdPerformanceState`
+  - 論理パート単位のドライバ状態を所有する。
+  - 音量、デチューン、ゲート、スロットマスク、パート固有制御を含む。
+  - 適用対象となる通常 FM、SSG、FM3 拡張パートごとに、2基の PMD ソフトウェア LFO を持つ。
+  - PMD ソフトウェアエンベロープは SSG 論理パートだけが持つ。
+  - 物理ボイスの寿命や、動的に割り当てられたボイス番号へ依存しない。
 
-Every runtime state change must have an explicit type and same-time precedence:
+- `OpnaOutputProfile` と `OpnaMixer`
+  - `OpnaOutputProfile` は、名前付きのボード／チップバス比率と、任意のボード応答仮説を定義する。
+  - `OpnaMixer` は選択済みプロファイルから導かれる実行時のバス混合状態を所有する。
+  - どちらも `OpnaChipState` の所有物にはしない。
 
-1. global clock and global chip controls;
-2. driver/chip state and register-like controls;
-3. key-offs and rhythm dumps;
-4. key-ons and rhythm shots;
-5. zero-gate key-offs.
+- `SongMastering`
+  - 再生ゲイン、楽曲 EQ、製品用フィルタ、共鳴器、ソフトクリッピングと、その履歴状態を所有する。
 
-Source order resolves events within the same precedence class. Playback must never depend on incidental insertion-sort stability.
+`OpnaChipState` は `PmdPerformanceState`、`OpnaMixer`、選択済み `OpnaOutputProfile` を所有してはならない。
 
-## Repair Phase R0 — Make Capability Reporting Truthful
+物理 FM／SSG ボイスを、PMD 論理パート状態の生涯所有者にしてはならない。
 
-### Purpose
+`OpnaLikeSynthesizer` は4領域を協調させてよいが、それぞれの変更境界とリセット境界を明示すること。
 
-Prevent the ingestion checklist from approving a song whose commands cannot be represented by authored MML and the runtime primitive program.
+### イベント順序
 
-### Work
+すべての実行時状態変更に明示的なイベント型を与え、同時刻の優先順位を次のように固定する。
 
-- Replace the broad hand-maintained `CURRENT_IMPORT_PRESERVED` assumption with a capability table that distinguishes:
-  - `EXACT`: decoded, authorable, compiled, dispatched, reset, and independently checked;
-  - `PARTIAL`: decoded but missing one or more authored/runtime/conformance stages;
-  - `OBSERVED_ONLY`: retained in an offline trace but not representable;
-  - `UNSUPPORTED`: rejected for ingestion.
-- Define a capability only when all layers are linked:
-  - PMD opcode/subcommand;
-  - normalized observation field;
-  - MML/control syntax;
-  - `CompiledOpnaSong` event;
-  - `CompiledOpnaTimeline` event;
-  - runtime dispatcher and owner;
-  - reset behavior;
-  - independent oracle or explicitly documented approximation.
-- Stop classifying hardware-LFO global/rate/delay commands as preserved until ordered runtime events exist.
-- Generate genuine register/state checkpoint traces for at least four contrasting songs and relevant parts, not only part-A note lists.
-- Keep archive identity, entry SHA-256, format, and driver profile attached to every oracle.
-- Make strict ingestion fail when a used command is `PARTIAL`, `OBSERVED_ONLY`, or `UNSUPPORTED`, unless the candidate is deliberately marked as a non-catalog research fixture.
+1. グローバルクロックとグローバルチップ制御。
+2. ドライバ状態、チップ状態、レジスタ相当制御。
+3. キーオフとリズムダンプ。
+4. キーオンとリズムショット。
+5. ゼロゲートのキーオフ。
 
-### Target files
+同じ優先順位内では、ソース順を使用する。
+
+挿入ソートの偶然の安定性や、配列へ追加された偶然の順番に依存してはならない。
+
+## 修理 Phase R0 — 能力報告を実態と一致させる
+
+### 目的
+
+MML と実行時プリミティブプログラムで表現できない命令を含む曲が、取り込みチェックを通過することを防ぐ。
+
+### 作業
+
+- 手作業で管理されている広すぎる `CURRENT_IMPORT_PRESERVED` を廃止し、次の状態を持つ能力表へ置き換える。
+  - `EXACT`
+    - デコード、オーサリング、コンパイル、タイムライン化、実行時ディスパッチ、リセット、独立検査まで接続済み。
+  - `PARTIAL`
+    - デコード済みだが、オーサリング、実行時、リセット、検証のいずれかが不足している。
+  - `OBSERVED_ONLY`
+    - オフライン観測には残せるが、MML または実行時では表現できない。
+  - `UNSUPPORTED`
+    - 取り込みを拒否する。
+
+- 能力は、次の全層が接続された場合だけ定義する。
+  - PMD オペコード／副命令。
+  - 正規化観測フィールド。
+  - MML／制御構文。
+  - `CompiledOpnaSong` イベント。
+  - `CompiledOpnaTimeline` イベント。
+  - 実行時ディスパッチャーと所有者。
+  - リセット挙動。
+  - 独立オラクル、または明示的に記録された近似。
+
+- 順序付き実行時イベントが存在するまで、ハードウェア LFO のグローバル有効化、レート、遅延命令を対応済みとして分類しない。
+
+- 少なくとも4つの性格が異なる曲と関連パートについて、意味的なノート一覧だけではなく、本物のレジスタ／状態検査点トレースを生成する。
+
+- 各オラクルへ次を付与する。
+  - アーカイブ識別子。
+  - アーカイブ SHA-256。
+  - エントリ SHA-256。
+  - 形式。
+  - ドライバプロファイル。
+
+- 製品候補が使用する命令に `PARTIAL`、`OBSERVED_ONLY`、`UNSUPPORTED` が1つでもあれば、厳格取り込みを失敗させる。
+
+- 明示的に非カタログの研究フィクスチャとして指定された場合だけ例外を認める。
+
+### 対象ファイル
 
 - `tools/pmd_corpus_format.py`
 - `tools/pmd_corpus_audit.py`
@@ -113,38 +155,87 @@ Prevent the ingestion checklist from approving a song whose commands cannot be r
 - `tools/oracles/`
 - `tools/README.md`
 
-### Acceptance gate
+### 受け入れ条件
 
-- A report cannot call an opcode preserved when no corresponding authored and runtime event path exists.
-- Four contrasting traces contain named independent state/register checkpoints with source hashes.
-- Offline JSON/CSV remains tooling/test data and is never read by runtime code.
+- 対応するオーサリング経路と実行時経路が存在しない命令を、レポートが対応済みと表示できない。
+- 4つの異なるトレースに、名前付きの独立した状態／レジスタ検査点とソースハッシュが含まれる。
+- オフライン JSON／CSV はツールまたはテストデータに留まり、実行時コードから読まれない。
 
-## Repair Phase R1 — Restore Chip/Driver Ownership
+## 修理 Phase R1 — チップ状態とドライバ状態の所有権を修復する
 
-### Purpose
+### 目的
 
-Finish the ownership repair that was applied to Phases 6–8 but not fully propagated back through Phases 2–5.
+Phase 6〜8 の一部へ適用された所有権修理を、Phase 2〜5 の通常 FM、SSG、LFO、出力処理まで一貫して反映する。
 
-### Work
+### 作業
 
-- Remove `PmdPerformanceState` ownership from `OpnaChipState`.
-- Make the coordinating synthesizer own separate chip, performance, output-profile, and mastering state.
-- Extend `PmdPerformanceState` from FM3-only state to explicit logical-part state for:
-  - six normal FM parts;
-  - three SSG parts;
-  - four FM3 extended parts;
-  - any separate PMD rhythm/effect driver state that is not a physical chip register.
-- Give each applicable logical part two preallocated `PmdSoftwareLfo` states.
-- Move PMD software-envelope lifetime and tempo-clock state out of physical `SsgVoice` ownership.
-- Keep physical FM/SSG voices responsible only for chip/operator/counter/envelope generation required to render the current register state.
-- Pass primitive modulation/attenuation/pitch values from driver state into chip rendering without allocations, generic containers, or callbacks.
-- Define reset explicitly:
-  - chip reset restores physical generator/register state;
-  - performance reset restores authored driver defaults and deterministic seeds;
-  - output-profile selection remains configured;
-  - mastering reset clears filter/EQ/resonator history without discarding configuration.
+- `OpnaChipState` から `PmdPerformanceState` の所有権を削除する。
 
-### Target files
+- `OpnaChipState` から、選択済み出力プロファイルと `OpnaMixer` の所有権を削除する。
+
+- `OpnaLikeSynthesizer` を協調所有者とし、次を別々に保持する。
+  - チップ状態。
+  - PMD パフォーマンス状態。
+  - 出力プロファイル／ミキサー状態。
+  - マスタリング状態。
+
+- `OpnaOutputProfile` は不変の設定値として扱う。
+
+- `OpnaMixer` は選択された `OpnaOutputProfile` から導かれるバス利得を保持し、チップ生成器から独立させる。
+
+- `PmdPerformanceState` を FM3 専用状態から、明示的な論理パート状態へ拡張する。
+  - 通常 FM 6パート。
+  - SSG 3パート。
+  - FM3 拡張 4パート。
+  - 物理チップレジスタではない PMD リズム／エフェクトドライバ状態。
+
+- 通常 FM、SSG、FM3 拡張の各適用対象論理パートへ、2基の事前確保済み `PmdSoftwareLfo` を与える。
+
+- SSG の各論理パートへ、1基の事前確保済み `PmdSoftwareEnvelope` を与える。
+
+- FM または FM3 パートへ、存在しないソフトウェアエンベロープ所有権を作らない。
+
+- `SsgVoice` から PMD ソフトウェアエンベロープの寿命、テンポクロック、ドライバ状態を移動する。
+
+- `SsgVoice` から PMD ソフトウェア LFO の寿命とテンポクロックを移動する。
+
+- `Fm4OpVoice` から通常 FM パートの PMD ソフトウェア LFO 所有権を移動する。
+
+- 物理 FM／SSG ボイスは、現在のチップレジスタ状態から音を生成するために必要な次の処理だけを担当する。
+  - オペレータ。
+  - 位相。
+  - チップエンベロープ。
+  - カウンタ。
+  - DAC レベル。
+  - 現在フレームへ渡されたプリミティブ変調値。
+
+- ドライバ状態から物理ボイスへ、次のプリミティブ値を渡す。
+  - ピッチオフセット。
+  - 音量／減衰オフセット。
+  - TL オフセット。
+  - エンベロープレベル。
+  - スロット対象。
+  - キーオン同期状態。
+
+- 音声ホットパスで次を使用しない。
+  - 動的コレクション。
+  - ジェネリックコンテナ。
+  - ラムダ。
+  - コールバックアダプタ。
+  - フレーム単位のオブジェクト生成。
+
+- リセットを明示的に分離する。
+  - チップリセットは、物理生成器とチップレジスタ相当状態を初期化する。
+  - パフォーマンスリセットは、オーサリング済みのドライバ初期値、LFO 状態、ソフトウェアエンベロープ、決定論的乱数シードを初期化する。
+  - 出力プロファイル選択は維持する。
+  - `OpnaMixer` は選択済みプロファイルと一致する状態へ戻す。
+  - マスタリングリセットは、設定を失わず、フィルタ、EQ、共鳴器、クリップ計測の履歴を消去する。
+
+- R1 では、`SongMastering` なしで呼び出せる内部の生描画コア境界だけを成立させる。
+
+- タイムライン全体を再生できる正式な生レンダー API は R5 で定義し、R1 で重複実装しない。
+
+### 対象ファイル
 
 - `OpnaChipState.kt`
 - `PmdPerformanceState.kt`
@@ -153,74 +244,154 @@ Finish the ownership repair that was applied to Phases 6–8 but not fully propa
 - `Fm4OpVoice.kt`
 - `SsgVoice.kt`
 - `OpnaLikeSynthesizer.kt`
+- `OpnaMixer.kt`
+- `OpnaOutputProfile.kt`
 - `CompiledOpnaPlayer.kt`
 
-### Hot-path rules
+### ホットパス規則
 
-- Preallocate all part state during synthesizer setup.
-- Use primitive arrays, fixed state objects, and `while` loops.
-- Do not introduce maps, lists, sealed event objects, lambdas, coroutines, or per-frame adapters.
-- Do not make logical-part state depend on a dynamically selected physical voice.
+- 全論理パート状態を、シンセサイザー設定時に事前確保する。
+- プリミティブ配列、固定状態オブジェクト、`while` ループを使う。
+- マップ、リスト、sealed イベントオブジェクト、ラムダ、コルーチン、フレーム単位アダプタを追加しない。
+- 論理パート状態を、動的に選ばれた物理ボイスへ結び付けない。
+- 出力プロファイル変更時に、新しいミキサーオブジェクトやバッファを生成しない。
 
-### Acceptance gate
+### 受け入れ条件
 
-- `OpnaChipState` contains no PMD performance owner.
-- Normal FM, SSG, and FM3 logical parts preserve independent two-LFO and envelope state.
-- Loop reset restores both chip and driver domains deterministically.
-- The raw chip render path can operate without `SongMastering` state.
+- `OpnaChipState` が `PmdPerformanceState` を所有していない。
+- `OpnaChipState` が `OpnaMixer` または選択済み `OpnaOutputProfile` を所有していない。
+- 通常 FM 6パート、SSG 3パート、FM3 拡張 4パートが、それぞれ独立した2基のソフトウェア LFO 状態を保持する。
+- SSG 3パートが、それぞれ独立したソフトウェアエンベロープ状態を保持する。
+- PMD ドライバ状態が物理ボイス番号へ依存しない。
+- ループリセットで、チップ領域とドライバ領域の両方が決定論的に復元される。
+- 選択済み出力プロファイルはリセット後も維持される。
+- 内部の生チップ描画コアを `SongMastering` なしで実行できる。
+- R1 内に、R5 のタイムライン対応生レンダーと競合する別のフル再生経路が作られていない。
 
-## Repair Phase R2 — Correct the SSG Hardware Envelope
+## 修理 Phase R2 — SSG ハードウェアエンベロープを修正する
 
-### Purpose
+### 目的
 
-Restore the YM2608/AY-family distinction between four-bit fixed volume and the five-bit hardware-envelope level.
+YM2608／AY 系で区別される、4ビット固定音量と5ビットハードウェアエンベロープ音量を正しく分離する。
 
-### Work
+### 作業
 
-- Keep fixed volume as the documented 16-code path using the generated odd DAC steps.
-- Add a separate generated 32-step hardware-envelope amplitude law.
-- Preserve envelope level `0..31` end to end; remove the `ushr 1` collapse before rendering.
-- Make `SsgVoice` select either:
-  - fixed-volume amplitude from the 16-code table; or
-  - hardware-envelope amplitude from the 32-step table.
-- Keep envelope period writes phase-preserving and shape writes deterministically restarting.
-- Derive both tables mathematically from named DAC laws; do not add captured samples or opaque blobs.
+- 固定音量は、生成済み奇数 DAC ステップを使う16コード経路として維持する。
 
-### Target files
+- ハードウェアエンベロープ専用の、別の32段階振幅則を生成する。
+
+- エンベロープレベル `0..31` を最後まで保持する。
+
+- レンダリング前の `ushr 1` による16段階への縮退を削除する。
+
+- `SsgVoice` が次のどちらかを明示的に選ぶようにする。
+  - 16コード固定音量テーブル。
+  - 32段階ハードウェアエンベロープテーブル。
+
+- ソフトウェアエンベロープのレベルオフセットを、固定音量経路とハードウェアエンベロープ経路で混同しない。
+
+- エンベロープ周期書き込みでは位相を維持する。
+
+- エンベロープ形状レジスタ相当の書き込みでは、決定論的に再始動する。
+
+- 16段階と32段階の両テーブルを、名前付きの DAC 則から数学的に生成する。
+
+- キャプチャ済みサンプル、非監査可能なテーブル、正体不明のバイナリを追加しない。
+
+### 対象ファイル
 
 - `SsgHardwareLaws.kt`
 - `SsgSharedState.kt`
 - `SsgVoice.kt`
 - `SsgHardwareConformanceTest.kt`
 
-### Acceptance gate
+### 受け入れ条件
 
-- All 32 hardware-envelope levels are observable and monotonically follow the named DAC law.
-- Fixed-volume behavior remains a separate 16-code contract.
-- Shape boundaries, holds, alternation, restart, and period-write behavior remain deterministic.
+- 32個すべてのハードウェアエンベロープレベルを観測できる。
+- 32レベルが、定義した DAC 則に従って単調に変化する。
+- 固定音量は独立した16コード契約として維持される。
+- 形状境界、ホールド、交互反転、再始動、周期書き込みの挙動が決定論的である。
+- 16段階固定音量テストが、32段階エンベロープテストの期待値を流用していない。
 
-## Repair Phase R3 — Add Typed SSG Shared-Register Events
+## 修理 Phase R3 — SSG 共有レジスタを型付きイベントにする
 
-### Purpose
+### 目的
 
-Allow SSG-heavy songs to express shared chip state without hiding register writes inside note-on patch application.
+SSG を多用する曲が、共有チップ状態をノートオン時のパッチ副作用へ隠さず、明示的に表現できるようにする。
 
-### Work
+### 作業
 
-- Add semantic primitive events for:
-  - register-7 tone enable bits;
-  - register-7 noise enable bits;
-  - register-6 shared noise period;
-  - hardware-envelope period;
-  - hardware-envelope shape/restart;
-  - any source attribution needed for conflict diagnostics.
-- Add matching authored MML/control directives only for documented semantic behavior. Do not introduce a general raw-register frontend.
-- Carry the controls through `CompiledOpnaSong`, exact timeline construction, canonical ordering, and runtime dispatch.
-- Separate patch/timbre selection from live shared-register writes.
-- Diagnose overlapping SSG parts that request incompatible shared state at the same time.
-- Preserve source order when multiple legal writes occur at one timestamp.
+- 次の意味的プリミティブイベントを追加する。
+  - レジスタ7相当のチャンネル別トーン有効ビット。
+  - レジスタ7相当のチャンネル別ノイズ有効ビット。
+  - レジスタ6相当の共有ノイズ周期。
+  - ハードウェアエンベロープ周期。
+  - ハードウェアエンベロープ形状と再始動。
+  - 競合診断に必要なソースパートとソース位置。
 
-### Target files
+- 文書化された意味操作に限って、対応する MML／制御構文を追加する。
+
+- 一般的な生レジスタ書き込み構文は導入しない。
+
+- すべての共有 SSG 制御を次へ通す。
+  - `MmlParser`
+  - `MmlCompiler`
+  - `CompiledOpnaSong`
+  - 正確サイズの `CompiledOpnaTimeline`
+  - 正規イベント順序
+  - `CompiledOpnaPlayer`
+  - 実行時ディスパッチ
+  - `SsgSharedState`
+
+- `SsgVoice.applyPatch()` から、次の共有状態変更を削除する。
+  - トーン有効状態。
+  - ノイズ有効状態。
+  - 共有ノイズ周期。
+  - 共有エンベロープ周期。
+  - 共有エンベロープ形状／再始動。
+
+- `SsgVoice.applyPatch()` は、物理ボイスまたはチャンネル固有の状態だけを適用する。
+
+### 既存 SSG パッチの移行規則
+
+既存曲を壊さず、同時に実行時の隠れたレジスタ書き込みを除去するため、次の移行方式を採用する。
+
+- 既存 `SsgPatch` の次の項目は、実行時副作用ではなく、コンパイル時の互換初期値として扱う。
+  - `toneEnabled`
+  - `noiseEnabled`
+  - `noisePeriod`
+  - `envelopePeriod`
+  - `envelopeShape`
+
+- 既存埋め込み MML を一度に全面書き換えする方式は採用しない。
+
+- `MmlCompiler` は、旧実装が `SsgVoice.applyPatch()` を呼んでいた各パッチ適用境界を、明示的な型付き共有レジスタイベントへ展開する。
+
+- 展開されたイベントは、対応するノートオンより前の状態イベント優先順位へ置く。
+
+- 同時刻では、元のパッチ適用順とソース順を保持する。
+
+- `envelopeShape` の展開は明示的な再始動イベントとし、旧実装が再始動していた境界だけで発行する。
+
+- 互換展開後、実行時の `SsgVoice.applyPatch()` は共有状態を書き換えない。
+
+- 新しく取り込むソース由来の曲については、曲中の共有レジスタ変更を明示 MML 制御として記述する。
+
+- パッチ初期値の互換展開を、曲名、パッチ名、固定 BPM による特例分岐にしてはならない。
+
+- 必要なら共有初期値を `SsgPatch` 本体から、明示的に名前を付けたコンパイル時メタデータ構造へ分離する。
+
+- このメタデータを実行時パッチオブジェクトの副作用として使ってはならない。
+
+- 展開後のイベント列に対して、重複または競合する共有状態要求を診断する。
+
+- 複数の重なった SSG パートが同時刻に異なる共有ノイズ周期を要求した場合、警告または厳格失敗にする。
+
+- 複数の重なった SSG パートが同時刻に互換性のない共有エンベロープ状態を要求した場合、警告または厳格失敗にする。
+
+- 複数の合法な書き込みが同時刻に存在する場合は、ソース順を保存する。
+
+### 対象ファイル
 
 - `MmlParser.kt`
 - `MmlCompiler.kt`
@@ -229,40 +400,109 @@ Allow SSG-heavy songs to express shared chip state without hiding register write
 - `CompiledOpnaPlayer.kt`
 - `OpnaLikeSynthesizer.kt`
 - `SsgSharedState.kt`
-- SSG compiler/timeline/conformance tests
+- `SsgVoice.kt`
+- `OpnaPatchBank.kt`
+- `SsgPatch` 定義ファイル
+- 曲ローカルの SSG パッチバンク
+- SSG コンパイラ／タイムライン／適合確認テスト
 
-### Acceptance gate
+### 受け入れ条件
 
-- Mid-note mixer, noise, envelope-period, and shape writes are representable.
-- Shape restart ordering is explicit at identical timestamps.
-- Runtime playback consumes only typed primitive events.
-- No song title, patch name, or fixed BPM selects shared SSG behavior.
+- ノートの途中でミキサー、ノイズ周期、エンベロープ周期、形状を書き換えられる。
+- 同時刻の形状再始動順序が明示的である。
+- `SsgVoice.applyPatch()` が共有 SSG レジスタ状態を変更しない。
+- 既存パッチの共有初期値が、コンパイル時に型付きイベントへ展開される。
+- 互換展開後のタイムラインが、旧実装の共有状態適用境界とソース順を保持する。
+- R2 による意図的な32段階化を除き、既存曲の共有制御意味が失われない。
+- 実行時再生が、型付きプリミティブイベントだけを消費する。
+- 曲名、パッチ名、固定 BPM が共有 SSG 挙動を選択しない。
 
-## Repair Phase R4 — Repair Hardware and PMD Software LFO Semantics
+## 修理 Phase R4 — ハードウェア LFO と PMD ソフトウェア LFO を修正する
 
-### Purpose
+### 目的
 
-Complete Phase 4 with independently justified hardware behavior and correct PMD driver timing.
+Phase 4 を、独立した根拠に基づくハードウェア挙動と、正しい PMD ドライバタイミングを持つ実装として完成させる。
 
-### Hardware LFO work
+### ハードウェア LFO 作業
 
-- Add ordered runtime events for global enable and rate changes.
-- Ensure per-channel PMS/AMS and delay state belongs to the correct chip/driver domain and can change independently of note creation.
-- Replace the current sine assumption only after deriving the actual waveform/cadence from primary documentation, independent traces, or optional real-chip capture.
-- Store the final law as a compact mathematical rule or generated setup-time table.
-- Do not call trigonometric functions in the audio callback.
-- Make enable edges, rate changes, loop reset, and same-time note/control ordering explicit.
+- グローバル有効化とレート変更を、順序付き実行時イベントとして追加する。
 
-### PMD software-LFO work
+- 各 FM 論理パートまたはチャンネルについて、次の順序付き状態イベントを追加する。
+  - PMS。
+  - AMS。
+  - キーオン遅延。
 
-- Correct square and random onset: the first value is established immediately after delay, then held for `speed` clocks.
-- Count square-wave depth-evolution cycles at the documented sign transition, not at initial assignment.
-- Preserve `H` delay when a later command omits the delay argument.
-- Represent documented raw internal-clock and note-length delay forms without converting them into unrelated compiler ticks.
-- Preserve key-on sync/free-run, fixed/tempo clocks, waveform, signed depth, repetition/hold, target, TL mask, and deterministic random seed/reset.
-- Retain the explicit rejection of software LFO with dynamically pooled `P1` voices unless a real logical-part ownership model is introduced.
+- PMS、AMS、遅延の初期値だけでなく、曲中変更もタイムラインイベントとして表現する。
 
-### Target files
+- PMS、AMS、遅延を、ノート生成時にだけ付属する値から、パート／チャンネル状態へ移す。
+
+- `CompiledOpnaSong` またはコンパイラ内部でノート付属値を一時的に保持する場合でも、実行時の正本は型付き状態イベントとする。
+
+- 同時刻では、PMS／AMS／遅延イベントをノートオンより先に処理する。
+
+- 後続の `H` 命令が遅延引数を省略した場合、直前の遅延状態を保持する。
+
+- 文書化された次の遅延形式を区別して表現する。
+  - 生の内部クロック値。
+  - 音長指定形式。
+
+- 異なる単位を無関係なコンパイラティックへ早期変換し、意味を失わせない。
+
+- `MmlArrangementScheduler` から、ハードウェア LFO の有効化やレートを直接設定する処理を削除する。
+
+- `MmlArrangementScheduler` は、タイムライン生成、静的な再生構成、プレイヤー生成だけを担当する。
+
+- 楽曲の音楽状態は、必ず初期タイムラインイベントを通して設定する。
+
+- 現在の正弦波仮説を変更するのは、次のいずれかから実際の波形と周期を導出した後だけとする。
+  - 一次資料。
+  - 独立したレジスタ／状態トレース。
+  - 任意の実機キャプチャ。
+
+- 最終的な波形則は、小さな数学則または設定時生成テーブルとして保持する。
+
+- 音声コールバック内で三角関数を呼ばない。
+
+- 次を明示的にする。
+  - 有効化エッジ。
+  - 無効化エッジ。
+  - レート変更。
+  - PMS／AMS 変更。
+  - 遅延変更。
+  - ループリセット。
+  - 同時刻の制御とノートの順序。
+
+### PMD ソフトウェア LFO 作業
+
+- 矩形波と乱数波について、遅延終了直後に最初の値を確立する。
+
+- 最初の値を確立した後、その値を `speed` クロック分保持する。
+
+- 最初の値を出す前に `speed` クロック分余計に待たない。
+
+- 矩形波の深さ進化周期を、初期値代入ではなく、文書化された符号遷移位置で数える。
+
+- ソフトウェア LFO の文書化された遅延形式を保持する。
+
+- 次を保持する。
+  - キーオン同期。
+  - フリーラン。
+  - 固定クロック。
+  - テンポ依存クロック。
+  - 波形。
+  - 符号付き深さ。
+  - 反復。
+  - ホールド。
+  - ピッチ対象。
+  - 音量対象。
+  - TL マスク。
+  - 深さ進化。
+  - 決定論的乱数シード。
+  - 決定論的リセット。
+
+- 動的にプールされる `P1` ボイスについて、実際の論理パート所有モデルが導入されない限り、ソフトウェア LFO との併用拒否を維持する。
+
+### 対象ファイル
 
 - `Lfo.kt`
 - `OpnaLfoLaws.kt`
@@ -270,163 +510,303 @@ Complete Phase 4 with independently justified hardware behavior and correct PMD 
 - `PmdPerformanceState.kt`
 - `MmlParser.kt`
 - `MmlCompiler.kt`
+- `MmlArrangementScheduler.kt`
 - `CompiledOpnaSong.kt`
 - `CompiledOpnaTimeline.kt`
+- `CompiledOpnaPlayer.kt`
 - `OpnaLikeSynthesizer.kt`
-- LFO conformance/integration tests
+- LFO 適合確認／統合テスト
 
-### Acceptance gate
+### 受け入れ条件
 
-- Hardware expectations do not call production `Lfo` or `OpnaLfoLaws` to construct their expected values.
-- Hardware enable/rate changes are present in the exact timeline and replay after reset.
-- Square/random onset and square `MD` evolution match independent PMD traces.
-- `H` retention and both documented delay-unit forms are covered.
-- LOGO validation renders far enough to exercise its real authored one-shot LFO transition and compares compiled controls/order to its normalized oracle.
+- ハードウェア LFO の期待値生成に、本番の `Lfo` または `OpnaLfoLaws` を使用しない。
+- グローバル有効化とレート変更が、正確サイズのタイムラインに存在する。
+- PMS、AMS、遅延の初期設定が、正確サイズのタイムラインに存在する。
+- 曲中の PMS、AMS、遅延変更が、ノート付属値ではなく順序付き状態イベントとして存在する。
+- 同時刻の PMS／AMS／遅延変更が、対応するノートオンより前に適用される。
+- ループリセット後、グローバル LFO と各チャンネル状態が同じイベント列から再現される。
+- `MmlArrangementScheduler` が楽曲の LFO 状態を直接変更しない。
+- 矩形波／乱数波の開始時刻が独立 PMD トレースと一致する。
+- 矩形波の `MD` 深さ進化が独立 PMD トレースと一致する。
+- `H` の遅延保持と、文書化された両方の遅延単位形式がテストされる。
+- LOGO の検証が、実際にオーサリングされたワンショット LFO 遷移まで十分長くレンダリングする。
+- LOGO のコンパイル済み制御、イベント順、状態遷移を正規化オラクルと比較する。
 
-## Repair Phase R5 — Strengthen the Raw FM Conformance Boundary
+## 修理 Phase R5 — 生描画境界と FM 適合確認を強化する
 
-### Purpose
+### 目的
 
-Turn Phase 5 from useful internal differential coverage into a defensible clean-room conformance layer without changing sound by guesswork.
+Phase 5 を、内部テスト用の差分確認から、防御可能なクリーンルーム適合確認層へ引き上げる。
 
-### Work
+R1 の所有権分離と重複する別実装は作らず、R1 で分離した内部コアを正式な生レンダー経路へ接続する。
 
-- Add an explicitly named raw chip render path that bypasses:
-  - song EQ;
-  - output filter;
-  - soft clipping;
-  - stereo resonator;
-  - discretionary mastering gain;
-  - oversampling unless a particular conformance case explicitly requests it.
-- Keep product rendering separate and continue applying named `OpnaOutputProfile` and `SongMastering` stages afterward.
-- Expand independent differential vectors to cover:
-  - the complete algorithm × feedback matrix;
-  - integrated MUL and detune behavior across representative blocks/keycodes;
-  - dynamic AR/DR/SR/RR/SL/KS cadence through actual voices;
-  - complete SSG-EG boundaries, holds, alternation, retrigger, and key-off;
-  - FM3 independent pitch/sample traces;
-  - hardware-LFO PM/AM using independent vectors;
-  - all four YM left/right enable-bit combinations before mastering.
-- Assert every decoded register field for every source-derived patch:
-  - ALG, FB, DT, MUL, TL, KS, AR, AM, DR, SR, SL, and RR;
-  - plus any source-owned channel fields.
-- Name every filter/decimator coefficient and its response target before changing it.
-- Do not change patches, global gain, EQ, oversampling, filters, or clipping merely to make one song sound better.
+### 生描画経路の定義
 
-### Target files
+生描画を、次の2層へ分ける。
+
+1. **内部の生描画コア**
+   - すでにイベントが適用された現在のチップ／ドライバ状態をレンダリングする。
+   - タイムラインカーソルを進めない。
+   - イベントをディスパッチしない。
+   - `SongMastering` を通さない。
+   - 音声ホットパス用の単一実装とする。
+   - モノラル／ステレオで可能な限り同じチップ処理を共有する。
+   - 呼び出し側提供バッファと事前確保状態だけを使う。
+
+2. **タイムライン対応の正式な生レンダー経路**
+   - `CompiledOpnaPlayer` が正確サイズタイムラインを進める。
+   - 既存の単一イベントディスパッチャーを使用する。
+   - イベント境界間で内部の生描画コアを呼ぶ。
+   - 楽曲全体または任意区間を、製品マスタリングなしでレンダリングできる。
+   - ループリセット、チャンク分割、同時刻順序を製品経路と共有する。
+   - 独自の第二ディスパッチャーや第二シンセサイザーループを持たない。
+
+製品レンダー経路は、タイムライン対応生レンダー経路と同じイベント処理／チップ処理を使い、その後に次を適用する。
+
+1. 名前付き `OpnaOutputProfile`。
+2. `OpnaMixer` による FM／SSG／リズム比率。
+3. `SongMastering`。
+
+必要なら FM、SSG、リズムの各バスを事前確保バッファへ分離する。
+
+その場合も、コールバック内で新しい配列を作らない。
+
+### 作業
+
+- 内部生描画コアへ明示的な名前を付ける。
+
+- タイムライン対応の生レンダー API へ明示的な名前を付ける。
+
+- 「マスタリング前」と「生チップ適合確認」を曖昧な同義語として扱わない。
+
+- どの段階で次が適用されるか、関数名とテスト名で明示する。
+  - チップ生成。
+  - ドライバ変調。
+  - 出力プロファイル。
+  - バス混合。
+  - 楽曲 EQ。
+  - 出力フィルタ。
+  - ソフトクリッピング。
+  - ステレオ共鳴器。
+  - 製品ゲイン。
+
+- 生適合確認経路では、次を迂回する。
+  - 楽曲 EQ。
+  - 出力フィルタ。
+  - ソフトクリッピング。
+  - ステレオ共鳴器。
+  - 任意の製品マスタリングゲイン。
+  - 特定の適合確認ケースで明示要求されない限り、オーバーサンプリング。
+
+- 出力プロファイル適用前の検査点と、出力プロファイル適用後かつマスタリング前の検査点を区別する。
+
+- 製品レンダーは名前付き `OpnaOutputProfile` と `SongMastering` を引き続き適用する。
+
+- 次を含む独立差分ベクトルを拡張する。
+  - 全アルゴリズムと全フィードバック値の組み合わせ。
+  - 代表的ブロック／キーコードでの MUL とデチューン統合挙動。
+  - 実際のボイスを通した AR／DR／SR／RR／SL／KS の時間変化。
+  - SSG-EG の全境界、ホールド、交互反転、再トリガー、キーオフ。
+  - FM3 の独立ピッチとサンプルトレース。
+  - 独立ベクトルによるハードウェア LFO の PM／AM。
+  - マスタリング前の YM 左右有効ビット4組すべて。
+
+- ソース由来の各パッチについて、全レジスタ項目を検査する。
+  - ALG。
+  - FB。
+  - DT。
+  - MUL。
+  - TL。
+  - KS。
+  - AR。
+  - AM。
+  - DR。
+  - SR。
+  - SL。
+  - RR。
+  - その他、ソースが所有するチャンネル項目。
+
+- フィルタまたはデシメータ係数を変更する前に、各係数へ名前と応答目標を与える。
+
+- 1曲を良く聞かせるためだけに、次を変更しない。
+  - パッチ。
+  - グローバルゲイン。
+  - EQ。
+  - オーバーサンプリング。
+  - フィルタ。
+  - クリッピング。
+  - 出力プロファイル。
+
+### 対象ファイル
 
 - `Fm4OpVoice.kt`
 - `OperatorState.kt`
 - `OpnRateEnvelope.kt`
 - `OpnaLikeSynthesizer.kt`
+- `CompiledOpnaPlayer.kt`
+- `OpnaMixer.kt`
+- `OpnaOutputProfile.kt`
 - `SongMastering.kt`
 - `LlsPatches.kt`
 - `LogoSong.kt`
-- FM differential/core/stereo/patch tests
+- FM 差分／コア／ステレオ／パッチテスト
+- 生レンダー／製品レンダー境界テスト
 
-### Acceptance gate
+### 受け入れ条件
 
-- Expected conformance values are independent of production implementations.
-- Raw mono/stereo checkpoints never pass through mastering.
-- Every PMD-derived patch is exhaustively protected.
-- Automated evidence is described narrowly; it does not claim human musical approval.
+- 内部生描画コアとタイムライン対応生レンダーが、同じシンセサイザー処理を共有する。
+- タイムライン対応生レンダーが、製品経路と同じ `CompiledOpnaPlayer` カーソルとイベントディスパッチを使う。
+- 生レンダー専用の重複イベントディスパッチャーが存在しない。
+- 生モノラル／ステレオ検査点が `SongMastering` を通らない。
+- 出力プロファイル適用前と適用後の検査点が明確に区別される。
+- 製品経路は、生レンダーと同じイベント処理の後にだけ出力プロファイルとマスタリングを追加する。
+- 同じタイムラインを異なるチャンクサイズで生レンダリングしても結果が一致する。
+- 生レンダーでも連続ループの決定論が成立する。
+- 適合確認の期待値が本番実装から独立している。
+- すべての PMD 由来パッチが全項目で保護されている。
+- 自動テスト結果を、人間による音楽的承認と表現しない。
 
-## Repair Phase R6 — Reopen Song Ingestion Deliberately
+## 修理 Phase R6 — 楽曲取り込みを慎重に再開する
 
-### Purpose
+### 目的
 
-Use additional songs as validation pressure without allowing song-specific exceptions to become engine laws.
+追加曲を検証圧力として利用しつつ、曲固有の例外を音源全体の法則へ混入させない。
 
-### Candidate gate
+### 候補曲の受け入れ手順
 
-For each candidate:
+各候補曲について、次を実施する。
 
-1. Record archive and entry SHA-256.
-2. Produce the capability report and reject every non-`EXACT` used command for a production entry.
-3. Prefer `.M86`; use `.M26` only as a shared FM/SSG comparison.
-4. Decode only used patches into an exact song-local immutable bank.
-5. Author readable MML and semantic controls; never embed `.M` bytes.
-6. Compare normalized timing, pitch, gate, patch, volume, detune, LFO, envelope, and shared-register state.
-7. Record authored and runtime event totals.
-8. Render the raw conformance path and the named product path separately.
-9. Perform human listening before accepting any global tonal/mix change.
-10. Register the song in `MmlSongBank` and `SongCatalog` only after all gates pass.
+1. アーカイブとエントリの SHA-256 を記録する。
+2. 能力レポートを生成する。
+3. 使用命令に `EXACT` 以外が1つでもあれば、製品カタログへの追加を拒否する。
+4. `.M86` を優先する。
+5. `.M26` は共有 FM／SSG 挙動の比較にだけ使い、盲目的な代替にはしない。
+6. 使用される音色だけを、正確サイズの曲ローカル不変バンクへデコードする。
+7. 可読 MML と意味的制御を記述する。
+8. `.M` バイトを埋め込まない。
+9. 次を正規化トレースと比較する。
+   - タイミング。
+   - ピッチ。
+   - ゲート。
+   - パッチ。
+   - 音量。
+   - デチューン。
+   - LFO。
+   - ソフトウェアエンベロープ。
+   - SSG 共有レジスタ状態。
+   - ハードウェア LFO 状態。
+10. オーサリングイベント数と実行時イベント数を記録する。
+11. 生適合確認経路と名前付き製品経路を別々にレンダリングする。
+12. グローバルな音色、音量、ミックス、エンベロープ、変調を変更する前に、複数曲で人間が試聴する。
+13. 全条件を満たした後だけ `MmlSongBank` と `SongCatalog` へ登録する。
 
-### Validation set
+### 検証曲セット
 
-Build a small contrasting suite rather than several songs resembling Bad Apple:
+Bad Apple に似た曲を複数選ぶのではなく、性格の異なる小さな検証セットを作る。
 
-- an FM-dominant song with different algorithms and patches;
-- an SSG-heavy song exercising the repaired 32-step envelope and shared events;
-- a software-LFO song that exercises more than the existing short LOGO prefix;
-- an FM3/rhythm song only after its complete capability report is `EXACT`.
+- 異なるアルゴリズムとパッチを使う FM 主体曲。
+- 修理済み32段階エンベロープと共有イベントを使う SSG 主体曲。
+- 短い LOGO 冒頭以上の範囲でソフトウェア LFO を使う曲。
+- 全能力レポートが `EXACT` になった後の FM3／リズム曲。
 
-The current manual catalog array/`when` registration is acceptable for a small catalog. Do not introduce serialization, resource files, reflection, dependency injection, or a data-driven runtime asset catalog merely to reduce a few manual entries.
+現在の手動カタログ配列と `when` 登録は、小規模カタログでは許容する。
 
-### Human listening gate
+少数の手動登録を減らすためだけに、次を導入しない。
 
-Maintain timestamped notes for:
+- シリアライズ。
+- 実行時リソースファイル。
+- リフレクション。
+- 依存性注入。
+- データ駆動の実行時アセットカタログ。
 
-- 2–3 kHz harshness;
-- bass masking;
-- midrange loss;
-- FM/SSG balance under both named output profiles;
-- software/hardware LFO depth and cadence;
-- SSG envelope articulation;
-- rhythm transients and balance;
-- loop-boundary clicks or state discontinuities.
+### 人間による試聴条件
 
-No global gain, filter, EQ, envelope, modulation, or mix law may be approved from Bad Apple alone.
+時刻付きメモで次を記録する。
 
-## Verification Policy
+- 2〜3 kHz の鋭さ。
+- 低域のマスキング。
+- 中域の欠落。
+- 両方の出力プロファイルでの FM／SSG バランス。
+- ソフトウェア／ハードウェア LFO の深さと周期。
+- SSG エンベロープのアーティキュレーション。
+- リズムのトランジェントとバランス。
+- ループ境界のクリックまたは状態不連続。
 
-### Local platform policy
+Bad Apple だけを根拠に、グローバルなゲイン、フィルタ、EQ、エンベロープ、変調、ミックス則を承認してはならない。
 
-- Do not run `winTest`, `mingwX64Test`, or other Windows-native test tasks on this system.
-- Use Android/JVM tests, common metadata compilation, Android shared compilation, app compilation, and Android assembly locally.
-- Treat historical Windows-native results as unverified evidence, not a current gate.
-- If non-JVM runtime verification is required later, run it only in an explicitly supported environment and record that environment separately.
+## 検証方針
 
-### Required checks after each future repair phase
+### ローカル環境方針
 
-- Read every involved file and caller completely before editing or making behavioral claims.
-- Review the diff against `AGENTS.md` and the relevant project skills.
-- Confirm no `java.*` or platform API entered `commonMain`.
-- Confirm audio rendering remains allocation-free with preallocated primitive state and `while` loops.
-- Confirm no runtime assets, archive bytes, sample data, JSON, or opaque embedded blobs were added.
-- Confirm all constants have named hardware, mathematical, or engine derivations.
-- Confirm the Android wrapper remains a mono PCM presenter and does not gain synthesis policy.
-- Re-run the strict corpus/capability audit after event-model changes.
-- Record automated results separately from human listening acceptance.
+- この環境では `winTest`、`mingwX64Test`、その他 Windows ネイティブテストを実行しない。
+- Android／JVM テスト、共通メタデータコンパイル、Android 共有コードコンパイル、アプリコンパイル、Android アセンブルを使用する。
+- 過去の Windows ネイティブ結果は、現在確認済みのゲートとは扱わない。
+- 非 JVM 実行時検証が必要になった場合は、明示的に対応した環境でのみ実行し、その環境を別途記録する。
 
-## Explicit Non-Goals
+### 各修理 Phase 後の必須確認
 
-Do not add or implement as part of this repair:
+- 編集または挙動を断定する前に、関係ファイルと全呼び出し元を最後まで読む。
+- 差分を `AGENTS.md` と関連プロジェクト規則に照らして確認する。
+- `commonMain` に `java.*` またはプラットフォーム API が入っていないことを確認する。
+- 音声レンダリングが、事前確保済みプリミティブ状態と `while` ループを維持していることを確認する。
+- 実行時アセット、アーカイブバイト、サンプルデータ、JSON、非監査可能な埋め込みバイナリが追加されていないことを確認する。
+- すべての定数に、名前付きのハードウェア的、数学的、またはエンジン上の導出根拠があることを確認する。
+- Android ラッパーがモノラル PCM の提示役に留まり、合成方針を持たないことを確認する。
+- イベントモデル変更後は、厳格コーパス／能力監査を再実行する。
+- 自動テスト結果と人間による試聴承認を別々に記録する。
+- `OpnaChipState`、`PmdPerformanceState`、`OpnaMixer`／`OpnaOutputProfile`、`SongMastering` の所有権が再び混ざっていないことを確認する。
+- `SsgVoice.applyPatch()` に共有 SSG レジスタ副作用が戻っていないことを確認する。
+- `MmlArrangementScheduler` に楽曲 LFO 状態の直接設定が戻っていないことを確認する。
+- 生描画と製品描画が別のイベントディスパッチャーを持っていないことを確認する。
 
-- runtime PMD binary playback;
-- a raw YM2608 register-stream frontend;
-- copied emulator or PMD assembly code;
-- CSM/timer emulation beyond required musical scheduling;
-- ADPCM-B, 86PCM, PPSDRV, or PPZ8 without a separately approved procedural/legal design;
-- rhythm-ROM WAV files, copied sample bytes, or claims of ROM-authentic drums;
-- external MML, JSON, XML, audio, font, or image assets;
-- Compose, SwiftUI, React, Electron, or another UI/audio framework;
-- production stereo migration;
-- Bad Apple cut, EQ, or mix changes before multi-song listening evidence.
+## 明示的な非目標
 
-## Completion Definition
+この修理では、次を追加または実装しない。
 
-The repair is complete when:
+- 実行時 PMD バイナリ再生。
+- 一般的な YM2608 生レジスタストリーム入力。
+- コピーされたエミュレータコード。
+- コピーされた PMD アセンブリコード。
+- 音楽スケジューリングに必要な範囲を超える CSM／タイマーエミュレーション。
+- 別途承認された手続き生成／法的設計なしでの ADPCM-B、86PCM、PPSDRV、PPZ8。
+- リズム ROM の WAV ファイル。
+- コピーされたサンプルバイト。
+- ROM と同一であるという主張。
+- 外部 MML、JSON、XML、音声、フォント、画像アセット。
+- Compose、SwiftUI、React、Electron、その他の UI／音声フレームワーク。
+- 製品再生のステレオ移行。
+- 複数曲の試聴証拠がない状態での Bad Apple のカット、EQ、ミックス変更。
 
-- capability reporting cannot overstate runtime support;
-- chip, driver, output-profile, and mastering state have separate owners;
-- the SSG hardware envelope preserves all 32 levels;
-- shared SSG controls and hardware-LFO controls are ordered primitive events;
-- PMD software-LFO onset, delay, and depth evolution match independent traces;
-- the raw FM/SSG conformance path is isolated from product mastering;
-- decoded patches are exhaustively protected;
-- Android/JVM and hot-path gates pass without Windows-native tasks;
-- at least one contrasting multi-song listening suite is recorded;
-- new catalog songs require no title-specific synth branch, hidden asset, global patch collision, or restoration of the retired sequencer catalog path.
+## 完了条件
 
-Only after these conditions are met should unrestricted Phase 8 catalog expansion resume.
+次のすべてを満たした時点で、修理完了とする。
+
+- 能力報告が実行時対応を過大評価できない。
+- `OpnaChipState`、`PmdPerformanceState`、`OpnaMixer`／`OpnaOutputProfile`、`SongMastering` が別々の所有者を持つ。
+- `OpnaChipState` が PMD 論理パート状態または選択済み出力プロファイルを所有していない。
+- 通常 FM、SSG、FM3 拡張の適用対象パートが、それぞれ独立した2基のソフトウェア LFO を持つ。
+- SSG 論理パートが、それぞれ独立したソフトウェアエンベロープを持つ。
+- SSG ハードウェアエンベロープが32段階すべてを保持する。
+- `SsgVoice.applyPatch()` が共有 SSG レジスタを書き換えない。
+- 既存 SSG パッチの共有初期値が、コンパイル時に型付きイベントへ展開される。
+- SSG ミキサー、ノイズ周期、エンベロープ周期、形状／再始動が順序付きプリミティブイベントである。
+- ハードウェア LFO のグローバル有効化とレートが順序付きプリミティブイベントである。
+- PMS、AMS、遅延の初期値と曲中変更が、ノート付属値ではなく順序付きプリミティブイベントである。
+- `MmlArrangementScheduler` が楽曲の LFO 状態を直接設定しない。
+- PMD ソフトウェア LFO の開始、遅延、矩形波周期、深さ進化が独立トレースと一致する。
+- 内部生描画コアとタイムライン対応生レンダー経路が明確に分かれている。
+- 生レンダーと製品レンダーが、同じイベントディスパッチとシンセサイザーコアを共有する。
+- 生 FM／SSG 適合確認経路が製品マスタリングから分離されている。
+- 出力プロファイル適用前、適用後、マスタリング後の検査点が区別されている。
+- 全デコード済みパッチが、全レジスタ項目で保護されている。
+- Android／JVM テストとホットパス監査が、Windows ネイティブタスクなしで通る。
+- 少なくとも1つの性格が異なる複数曲試聴セットが記録される。
+- 新しいカタログ曲の追加に、次を必要としない。
+  - 曲名固有のシンセ分岐。
+  - 隠れたアセット。
+  - グローバル音色 ID の衝突。
+  - 廃止済みのコンパイル曲→`OpnaSequencer` カタログ経路の復活。
+  - 物理ボイスへの PMD パート状態再配置。
+  - `SsgVoice.applyPatch()` の共有レジスタ副作用復活。
+
+以上の条件が満たされた後だけ、Phase 8 の無制限なカタログ拡張を再開する。
