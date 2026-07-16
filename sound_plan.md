@@ -97,12 +97,6 @@ The corpus scanner is evidence of occurrence and normalized observations, not pr
 
 The current Bad Apple audit passes all recovered pitched lanes, but it compares only tick, duration, MIDI pitch, and patch (`tools/pmd_corpus_audit.py:933`). It does not compare gate, volume, envelope, detune, tie/retrigger behavior, rhythm, shared state, register-equivalent state, or rendered audio. This limitation must be fixed before the audit can be called parity evidence.
 
-The requested text-song references have different evidentiary weight:
-
-- `TH4 Bad Apple!! MML Dump.txt:8-38` is direct song evidence. It identifies patches 54/74/99/181, active FM A-E and SSG G-H parts, SSG envelope changes, K-part rhythm selection, and R0-R9 rhythm definitions. It justifies Bad Apple-specific semantic checks beyond note pitch.
-- `PC-98 Eternal Shrine Maiden.txt` identifies itself as a later arrangement by `pedipanol`, not primary LLS ZUN source. It is useful as an authoring stress case for macros, six patches, gates, pan, detune, ties, loops, loop points, and extensive rhythm definitions, but it must not be used to claim those features occur in the original LLS corpus.
-- `MUSIC.TXT:24-37` identifies a partial TH04 music set and distinguishes `_86.M` as FM6 + SSG3 + rhythm from the reduced `_26.M` target. It supports the hardware/profile boundary, not individual command semantics.
-
 ### Manual evidence
 
 Key PMD reference sections include:
@@ -278,7 +272,7 @@ PMD terminology may be used in documentation where it names a musical behavior, 
 Extensions must be visibly separate from the PMD-parity profile and must justify their maintenance cost.
 
 - Song EQ and mastering are product features, not PMD semantics.
-- General software FM polyphony/chord pooling is not YM2608 hardware behavior. Audit the current `P1`/chord usage. Prefer rearranging Rin across the six available FM parts and returning the PMD profile to six physical FM voices. If software polyphony is genuinely retained, isolate it as an explicit TimeBox extension with separate tests and never let it silently alter PMD part/LFO semantics.
+- General software FM polyphony/chord pooling is not YM2608 hardware behavior. Audit the current `P1`/chord usage. Prefer rearranging Rin (btw rin  should be removed, as it is a totally failed custom aragment of a non mml song) across the six available FM parts and returning the PMD profile to six physical FM voices. If software polyphony is genuinely retained, isolate it as an explicit TimeBox extension with separate tests and never let it silently alter PMD part/LFO semantics.
 - Pseudo-echo and ornaments may exist as compiler conveniences only; lower them to ordinary typed notes and controls.
 
 ## 8. Corpus-required behavior
@@ -319,7 +313,7 @@ This is the first implementation phase. Do not add new PMD features until it pas
 
 Before deleting paths, record:
 
-- Bad Apple and Rin tick-domain program summaries;
+- Bad Apple  tick-domain program summaries;
 - ordered sample-boundary summaries at 48 kHz;
 - raw-core mono hashes across multiple chunk sizes;
 - current product-output hashes;
@@ -424,7 +418,6 @@ Why: two semantically real domains are maintainable; three anonymous generators 
 ### 1.10 Decide the software-polyphony extension
 
 - Scan product songs for actual simultaneous notes that exceed six FM physical voices.
-- Rewrite Rin across unused hardware parts if its current `P1` use can be expressed within six FM voices.
 - If no admitted song requires pooled voices, remove `FM_RENDER_VOICES = 16`, `P1`, and chord pooling.
 - If a real TimeBox composition requires it, isolate it as a named non-PMD extension with its own voice owner and ensure PMD parts still map one-to-one to hardware voices.
 
@@ -440,7 +433,7 @@ Default decision: prefer the fixed six-FM hardware profile. Hidden polyphony inc
 - Two named percussion domains at most: YM rhythm and PMD SSG effect.
 - No product-loaded research fixtures.
 - No semantically overloaded event payload fields.
-- Bad Apple and Rin preserve agreed musical behavior and loop/reset behavior.
+- Bad Apple  preserve agreed musical behavior and loop/reset behavior.
 - Playback remains allocation-free after warm-up.
 
 ## Phase 2 — Prove and fill LLS musical parity
