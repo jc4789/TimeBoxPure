@@ -61,6 +61,14 @@ Example for the supplied TH04 archives:
 python -B tools/pmd_corpus_audit.py --thdat "D:\Programes\ym2608-info\thtk-bin-12\thdat.exe" --archive "D:\Shit Games\PC-98 Games\The Touhou98 Experience v3.0.0\(TH04) Touhou Gensoukyou ~ Lotus Land Story\disks\main\th04plus\幻想郷ED.DAT" --archive "D:\Shit Games\PC-98 Games\The Touhou98 Experience v3.0.0\(TH04) Touhou Gensoukyou ~ Lotus Land Story\disks\main\th04plus\東方幻想.郷" --trace-song ST00.M86 --trace-song ST02.M86 --trace-song ST03.M86 --trace-song STAFF.M86 --bad-apple-audit --json-out build\reports\pmd-corpus\th04.json --csv-out build\reports\pmd-corpus\non-exact.csv --strict
 ```
 
+Use repeated `--oracle-song NAME.M86` arguments for the decompiler view. Each
+normalized oracle expands counted bytecode loops, decodes notes, controls, and
+referenced FM patches, and records an authored part loop as `start_offset`,
+`start_tick`, and `end_tick`. It stops after the first complete authored pass
+instead of replaying the part loop until the trace step guard. The JSON remains
+an offline semantic report under `build/reports`; it contains no extracted PMD
+bytes.
+
 The four `--trace-song` results above remain semantic part traces. They are not
 the four independent named state/register checkpoint traces required by the
 repair plan, and the report does not claim otherwise.

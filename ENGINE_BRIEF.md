@@ -162,12 +162,13 @@
 
 ## Verification
 
-- Latest repaired result: 247 shared-engine JVM tests, zero failures/errors/skips. The OPNA hot-path audit, Android shared compilation, app debug assembly, and 28 offline corpus-tool tests pass. No Windows-native tests were run.
+- Latest repaired result: 247 shared-engine JVM tests, zero failures/errors/skips. The OPNA hot-path audit, Android shared compilation, app debug assembly, and 29 offline corpus-tool tests pass. No Windows-native tests were run.
 - Raw rendering has named unity-core and profiled-pre-master checkpoints for mono/stereo. They share `CompiledOpnaPlayer` dispatch, are chunk/loop deterministic, replay prior state for arbitrary intervals, and bypass `SongMastering`. Product rendering adds the selected output profile and mastering afterward.
 - Stereo conformance protects all four YM L/R output-enable combinations. Mastering peak/crossing history accumulates until explicit reset. All source-derived LLS and LOGO operator register fields, including AM separate from DR, are literal-regression protected.
 - Hardware-LFO expectations are independent test literals. Runtime coverage includes sample-zero setup, enable/rate edges, PMS/AMS/delay ordering and retention, both delay units, tempo-at-key-on conversion, pooled/FM3 mapping, mid-note changes, and reset replay. Software-LFO coverage includes the corrected first-value and MD sign-transition timing.
 - SSG conformance keeps fixed 16-code and envelope 32-level laws separate and covers typed shared controls, period/shape semantics, and patch purity.
 - The offline audit is fail-closed across decode, authoring, compiled song/timeline, dispatch, reset, and independent evidence. Product admission requires exact capabilities plus four valid, diverse, independently derived register/state traces.
+- Full normalized-oracle decompilation stops after one authored part pass, expands counted loops, and records part-loop start/end boundaries instead of replaying forever. The supplied TH04 archives currently decode as 23 unique M86 songs, 161 active parts, and 76,562 first-pass note events with zero scan errors.
 - Current independent checkpoint evidence is `0/4`; the LOGO normalized fixture remains a research/test oracle and is not admitted to `SongCatalog`.
 - Required local build:
 

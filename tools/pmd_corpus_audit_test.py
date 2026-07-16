@@ -97,6 +97,30 @@ class PmdCorpusAuditTest(unittest.TestCase):
             }],
         )
 
+    def test_decompiler_stops_after_one_authored_part_loop(self) -> None:
+        data = bytearray(40)
+        struct.pack_into("<H", data, 0, 26)
+        data[26:33] = bytes((
+            0x40, 2,
+            0xF6,
+            0x41, 3,
+            0x80,
+            0x00,
+        ))
+
+        result = audit.trace_part(
+            bytes((0,)) + bytes(data), 0, 100, follow_part_loop=False
+        )
+
+        self.assertEqual(
+            [(note["tick"], note["duration"], note["midi"]) for note in result["notes"]],
+            [(0, 2, 60), (2, 3, 61)],
+        )
+        self.assertEqual(
+            result["loop"],
+            {"start_offset": 29, "start_tick": 2, "end_tick": 5},
+        )
+
     def test_logo_oracle_is_canonical_and_covers_all_authored_lanes(self) -> None:
         path = TOOLS / "oracles/logo_m86_normalized.json"
         oracle = json.loads(path.read_text(encoding="utf-8"))

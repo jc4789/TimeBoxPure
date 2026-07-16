@@ -373,7 +373,13 @@ def pmd_pitch(value: int, shift: int, default_shift: int) -> int | None:
     return (octave + 1 + pitch // 12) * 12 + pitch % 12
 
 
-def trace_part(payload: bytes, part_index: int, note_limit: int) -> dict:
+def trace_part(
+    payload: bytes,
+    part_index: int,
+    note_limit: int,
+    *,
+    follow_part_loop: bool = True,
+) -> dict:
     data = bytearray(payload[1:])
     pointer = struct.unpack_from("<H", data, part_index * 2)[0]
     tick = 0
@@ -384,6 +390,8 @@ def trace_part(payload: bytes, part_index: int, note_limit: int) -> dict:
     default_shift = 0
     detune = 0
     part_loop: int | None = None
+    part_loop_tick: int | None = None
+    part_loop_end_tick: int | None = None
     previous_midi: int | None = None
     notes: list[dict] = []
     controls: list[dict] = []
@@ -418,6 +426,9 @@ def trace_part(payload: bytes, part_index: int, note_limit: int) -> dict:
             tick += duration
         elif opcode == 0x80:
             if part_loop is None:
+                break
+            if not follow_part_loop:
+                part_loop_end_tick = tick
                 break
             pointer = part_loop
         elif opcode == 0xDA:
@@ -455,6 +466,7 @@ def trace_part(payload: bytes, part_index: int, note_limit: int) -> dict:
                 pointer = target + 4
         elif opcode == 0xF6:
             part_loop = pointer
+            part_loop_tick = tick
         elif opcode == 0xFF:
             patch = data[pointer]
             controls.append({"tick": tick, "offset": offset, "name": "instrument", "value": patch})
@@ -500,7 +512,20 @@ def trace_part(payload: bytes, part_index: int, note_limit: int) -> dict:
             pointer += count
     if steps >= MAX_TRACE_STEPS:
         raise PmdScanError(f"Trace exceeded {MAX_TRACE_STEPS} steps")
-    return {"part": PMD_PART_NAMES[part_index], "notes": notes, "controls": controls, "steps": steps}
+    loop = None
+    if part_loop is not None:
+        loop = {
+            "start_offset": part_loop,
+            "start_tick": part_loop_tick,
+            "end_tick": part_loop_end_tick,
+        }
+    return {
+        "part": PMD_PART_NAMES[part_index],
+        "notes": notes,
+        "controls": controls,
+        "loop": loop,
+        "steps": steps,
+    }
 
 
 def decode_fm_voice(payload: bytes, patch_id: int) -> dict | None:
@@ -582,7 +607,7 @@ def build_normalized_song_oracle(name: str, payload: bytes, provenance: dict) ->
     patch_ids: set[int] = set()
     control_counts: Counter[str] = Counter()
     for part_index in used_part_indices:
-        trace = trace_part(payload, part_index, 100_000)
+        trace = trace_part(payload, part_index, 100_000, follow_part_loop=False)
         notes = []
         for note in trace["notes"]:
             if note["patch"] is not None:
@@ -596,19 +621,20 @@ def build_normalized_song_oracle(name: str, payload: bytes, provenance: dict) ->
             )
         controls = [normalized_control(control) for control in trace["controls"]]
         control_counts.update(control["name"] for control in controls)
-        parts.append(
-            {
-                "part": trace["part"],
-                "note_count": len(notes),
-                "end_tick": max((note[0] + note[1] for note in notes), default=0),
-                "note_columns": [
-                    "tick", "duration", "midi", "volume", "patch", "gate_tail",
-                    "transpose", "detune", "target_midi",
-                ],
-                "notes": notes,
-                "controls": controls,
-            }
-        )
+        part = {
+            "part": trace["part"],
+            "note_count": len(notes),
+            "end_tick": max((note[0] + note[1] for note in notes), default=0),
+            "note_columns": [
+                "tick", "duration", "midi", "volume", "patch", "gate_tail",
+                "transpose", "detune", "target_midi",
+            ],
+            "notes": notes,
+            "controls": controls,
+        }
+        if trace["loop"] is not None:
+            part["loop"] = trace["loop"]
+        parts.append(part)
     patches = []
     for patch_id in sorted(patch_ids):
         decoded = decode_fm_voice(payload, patch_id)
@@ -680,12 +706,13 @@ def compact_normalized_oracle(oracle: dict) -> dict:
                 }
             )
             index += best_period * best_repeats
-        compact_parts.append(
-            {
-                "part": part["part"], "note_count": part["note_count"],
-                "end_tick": part["end_tick"], "note_runs": runs, "controls": part["controls"],
-            }
-        )
+        compact_part = {
+            "part": part["part"], "note_count": part["note_count"],
+            "end_tick": part["end_tick"], "note_runs": runs, "controls": part["controls"],
+        }
+        if "loop" in part:
+            compact_part["loop"] = part["loop"]
+        compact_parts.append(compact_part)
     compact["parts"] = compact_parts
     canonical = json.dumps(compact, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     compact["oracle_sha256"] = sha256_bytes(canonical)
