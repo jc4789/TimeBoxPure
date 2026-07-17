@@ -116,7 +116,19 @@ Key PMD reference sections include:
 - six-voice rhythm controls: `PMDMML.MAN:3781-3925`;
 - procedural SSG-effect step fields: `PSGEDATA.DOC:4-58`.
 
-Relevant YM2608 hardware-manual evidence is on physical pages 3, 10-11, and 49-58: fixed topology, shared SSG registers, FM operator/channel fields, one global hardware LFO, per-channel PMS/AMS and L/R flags, and six rhythm voices.
+The supplied UTF-8 extraction `D:\Programes\ym2608-info\zun_music\pc 88 va 12.txt` was read completely. The matching PDF was retained only for page/layout cross-checks; no OCR is required. This manual is a hardware and host-behavior reference, not a source of runtime data, BASIC syntax, or raw-register compatibility.
+
+Relevant evidence in that extraction includes:
+
+- physical topology and routing: lines 40-44, 1093-1126, and 7256-7288;
+- the PC-88VA BASIC sound-mode surface: lines 1159-1199 and 5421-5456;
+- mono summing versus stereo-capable outputs: lines 944-960;
+- the global eight-rate hardware LFO selector: lines 3025-3072;
+- per-FM-channel PMS, AMS, and independent L/R enables: lines 3156-3286;
+- six rhythm shot/dump bits, shared attenuation, per-voice attenuation, and L/R enables: lines 3289-3435;
+- host rhythm-pattern K/C/D transitions on a quarter-note/12 grid: lines 6482-6590.
+
+The manual's statement that combined FM+SSG use is limited to three voices of each describes the PC-88VA BASIC sound-mode interface. Its mode 5 instead exposes six FM voices plus rhythm and disables SSG. TimeBox does not target that BASIC `PLAY` interface: the clean PMD/M86 semantic profile and physical chip ownership remain six FM parts, three SSG parts, and six rhythm voices. This distinction must stay explicit so a host-language policy is not mistaken for a YM2608 engine limit.
 
 ## 4. Audit conclusion: the user is substantially right
 
@@ -245,7 +257,8 @@ PMD terminology may be used in documentation where it names a musical behavior, 
 - Four operators with MUL, DT, TL, AR, DR, SR, SL, RR, KS, AM, and SSG-EG.
 - ALG and FB, with carrier mask derived once from ALG.
 - Per-channel PMS, AMS, and hardware L/R enable flags.
-- One chip-wide hardware-LFO enable/rate.
+- One chip-wide hardware-LFO enable and one of eight discrete rate selectors. The hardware-reference mapping is `3.98`, `5.56`, `6.02`, `6.37`, `6.88`, `9.63`, `48.1`, and `72.2 Hz`; do not expose an invented continuous hardware-LFO rate.
+- Discrete PMS selectors `0..7` correspond to `0`, `3.4`, `6.7`, `10`, `14`, `20`, `40`, and `80` cents peak deviation; AMS selectors `0..3` correspond to `0`, `1.4`, `5.9`, and `11.8 dB`. Keep selector values canonical and use the physical depths as conformance data.
 - Two software LFOs per logical part with seven explicit wave values, delay, speed, depth, count, sync, pitch/volume targets, TL mask, and depth evolution.
 - FM3 special mode with one physical channel, four slot masks, shared ALG, slot-1 FB behavior, per-slot detune/key delay, and compile-time collision diagnostics.
 
@@ -263,9 +276,18 @@ PMD terminology may be used in documentation where it names a musical behavior, 
 
 - Six fixed YM2608-like voices: bass drum, snare, cymbal, hi-hat, tom, rim.
 - Shot and dump masks, master level, per-voice level, and L/R flags.
+- Preserve the hardware-shaped attenuation domains: six-bit rhythm-total attenuation from `0` to `-47.25 dB` and five-bit per-voice attenuation from `0` to `-23.25 dB`, both in `0.75 dB` steps. Composer-facing loudness may use a friendlier direction, but its lowering to these domains must be explicit and tested.
+- The event model must express key-on, continuation, and dump independently. The board manual's quarter-note/12 K/C/D pattern model is a useful semantic fixture, not syntax to copy or a file format to interpret.
 - Procedural synthesis only; no ROM/sample data.
 - Immutable SSG-effect programs described by duration, tone/noise periods, mixer, volume/envelope selection, and tone/noise sweeps, not by copied packed binary.
 - Pattern selection, repeats, alternate endings, simultaneous shots, and deterministic event ordering.
+
+### Output-routing law
+
+- FM and rhythm routing is two independent enable bits: left, right, both, or neither. It is not a continuous pan control.
+- SSG has no per-channel L/R selection in this hardware profile and is treated as centered.
+- The product mono path must deterministically fold the enabled left and right buses together with documented gain/headroom. It must not discard one bus or erase routing semantics before the fold-down.
+- Stereo rendering remains a conformance/offline surface unless product listening explicitly adopts stereo output.
 
 ### TimeBox extensions
 
@@ -492,6 +514,8 @@ This is procedural behavior, not reproduction of PSGEDATA's packed format.
 
 FM3, hardware LFO, pan flags, and detailed rhythm controls are not exercised by the scanned LLS M86 corpus, but they are legitimate YM2608/PMD behaviors already represented in the engine. Retain them if they pass the single-path architecture test. Remove only compatibility spelling, duplicate state, or raw machinery—not the typed capability.
 
+Add small independent conformance fixtures for the eight hardware-LFO rates, all PMS/AMS selector depths, both rhythm attenuation domains, L/R/both/neither routing, SSG centering, and mono fold-down. These fixtures validate typed semantics and generated numeric tables; they do not replay register streams or rhythm-ROM data.
+
 ### Phase 2 exit gate
 
 - Every command occurring in all 23 unique LLS M86 songs is semantically classified.
@@ -530,7 +554,7 @@ Performance gates:
 
 - Diagnose pitch, algorithm, operator routing, envelope, patch, modulation, and mix-bus issues before EQ.
 - Keep raw-core and profiled-pre-master render checkpoints.
-- Keep product mono intentional.
+- Keep product mono intentional and implement it as a documented L+R fold-down with fixed headroom.
 - Retain stereo rendering only for hardware L/R semantics and offline use unless listening explicitly chooses stereo product output.
 - Do not use the optional resonator to conceal arrangement or timbre errors.
 - Version any intentional output-profile change and record why it sounds better.
