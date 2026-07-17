@@ -130,6 +130,17 @@ Relevant evidence in that extraction includes:
 
 The manual's statement that combined FM+SSG use is limited to three voices of each describes the PC-88VA BASIC sound-mode interface. Its mode 5 instead exposes six FM voices plus rhythm and disables SSG. TimeBox does not target that BASIC `PLAY` interface: the clean PMD/M86 semantic profile and physical chip ownership remain six FM parts, three SSG parts, and six rhythm voices. This distinction must stay explicit so a host-language policy is not mistaken for a YM2608 engine limit.
 
+The supplied UTF-8 extraction `D:\Programes\ym2608-info\zun_music\NEC PC-9801-86 User's Manual.txt` was also read completely. The matching image-only PDF was not OCR'd; it remains only a visual page/layout cross-check. Useful additional evidence includes:
+
+- nine simultaneous pitched voices—six stereo FM plus three mono SSG—and six separate stereo rhythm voices: lines 302-324, 1047-1080, and 1233-1248;
+- explicit per-FM and per-rhythm-voice left/right routing: lines 1057-1071 and 1632-1646;
+- slot-local FM amplitude-modulation enable, distinct from channel AMS and the chip-wide hardware LFO: lines 1575-1736;
+- event-style rhythm key-on/dump masks, where only set voice bits act: lines 1744-1901;
+- shared SSG noise, mixer, and hardware-envelope ownership: lines 2583-2690;
+- the warning that encoded OPN patch fields can run in the opposite direction from human-facing timbre parameters: lines 2765-2779.
+
+This later board manual resolves the earlier host-surface ambiguity directly: the PC-9801-86 advertises simultaneous six-FM/three-SSG performance. Its BASIC ROM exposes only YM2203-equivalent behavior (lines 2250-2260), which again demonstrates that a host command set may expose less than the physical sound engine. Neither limitation belongs in the TimeBox core.
+
 ## 4. Audit conclusion: the user is substantially right
 
 The live compiled-song path is coherent and appropriately allocation-conscious. The bloat is concentrated around that path rather than inside the FM/SSG oscillator core.
@@ -241,7 +252,7 @@ PMD terminology may be used in documentation where it names a musical behavior, 
 
 ### Required core language
 
-- Fixed parts: FM A-F, SSG G-I, and one rhythm/pattern part.
+- Simultaneously available fixed parts: FM A-F, SSG G-I, and one rhythm/pattern part.
 - Notes, rests, octave, default/explicit lengths, percent lengths, dots, bars, and diagnostics with line/column.
 - Tie as no key-off/no retrigger; slur as the separately documented retrigger behavior.
 - Absolute and relative volume with explicit legal ranges.
@@ -257,8 +268,10 @@ PMD terminology may be used in documentation where it names a musical behavior, 
 - Four operators with MUL, DT, TL, AR, DR, SR, SL, RR, KS, AM, and SSG-EG.
 - ALG and FB, with carrier mask derived once from ALG.
 - Per-channel PMS, AMS, and hardware L/R enable flags.
+- AM enable is per operator slot; AMS depth is per FM channel; hardware-LFO enable/rate is chip-wide. These ownership levels must not be collapsed into one part flag.
 - One chip-wide hardware-LFO enable and one of eight discrete rate selectors. The hardware-reference mapping is `3.98`, `5.56`, `6.02`, `6.37`, `6.88`, `9.63`, `48.1`, and `72.2 Hz`; do not expose an invented continuous hardware-LFO rate.
 - Discrete PMS selectors `0..7` correspond to `0`, `3.4`, `6.7`, `10`, `14`, `20`, `40`, and `80` cents peak deviation; AMS selectors `0..3` correspond to `0`, `1.4`, `5.9`, and `11.8 dB`. Keep selector values canonical and use the physical depths as conformance data.
+- Keep runtime patches register-native. If composer-facing syntax presents TL or envelope rates as loudness/time rather than encoded OPN fields, lower that direction exactly once and test both endpoints; never let a friendly parameter silently reverse the stored hardware-shaped value.
 - Two software LFOs per logical part with seven explicit wave values, delay, speed, depth, count, sync, pitch/volume targets, TL mask, and depth evolution.
 - FM3 special mode with one physical channel, four slot masks, shared ALG, slot-1 FB behavior, per-slot detune/key delay, and compile-time collision diagnostics.
 
@@ -276,6 +289,7 @@ PMD terminology may be used in documentation where it names a musical behavior, 
 
 - Six fixed YM2608-like voices: bass drum, snare, cymbal, hi-hat, tom, rim.
 - Shot and dump masks, master level, per-voice level, and L/R flags.
+- Shot and dump are event masks: a set voice bit triggers that action and a clear bit leaves that voice unchanged. Define canonical ordering when shot and dump events share a sample boundary.
 - Preserve the hardware-shaped attenuation domains: six-bit rhythm-total attenuation from `0` to `-47.25 dB` and five-bit per-voice attenuation from `0` to `-23.25 dB`, both in `0.75 dB` steps. Composer-facing loudness may use a friendlier direction, but its lowering to these domains must be explicit and tested.
 - The event model must express key-on, continuation, and dump independently. The board manual's quarter-note/12 K/C/D pattern model is a useful semantic fixture, not syntax to copy or a file format to interpret.
 - Procedural synthesis only; no ROM/sample data.
@@ -514,7 +528,7 @@ This is procedural behavior, not reproduction of PSGEDATA's packed format.
 
 FM3, hardware LFO, pan flags, and detailed rhythm controls are not exercised by the scanned LLS M86 corpus, but they are legitimate YM2608/PMD behaviors already represented in the engine. Retain them if they pass the single-path architecture test. Remove only compatibility spelling, duplicate state, or raw machinery—not the typed capability.
 
-Add small independent conformance fixtures for the eight hardware-LFO rates, all PMS/AMS selector depths, both rhythm attenuation domains, L/R/both/neither routing, SSG centering, and mono fold-down. These fixtures validate typed semantics and generated numeric tables; they do not replay register streams or rhythm-ROM data.
+Add small independent conformance fixtures for the eight hardware-LFO rates, slot-local AM versus channel-local AMS, all PMS/AMS selector depths, patch-parameter direction, both rhythm attenuation domains, set-bit/clear-bit rhythm event behavior, L/R/both/neither routing, SSG centering, and mono fold-down. These fixtures validate typed semantics and generated numeric tables; they do not replay register streams or rhythm-ROM data.
 
 ### Phase 2 exit gate
 
