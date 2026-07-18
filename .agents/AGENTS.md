@@ -344,7 +344,7 @@ Forbidden by default:
 
 If one appears in git diff, stop immediately and ask.
 
-If any single file exceeds 1000 added lines, or any binary/debug/generated file appears, stop.
+If any single file exceeds 1024 added lines, or any binary/debug/generated file appears, stop.
 
 Do not inspect the file.
 Do not summarize the file.
@@ -399,3 +399,9 @@ No glyph clip default may depend on destX or destY.
 No manual while loop may use continue before x/y counters advance.
 No canvas write may occur without final 0 <= x < width and 0 <= y < height guard.
 drawGlyphRaw must be private, or must require explicit clipLeft/clipTop/clipRight/clipBottom with no unsafe defaults.
+
+
+
+Our sound architecture is  A Procedural, clean-room YM2608-based sound engine. And a,  Separate clean-room PMD-based MML language and performance model.
+
+
