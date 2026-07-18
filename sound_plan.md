@@ -4,7 +4,7 @@ Status: planning document only. This document proposes future work; it does not 
 
 ## 1. Goal
 
-Move the sound system from a development/research architecture to one stable, efficient product architecture for composing and playing TimeBox MML songs with LLS-era PMD 4.8 musical behavior on a clean-room, procedural YM2608-like engine.
+Move the sound system from a development/research architecture to one stable, efficient product architecture for composing and playing TimeBox MML songs. The sound engine is a procedural, clean-room YM2608-based implementation. The MML layer is a separate clean-room PMD-based language and performance model, with LLS-era PMD 4.8 behavior used as the historical parity profile.
 
 The intended result is not a PMD emulator. It is:
 
@@ -43,6 +43,15 @@ The FM/SSG synthesis core is not the rewrite target. The current core already co
 
 These boundaries follow `PMDMML.MAN`, `PMDDATA.DOC`, `PPS.DOC`, `P86DRV.DOC`, `DLLInfop.txt`, `PMDWin.txt`, `PSGEDATA.DOC`, and the relevant YM2608 hardware-manual pages. The manuals are behavioral references only; PMD/PMDWin internal source layouts must not be copied.
 
+### Evidence classification
+
+- `PMDMML.MAN` and `PSGEDATA.DOC`, plus narrowly relevant behavioral statements in `PMDDATA.DOC`, describe observable musical behavior. They do not authorize copying packed records, work areas, offsets, or driver control flow.
+- `PMDWin.txt` is failure-history evidence. A listed bug suggests a regression test; it does not by itself specify the correct behavior.
+- `PPS.DOC` documents a sample-based SSG PCM system and reinforces the PPS/PCM non-goal. `P86DRV.DOC` is likewise about PCM files, memory, interrupts, and registration, none of which creates a TimeBox runtime requirement.
+- `DLLInfop.txt` supports independent playback instances and caller-owned output buffers as useful design properties. Its DLL ABI, file search, thread model, WAV rhythm loading, and public work structures are irrelevant to TimeBox.
+- Driver waits, service numbers, file formats, packed effect layouts, raw pointers, and PMD work-memory fields must never become TimeBox architecture or checked-in runtime data.
+- Hardware manuals define the YM2608-shaped ownership and numeric domains. Historical song archives and dumps show occurrence and musical use; they are not source code or runtime assets.
+
 ## 3. Evidence used
 
 ### Current product code
@@ -50,15 +59,17 @@ These boundaries follow `PMDMML.MAN`, `PMDDATA.DOC`, `PPS.DOC`, `P86DRV.DOC`, `D
 The live Android path is:
 
 ```text
-SongCatalog
-  -> MmlSongBank
-  -> MmlCompiler
-  -> CompiledOpnaSong (tick domain)
+SoundPreviewPlayer
+  -> SongCatalog.byId()
+  -> SongDefinition.buildPlayback(volume)
+  -> MmlSongBank.getArrangement()
+  -> MmlArrangementScheduler.createPlayer()
+  -> CompiledOpnaSong (tick domain, produced by MmlCompiler)
   -> CompiledOpnaTimelineFactory (sample-rate lowering)
   -> CompiledOpnaPlayer
   -> OpnaLikeSynthesizer
   -> OpnaMixer + SongMastering
-  -> SoundPreviewPlayer
+  -> PCM16 conversion and blocking AudioTrack writes
   -> mono PCM16 AudioTrack
 ```
 
@@ -95,7 +106,15 @@ Results:
 
 The corpus scanner is evidence of occurrence and normalized observations, not proof of exact PMD semantics. Its own capability records are `OBSERVED_ONLY`, and its independent exact-evidence count is currently `0/4` (`tools/pmd_corpus_audit.py:53`, `:1238`).
 
-The current Bad Apple audit passes all recovered pitched lanes, but it compares only tick, duration, MIDI pitch, and patch (`tools/pmd_corpus_audit.py:933`). It does not compare gate, volume, envelope, detune, tie/retrigger behavior, rhythm, shared state, register-equivalent state, or rendered audio. This limitation must be fixed before the audit can be called parity evidence.
+The current Bad Apple audit passes only the fixed source window `[288, 5280)`, with the current x20 tick conversion, for recovered pitched lanes A-E, G, and H. It compares only tick, duration, MIDI pitch, and patch (`tools/pmd_corpus_audit.py:933`). It does not compare the K/R rhythm data, control-only parts, gate, volume, envelope, detune, tie/retrigger behavior, shared state, register-equivalent state, or rendered audio. This is a useful migration fixture, not whole-song parity evidence.
+
+The Bad Apple dump/corpus scan confirms that the selected source window also exercises 10 rhythm patterns and 14 selections, four portamentos, four ties, 29 Q-gate changes, 28 volume changes, 17 detunes, loops, and SSG envelopes. It contains LFO clock-mode setup but no active software-LFO definition/wave/switch; those active cases belong to LOGO, ST03, and STAFF. These observations define missing verifier coverage, not automatic proof that the current lowering is correct.
+
+The verifier also has structural limitations that Phase 2 must remove: it drops parts with no pitched notes, separates notes from controls so same-clock order is lost, mutates some state such as relative volume without emitting a semantic event, does not model note key-off/retrigger lifecycle, and hashes K/R pattern bytes without producing timed rhythm semantics. Its compact repeated-note representation is lossy when non-pitch fields differ. Full decoded traces must remain ephemeral local outputs; they must not become checked-in reconstructions of the source songs.
+
+`MUSIC.TXT` supports `_86.M` as the published six-FM/three-SSG/rhythm form and `_26.M` as the standard-FM form, but it is a partial bonus-data notice rather than proof of every archive entry. `PC-98 Eternal Shrine Maiden.txt` identifies itself as a website-version arrangement by pedipanol; it may be used as secondary syntax/stress evidence, never as original ZUN or LLS corpus truth.
+
+Names such as `PMD86_YM2608_86PCM` identify source provenance/profile only. They do not weaken TimeBox's explicit exclusion of PCM, ADPCM, P86, PPS, or sample playback.
 
 ### Manual evidence
 
@@ -230,19 +249,41 @@ thin platform output
 - Android stops mutating core sound policy.
 - Offline audit, preview, alarm, and test rendering instantiate independent sessions from immutable song data.
 
+### Migration map from current code
+
+The target names above name responsibilities, not mandatory renames or permission to build a parallel engine. Prefer evolving the closest current type in place:
+
+| Target responsibility | Closest current implementation |
+|---|---|
+| `OpnaSongProgram` | `CompiledOpnaSong` |
+| `PlaybackPlanBuilder` and immutable playback plan | `CompiledOpnaTimelineFactory` and `CompiledOpnaTimeline` |
+| Session cursor and dispatcher | `CompiledOpnaPlayer` |
+| Procedural chip renderer | `OpnaLikeSynthesizer`, `OpnaChipState`, and `PmdPerformanceState` |
+| Immutable render profile | Policy currently split across `AudioLaws`, `OpnaOutputProfile`, `OpnaAudioConstants`, `MmlArrangementScheduler.MIX_GAIN`, song EQ, and Android setup |
+| Percussion routing | Three current generator paths embedded in `OpnaLikeSynthesizer` |
+
+Do not add a second `PartState` beside `PmdPerformanceState` or a second shared-chip owner beside `OpnaChipState`/`SsgSharedState`. A wrapper is justified only when it removes split ownership or exposes the single product session API; one class per diagram box is not a goal.
+
 ## 6. Target state ownership
 
 | Owner | Owns | Must not own |
 |---|---|---|
 | `OpnaSongProgram` | Immutable patches, notes, typed controls, patterns, source map, loop metadata | Runtime cursors or mutable chip state |
-| `PartState` | Six FM parts, three SSG parts, optional FM3 logical owners; volume, patch, gate, transpose, two software LFOs, software envelope | Global SSG registers, global hardware LFO, rhythm master state |
-| `OpnaSharedState` | Tempo/tick conversion state, shared SSG mixer/noise/envelope, hardware-LFO enable/rate, FM3 physical operator state, rhythm shared controls | Parser objects or song catalog policy |
-| `OpnaChipState` | Six physical FM voices, three SSG voices, six procedural rhythm voices, LUT-backed synthesis state | PMD syntax or platform APIs |
+| `PmdPerformanceState` | Six FM parts, three SSG parts, four FM3 logical owners; volume, patch, gate, transpose, two software LFOs, software envelope | Global SSG registers, global hardware LFO, rhythm master state |
+| `OpnaChipState` | Six physical FM voices, three SSG voices, shared SSG mixer/noise/envelope, hardware-LFO and FM3 physical state, YM rhythm register-equivalent state, LUT-backed synthesis state | PMD syntax, timing conversion, or platform APIs |
 | `PercussionRouter` | YM2608 rhythm domain and PMD SSG-effect domain, priority/restore rules | A third anonymous legacy drum bus |
-| `OpnaPlaybackSession` | Player cursor, reset/replay, immutable render profile, synth/mixer/mastering instances | Android thread or `AudioTrack` lifecycle |
+| `OpnaPlaybackSession` | Player cursor, tick/sample conversion remainders, reset/replay, immutable render profile, synth/mixer/mastering instances | Android thread or `AudioTrack` lifecycle |
 | Android wrapper | Audio thread, `AudioTrack`, mono PCM16 conversion, wake lock, stop/start | Oversampling policy, mix gain, EQ policy, song semantics |
 
 All runtime state remains preallocated. No collections, lambdas, temporary arrays, parser work, sorting, or trigonometric initialization may enter rendering.
+
+### Shared-state projection and lifecycle
+
+Keep desired logical music state separate from the physically applied shared-chip state. An SSG effect may temporarily own channel 3 and shared noise, but music events must continue advancing the desired state. When the effect releases, project the current desired music state back onto the chip instead of restoring a stale acquisition-time snapshot.
+
+A shared-noise write received during an effect remains pending. PMD documents applying it at the first subsequent music key-on after the effect ends (`PMDMML.MAN:2336-2342`); it must not be applied because an arbitrary audio chunk ended. Hardware-LFO enable/rate remains chip-wide, PMS/AMS/delay channel-local, and AM enable slot-local. FM3 remains one physical ALG, slot-1-owned FB, four physical slot detunes/key delays, and logical slot masks; overlapping slot ownership is a compile error, while incompatible same-clock ALG writes are shared-state collisions.
+
+`reset()` and replay on an existing session must equal a fresh session made from the same immutable program and render profile. Reset must clear the player cursor and timing remainders; all voice phases, keys, envelopes, portamento and slot-delay state; both software LFOs and their deterministic RNG/depth state; hardware LFO and FM3 state; shared SSG mixer/noise/envelope and pending writes; effect ownership/priority/cursor; rhythm state; and mixer/mastering/filter/resonator history. Immutable policy and caller gain remain construction inputs, not mutable song state. Stop must release all owners and silence the session; starting again must behave like fresh playback.
 
 ## 7. Stable TimeBox MML contract
 
@@ -262,6 +303,16 @@ PMD terminology may be used in documentation where it names a musical behavior, 
 - Named instruments and mid-part instrument changes.
 - Bounded loops, alternate endings, reusable macros, and an explicit song-loop point.
 - Named rhythm patterns with ordered and simultaneous hits.
+
+### Exact state-transition semantics
+
+- A counted-loop iteration restores only syntax-local state: octave, default length, ornament, pseudo-echo, whole-note length, and key signature. Patch, volume, envelope, LFO, transpose, detune, and other performance state carry unless the song changes them.
+- A final alternate-ending exit continues with state at the loop end. A song-loop point likewise restores the narrow syntax-local state at the marker while performance state carries from the previous pass. A song that needs identical passes must initialize its performance/shared state explicitly after the marker.
+- Tie removes the intermediate key-off and key-on. Slur is the separate key-off/retrigger behavior.
+- Gate lowering computes Q's proportional cut, subtracts q's fixed or seeded-random rear cut, then enforces q's minimum audible duration. A tie suppresses the resulting intermediate key-off.
+- Defining a software LFO reinitializes that LFO immediately, including during a tie or when key-on sync is disabled; the next note observes its delay again. LFO1 and LFO2 use one implementation distinguished only by state index.
+- Keep the approximately 56 Hz fixed software-envelope/LFO clock distinct from the approximately 60 Hz procedural SSG-effect step clock.
+- The PMD manual's LFO range header conflicts with its seven-value behavior table. TimeBox retains seven explicitly named wave semantics `0..6`; it does not reproduce the header typo.
 
 ### Required FM semantics
 
@@ -308,7 +359,7 @@ PMD terminology may be used in documentation where it names a musical behavior, 
 Extensions must be visibly separate from the PMD-parity profile and must justify their maintenance cost.
 
 - Song EQ and mastering are product features, not PMD semantics.
-- General software FM polyphony/chord pooling is not YM2608 hardware behavior. Audit the current `P1`/chord usage. Prefer rearranging Rin (btw rin  should be removed, as it is a totally failed custom aragment of a non mml song) across the six available FM parts and returning the PMD profile to six physical FM voices. If software polyphony is genuinely retained, isolate it as an explicit TimeBox extension with separate tests and never let it silently alter PMD part/LFO semantics.
+- General software FM polyphony/chord pooling is not YM2608 hardware behavior. Rin is the only admitted product source using `P1`, and it is to be removed rather than used to justify pooled voices. After that removal, rescan the admitted product set. If no retained composition exceeds six simultaneous FM voices, remove the extension; if a future original composition genuinely requires it, reintroduce it only as an explicit non-PMD owner with separate tests.
 - Pseudo-echo and ornaments may exist as compiler conveniences only; lower them to ordinary typed notes and controls.
 
 ## 8. Corpus-required behavior
@@ -339,6 +390,8 @@ Before claiming all LLS songs are supported, resolve the observed but semantical
 
 Unknown commands may not be silently ignored.
 
+Resolve the `C0` family first: `C0/F9` and `C0/FF` occur in 44 of the 45 unique M86/M26 payloads, while `C0/FD` occurs in 43 and affects every non-LOGO M86 song. `CD` is confined to ST05/ST06; `ED` and `EE` are confined to ST06. Occurrence and operand width do not establish meaning: each classification needs manual evidence, state-before/state-after observations from more than one context where possible, and an independent semantic check. ST06 part G is the concentrated rare-command fixture once the ubiquitous controls are understood.
+
 ## 9. Implementation phases
 
 ## Phase 1 — Remove duplicate product architecture without removing parity
@@ -349,7 +402,7 @@ This is the first implementation phase. Do not add new PMD features until it pas
 
 Before deleting paths, record:
 
-- Bad Apple  tick-domain program summaries;
+- Bad Apple tick-domain program summaries;
 - ordered sample-boundary summaries at 48 kHz;
 - raw-core mono hashes across multiple chunk sizes;
 - current product-output hashes;
@@ -357,6 +410,8 @@ Before deleting paths, record:
 - patch/register snapshots;
 - current mastering/profile/oversampling settings;
 - a short human listening record for named excerpts.
+
+Regenerate these baselines from the current code instead of copying counts from older plans. Current tests assert `3896` total `CompiledOpnaSong` events, `3864` musical events (`2037` FM, `1422` SSG, `405` rhythm), and `7356` lowered timeline boundaries. Freeze three separately named artifacts: tick-program semantics, the 48 kHz ordered playback plan, and raw/profiled/product audio hashes. Also record the effective policy currently assembled from `MmlArrangementScheduler.MIX_GAIN`, the 48 kHz/1,024-frame Android setup, FM oversampling, output filtering, song EQ, output profile, mixer headroom/gains, master gain, and resonator state.
 
 Hashes are migration alarms, not permanent bit-accuracy requirements. They prove that cleanup did not accidentally change behavior. Intentional sound improvements may establish a new baseline only after a documented listening decision.
 
@@ -366,6 +421,8 @@ Hashes are migration alarms, not permanent bit-accuracy requirements. They prove
 - Re-express valuable cases as tiny compiled TimeBox MML programs or direct typed `OpnaSongProgram` fixtures.
 - Replace the weak legacy heap-delta test with the product player's allocation measurement.
 - Remove redundant tests that only protect obsolete helper behavior.
+
+The migration must account for the active legacy coverage rather than deleting it by filename: `OpnaSubChunkSchedulingTest` protects mid-buffer boundaries; `OpnaPolyphonyTest` protects ownership/retrigger/stale-off behavior; `OpnaDeterminismTest` and `OpnaAcceptanceChecklistTest` protect repeatability and dense rendering; sequencer cases in `OpnaFmCoreTest` protect release/gate/SSG behavior. Retain `SsgHardwareConformanceTest` for shared-register semantics. Use tiny `#MML 2` programs for normal musical cases and a test-only typed program builder only for deliberate overlaps or same-sample boundaries that authored sequential MML cannot express.
 
 Why: deleting the old scheduler first would discard useful evidence; retaining it indefinitely forces every synth change through two dispatchers.
 
@@ -378,6 +435,8 @@ After the ported tests pass:
 - remove `OpnaPatterns`, `Scale`, unused `NoteLen`, and sequencer-only constants;
 - make `CompiledOpnaPlayer`/its successor the only product and test scheduler.
 
+The deletion includes `OpnaLikeSynthesizer`'s sequencer render overloads, `renderWithSequencer`, `renderStereoWithSequencer`, and `handleSequencerEvent`, plus sequencer-only carrier ADSR overrides. There is no product caller. The surviving API should be session-owned rendering, not a public combination where callers coordinate player and synthesizer independently.
+
 Gate: repository search must find no second scheduler, cursor, note-on/off expansion, or legacy drum dispatch.
 
 ### 1.4 Collapse the FM patch/envelope model
@@ -387,6 +446,8 @@ Gate: repository search must find no second scheduler, cursor, note-on/off expan
 - Compare patch register snapshots and rendered baselines.
 - Remove `Envelope`, `EgMode.LEGACY_ADSR`, float ADSR fields, and `OpnEnvelopeCompatibility`.
 - Keep `OpnRateEnvelope` as the only FM envelope implementation.
+
+Perform this in dependency order: snapshot every surviving converted patch; write its legal OPN fields explicitly; port/remove direct and sequencer APIs that accept ADSR overrides; make `OperatorSpec` register-only; then remove `EgMode`, `OpnEnvelopeCompatibility`, its warmups, and `Envelope`. `EnvelopeStageTest` becomes obsolete; any valuable legacy case in `OpnaFmCoreTest` becomes an explicit register snapshot/conformance case.
 
 Why: one operator currently carries two competing truths. Register-native patches are smaller, auditable, and match the clean YM2608-shaped core.
 
@@ -398,6 +459,8 @@ Why: one operator currently carries two competing truths. Register-native patche
 - Keep one parser normalization pipeline and one semantic compiler.
 - Do not add a new dialect branch to preserve private test strings.
 
+Do not mechanically prepend `#MML 2`: v1 dynamically assigns physical FM/SSG families, whereas v2 fixes A-F as FM and G-I as SSG. Rewrite each retained fixture by meaning, remove tests that protect only v1 assignment/rejection behavior, then remove headerless/`#MML 1` acceptance from `MmlParser`, `compileV1` and the compiler branch, and finally `dialectVersion` from document/program models.
+
 Gate: every product and retained test song compiles through one backend; no `dialectVersion` branch reaches semantic compilation.
 
 ### 1.6 Separate product songs from research fixtures
@@ -406,6 +469,8 @@ Gate: every product and retained test song compiles through one backend; no `dia
 - Move LOGO and its local patch bank to research/test scope until explicitly admitted.
 - Compile/cache product songs once outside the audio callback.
 - Preserve the old `synth-mml-senbonzakura-demo` value as a persistence alias while exposing a correctly named Bad Apple ID.
+
+Remove `RinToShiteSong.kt`, its `RIN_TO_SHITE_*` definitions, catalog entry, and song test; update catalog admission tests accordingly. Retain a retired/fallback persisted Rin ID only if storage compatibility actually requires it, without compiling the song. Move `LogoSong.kt`, `LogoSongPatchBank`, the compiled LOGO result/key, and its ingestion fixture out of the product bank. The Bad Apple legacy ID becomes an alias resolving to one canonical entry, never a duplicate entry.
 
 Why: hidden eager compilation makes test material part of product startup and obscures which songs define product requirements.
 
@@ -419,6 +484,12 @@ Keep tick-domain compilation and sample-domain lowering, but change their bounda
 - Remove the duplicate event constant tables and broad payload-copy operation.
 - Stop storing FM/rhythm/LFO values in arrays named after envelope stages.
 - Keep source order and source location in compile/debug metadata without copying irrelevant fields into every render boundary.
+
+Preserve `PmdSampleClock.samplesAt`, the current `TimelineDraft.comesBefore` guarantees, source order, note identity/stale-off suppression, and the current global -> state -> off/dump -> on/shot -> zero-gate precedence until the Phase 1 baseline proves an intentional replacement. Migrate payload families incrementally: tempo/notes, shared and part state, modulation/FM/SSG controls, then rhythm/effects. “Immutable program” also means callers cannot mutate exposed primitive arrays; replace tests such as `HardwareLfoRuntimeTest` mutating `startTick` with typed fixture construction.
+
+Before changing same-boundary order, specify and baseline a TimeBox policy such as `(sampleTime, phase, sourceOrder)` with old-note termination/dump, effect release/projected restore, atomic typed controls/full-patch change, effect acquisition, then note-on/shot. A tie emits neither termination nor note-on. Same-phase shared writes preserve source order; conflicting writes to the same shared scalar are diagnosed with both source locations, and exclusive-owner collisions are compile errors. This ordering is proposed TimeBox policy, not a PMD-manual fact; any audible baseline change requires an explicit migration and listening decision.
+
+Unsupported PPS/P86/PCM/PPZ/file directives and raw-register commands are compile errors, never ignored compatibility spelling. Unknown corpus commands remain admission failures. Source locations and diagnostic metadata are built offline; the render path neither allocates nor formats diagnostics.
 
 Gate: adding a typed control requires one payload definition, one lowering rule, and one runtime handler—not synchronized edits to two property bags.
 
@@ -441,6 +512,8 @@ Apply user volume at the final session/mastering boundary rather than copying th
 
 Android should retain only thread lifecycle, `AudioTrack`, buffers, PCM16 conversion, wake lock, and blocking writes.
 
+The product-facing shape should be one setup call followed by `session.render(out, frames)` and `session.reset()`. The session owns the sequential cursor; product callers do not pass `currentSampleOffset`. Move arbitrary interval replay and the seek buffers currently used by `CompiledOpnaPlayer.prepareInterval` into a clearly named offline/test renderer that creates an independent session. Preserve raw-core and profiled-pre-master checkpoints while applying caller volume only at the final mastering boundary.
+
 ### 1.9 Reduce percussion to explicit domains
 
 - Route ordinary TimeBox/YM rhythm notes and typed rhythm controls through one `Ym2608RhythmUnit` domain.
@@ -449,6 +522,8 @@ Android should retain only thread lifecycle, `AudioTrack`, buffers, PCM16 conver
 - Remove `legacyDrums` after no event targets it.
 - Put both remaining domains behind an explicit `PercussionRouter` and active mask.
 
+Today the three domains are `OpnaChipState.legacyDrums`, `Ym2608RhythmUnit`, and `PmdSsgEffectUnit` wrapping another generic `ProceduralDrums` approximation. First redirect ordinary product rhythm shots to `Ym2608RhythmUnit` while reproducing Bad Apple's current default gain/pan behavior. Delete `legacyDrums` only after every direct, compiled, and old-sequencer target is gone. Replacing the SSG-effect ordinal-to-drum approximation must remove that approximation, not add a fourth generator.
+
 Why: two semantically real domains are maintainable; three anonymous generators rendered on every segment are not.
 
 ### 1.10 Decide the software-polyphony extension
@@ -456,6 +531,8 @@ Why: two semantically real domains are maintainable; three anonymous generators 
 - Scan product songs for actual simultaneous notes that exceed six FM physical voices.
 - If no admitted song requires pooled voices, remove `FM_RENDER_VOICES = 16`, `P1`, and chord pooling.
 - If a real TimeBox composition requires it, isolate it as a named non-PMD extension with its own voice owner and ensure PMD parts still map one-to-one to hardware voices.
+
+After Rin is removed, delete the pool if the admitted set has no remaining need: `FM_RENDER_VOICES = 16`, `FM_POLY_NOTE`, pooled owner arrays, `P1`/chord-pooling compiler and runtime branches, and pool-only tests. Retain six-part and FM3 ownership coverage. A future software-polyphony feature would require a new explicit product decision; do not keep dormant hot-loop complexity as speculation.
 
 Default decision: prefer the fixed six-FM hardware profile. Hidden polyphony increases every hot-loop and complicates PMD part/LFO ownership.
 
@@ -469,7 +546,7 @@ Default decision: prefer the fixed six-FM hardware profile. Hidden polyphony inc
 - Two named percussion domains at most: YM rhythm and PMD SSG effect.
 - No product-loaded research fixtures.
 - No semantically overloaded event payload fields.
-- Bad Apple  preserve agreed musical behavior and loop/reset behavior.
+- Bad Apple preserves the agreed musical behavior and loop/reset behavior.
 - Playback remains allocation-free after warm-up.
 
 ## Phase 2 — Prove and fill LLS musical parity
@@ -492,9 +569,20 @@ Extend the offline normalized trace to compare, per source part and ordered cloc
 
 Do not compare PMD binary layout or raw addresses. Compare clean semantic traces.
 
+Implement the verifier as two explicitly separate products:
+
+1. A structural inventory may report archive hashes, offsets, operand bytes, scan widths, and occurrence counts for local diagnosis. It proves only that the scanner can walk the supplied material.
+2. A lossless semantic trace contains one ordered event stream across all pitched and control-only parts. Each row carries semantic clock, canonical same-clock order, part/owner, event family, typed payload, and source provenance sufficient for a diagnostic—not raw driver layout.
+
+The semantic trace must emit every state transition, including relative volume and tempo forms, loop/alternate/part-loop boundaries, bar length, shared controls, and K/R pattern expansion. Notes must carry onset, written duration, computed gate/key-off clock, key-on/retrigger/tie/slur state, patch, effective volume, transpose, detune, and portamento target/duration. Merge per-part traces deterministically to expose shared tempo, SSG mixer/noise/envelope, hardware LFO, FM3, and rhythm ownership. Remove or replace the lossy compact repeated-note oracle; exact comparison hashes canonical lossless semantic rows.
+
+Fail ambiguity closed. A repeated entry name requires archive/hash disambiguation rather than silently choosing the first payload. Strict parity runs must explicitly require candidate-specific independent checkpoints; `--strict` alone may not succeed merely because the global checkpoint set remains `0/4`. Checkpoints require a versioned clock/schema, derivation identity, typed/range-checked pre/post state, strict order, covered capability keys, and semantic diversity. A useful diverse set is ST02 part B for gate/tie/portamento/detune/loop, ST03 part A for active FM software LFO, ST06 part G for SSG envelope and rare controls, and STAFF part K for rhythm.
+
+Keep full traces and decoded song oracles ephemeral. Check in only hashes and aggregate coverage, small independently authored synthetic fixtures, minimal non-expressive checkpoints, owned TimeBox program baselines, and capability evidence/results. Never check in full decoded note, patch, or rhythm-pattern reconstructions.
+
 ### 2.2 Resolve unknown corpus commands
 
-Triangulate the six unresolved command families using the manual, multiple songs, normalized before/after state, and independent observations. Record a short clean-room evidence note for every conclusion.
+Triangulate the six unresolved command families using the manual, multiple songs, normalized before/after state, and independent observations. Record a short clean-room evidence note for every conclusion. Classify ubiquitous `C0/F9`, `C0/FD`, and `C0/FF` before broad song admission, then use ST05/ST06 for `CD` and ST06 for `ED`/`EE`.
 
 Do not infer semantics from a single byte width or handler label.
 
@@ -513,14 +601,18 @@ Every added behavior must include a corpus-derived semantic fixture, a small ind
 
 ### 2.4 Implement the real procedural SSG-effect model
 
-Replace generic drum-kind substitution for PMD SSG effects with a compact, immutable procedural effect program derived from the fields described in `PSGEDATA.DOC`: step duration, tone/noise periods, mixer, volume/envelope, and tone/noise sweeps.
+Replace generic drum-kind substitution for PMD SSG effects with a compact, immutable procedural effect program derived from the behavior described in `PSGEDATA.DOC`. A named effect step contains duration in effect-control ticks, tone and noise periods, tone/noise enables, amplitude or hardware-envelope selection, hardware-envelope period/shape, signed tone-period delta per step tick, and signed noise-period delta plus its update divider.
+
+Run it with a preallocated cursor and rational/fixed-point approximately 60 Hz effect-clock accumulator independent of callback chunk size. Do not reproduce the historical packed record, terminator, offsets, or nibbles. Higher numeric priority wins and lower priority is ignored without disturbing the active effect; documented SSG drum effects use priority zero. Equal-priority replacement and a zero noise-sweep divider are not fully specified by the references, so choose, name, and test TimeBox policies rather than presenting guesses as PMD parity.
 
 Add one arbiter for SSG channel 3 and shared noise:
 
 - simultaneous effect key-on wins according to the documented priority;
-- displaced music state is saved/restored explicitly;
+- effect ownership is released and the current desired music state is reprojected explicitly;
 - deferred shared-noise changes are applied deterministically;
 - reset and song loop cannot leave the effect owner latched.
+
+Music desired state continues while the effect owns physical output. Channel-3 music and an effect trigger at the same boundary resolve with the effect physically winning, while the music event still advances desired state. On release, project current music state and retain the documented pending-noise-until-next-key-on behavior.
 
 This is procedural behavior, not reproduction of PSGEDATA's packed format.
 
@@ -533,6 +625,7 @@ Add small independent conformance fixtures for the eight hardware-LFO rates, slo
 ### Phase 2 exit gate
 
 - Every command occurring in all 23 unique LLS M86 songs is semantically classified.
+- All 23 songs are assessed individually against the candidate-specific capability and checkpoint gate; no aggregate scan substitutes for per-song admission.
 - No exercised command is silently skipped.
 - The semantic verifier covers more than note tuples and passes all admitted songs.
 - Bad Apple's gate, volume, envelope, detune, tie, rhythm, and shared-state behavior are verified, not merely pitch/duration/patch.
@@ -545,7 +638,7 @@ Add small independent conformance fixtures for the eight hardware-LFO rates, slo
 Only optimize after Phase 1 baselines and Phase 2 semantics exist.
 
 - Build active FM, SSG, logical-part/LFO, and percussion masks from the immutable program.
-- Do not prepare or render disabled software LFOs or unused parts.
+- Do not prepare or render software LFOs or parts that immutable program analysis proves are never referenced.
 - Do not render inactive percussion domains.
 - Render only the required six FM voices in the hardware profile.
 - Cache the 48 kHz playback plan for catalog songs; create only mutable session state per playback.
@@ -553,6 +646,10 @@ Only optimize after Phase 1 baselines and Phase 2 semantics exist.
 - Warm all LUTs and tables before audio starts.
 - Keep exact-size primitive arrays and caller-owned output buffers.
 - Benchmark representative dense sections, not silence.
+
+Capability masks are immutable facts about what the program can use, not merely what is audible in the current segment. Do not skip a temporarily disabled free-running LFO if later enabling depends on its elapsed clock history. Eliminate state only when the program never references it or when an explicit control transition defines the dormant behavior.
+
+Cache one immutable 48 kHz playback plan per catalog program, independent of user volume; create only session/chip/player state per playback. Warm `OpnLogTables`, `DrumSinLut`, and every remaining generated table before the audio thread starts. Benchmark a named dense Bad Apple interval against the 21.33 ms deadline for 1,024 frames at 48 kHz.
 
 Performance gates:
 
@@ -572,6 +669,8 @@ Performance gates:
 - Retain stereo rendering only for hardware L/R semantics and offline use unless listening explicitly chooses stereo product output.
 - Do not use the optional resonator to conceal arrangement or timbre errors.
 - Version any intentional output-profile change and record why it sounds better.
+
+The current mono renderer is not yet a true fold of the stereo buses: FM treats any enabled side as full mono, SSG renders directly to mono, and procedural drums do not preserve all stereo routing in the mono path. Therefore L+R fold-down is an intentional migration, not cleanup-only refactoring. Define its equation and headroom, test FM left/right/both/neither, centered SSG, rhythm routing, and stereo-to-mono equivalence, then establish a new product baseline only after listening approval. Preserve the existing raw-core, profiled-pre-master, and stereo verification surfaces through the session refactor.
 
 ### 4.2 Listening protocol
 
@@ -610,20 +709,28 @@ This replaces the current situation where an empty `0/4` independent-trace resea
 
 ## 10. Failure-history checks that must become permanent
 
-`PMDWin.txt` documents recurring bugs that the architecture should make difficult:
+`PMDWin.txt` is valuable because it records recurring failure classes. Convert the relevant history into named typed-semantic fixtures first and audio/hash checks second:
 
-- LFO1 and LFO2 taking different semantic paths;
-- signed detune/TL/depth using wrong direction or clipping;
-- tied notes retriggering or keying off;
-- patch changes partially applying mid-boundary;
-- SSG effect and music fighting over channel 3/shared noise;
-- reset/replay leaving mutable fields from the previous run;
-- multiple sessions sharing global mutable state;
-- sample-rate conversion changing musical state;
-- FM3 operator masks losing LFO/TL ownership;
-- rhythm shot/dump ordering changing behavior.
+| Fixture | Required assertion |
+|---|---|
+| LFO1/LFO2 symmetry | Identical definitions produce identical traces; LFO2 delay and slot masks work |
+| Fixed software clock | Tempo changes do not change extended-clock envelope/LFO step counts |
+| Signed modulation | Negative depth, FM volume-LFO direction, detune, TL changes, and depth evolution retain sign and use explicit bounds |
+| Relative tempo/detune | Relative tempo mutates shared tempo once in the right direction; extended SSG detune is not doubled |
+| Gate/tie/slur/random Q | Tie has one attack and no middle key-off; slur retriggers; seeded Q replays exactly and respects range/minimum |
+| Atomic patch switch | Operator fields plus ALG/FB change as one typed control before key-on |
+| Hardware-LFO disable | Chip-wide disable removes modulation without stale per-channel state becoming audible |
+| Shared-noise replay | Fresh and reset sessions start from identical noise state and hashes |
+| Effect arbitration | Channel 3 is masked, desired music continues, current state returns, and pending noise applies at the documented key-on point |
+| Effect priority | Higher wins, lower is ignored, and the chosen equal-priority TimeBox rule is stable |
+| FM3 ownership | Slot masks/detunes/delays, LFO/TL masks, shared ALG, and slot-1 FB remain correctly owned |
+| Rhythm boundary order | Same-boundary dump/shot follows the declared TimeBox order |
+| Cross-rate semantics | Supported sample rates produce the same semantic trace; only sample boundaries/audio differ |
+| Chunk invariance | Same-rate output is identical across callback partitions |
+| Session isolation | Interleaved sessions equal separate rendering; resetting one cannot change the other |
+| Fresh-session reset | Reset/replay equals construction from the same program/profile and leaves no old voice, filter, rhythm, or effect tail |
 
-Permanent tests should be typed semantic tests first and audio/hash tests second.
+Do not import PMDWin's P86/PPS/PPZ/ADPCM file, interpolation, malformed-binary, DLL ABI, WAV, or corresponding memory-management tests. Those subsystems are intentionally absent.
 
 ## 11. Completion definition
 
