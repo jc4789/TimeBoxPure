@@ -7,7 +7,6 @@ package com.example.timeboxvibe.engine.audio.opna
  * synthesizer remains independent from parser and catalog types.
  */
 class CompiledOpnaSong internal constructor(
-    val dialectVersion: Int,
     val bpm: Float,
     internal val bpmMilli: Int,
     val beatsPerBar: Int,
@@ -59,7 +58,6 @@ class CompiledOpnaSong internal constructor(
     internal fun withPlaybackGain(gain: Float): CompiledOpnaSong {
         if (gain == playbackGain) return this
         return CompiledOpnaSong(
-            dialectVersion = dialectVersion,
             bpm = bpm,
             bpmMilli = bpmMilli,
             beatsPerBar = beatsPerBar,
@@ -174,7 +172,6 @@ class CompiledOpnaSong internal constructor(
 }
 
 internal class CompiledOpnaSongBuilder(
-    private val dialectVersion: Int,
     private val bpm: Float,
     private val bpmMilli: Int,
     private val beatsPerBar: Int,
@@ -495,7 +492,6 @@ internal class CompiledOpnaSongBuilder(
     }
 
     fun build(): CompiledOpnaSong = CompiledOpnaSong(
-        dialectVersion = dialectVersion,
         bpm = bpm,
         bpmMilli = bpmMilli,
         beatsPerBar = beatsPerBar,

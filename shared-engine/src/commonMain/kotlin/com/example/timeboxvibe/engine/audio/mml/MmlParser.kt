@@ -183,7 +183,6 @@ data class MmlDocument(
     val barDenominator: Int,
     val tracks: List<MmlTrack>,
     val eqBands: List<MmlEqDirective> = emptyList(),
-    val dialectVersion: Int = 1,
     val lfoRate: Int = -1,
     val fm3Extended: Boolean = false,
     val bpmMilli: Int = (bpm * PmdPerformanceLaws.BPM_MILLI_SCALE + 0.5f).toInt(),
@@ -247,14 +246,12 @@ object MmlParser {
         var barDenominator: Int? = null
         var currentChannel: MmlChannelId? = null
         var currentRhythmPattern = -1
-        var dialectVersion = 1
+        var sawMmlV2Directive = false
         var lfoRate = -1
         var fm3Extended = false
         var bpmMilli: Int? = null
         var pmdClocksPerQuarter = PmdPerformanceLaws.DEFAULT_CLOCKS_PER_QUARTER
         var envelopeClockMode = PmdPerformanceLaws.ENVELOPE_CLOCK_NORMAL
-        var sawPmdClockDirective = false
-        var sawEnvelopeSpeedDirective = false
         val macroNames = mutableListOf<String>()
         val macroBodies = mutableListOf<String>()
         val eqBands = mutableListOf<MmlEqDirective>()
@@ -287,8 +284,8 @@ object MmlParser {
                         }
                     } else if (directive.startsWith("#MML", ignoreCase = true)) {
                         val value = directive.substring(4).trim().toIntOrNull()
-                        if (value == null || value !in 1..2) diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#MML requires version 1 or 2"))
-                        else dialectVersion = value
+                        if (value != 2) diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#MML requires version 2"))
+                        else sawMmlV2Directive = true
                     } else if (directive.startsWith("#LFO", ignoreCase = true)) {
                         val value = directive.substring(4).trim().toIntOrNull()
                         if (value == null || value !in 0..7) diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#LFO requires rate 0..7"))
@@ -316,16 +313,13 @@ object MmlParser {
                             diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#PMDCLOCK must be a positive divisor of ${CompiledOpnaSong.TICKS_PER_QUARTER}"))
                         } else {
                             pmdClocksPerQuarter = value
-                            sawPmdClockDirective = true
                         }
                     } else if (directive.startsWith("#ENVELOPESPEED", ignoreCase = true)) {
                         val value = directive.substring(14).trim()
                         if (value.equals("Normal", ignoreCase = true)) {
                             envelopeClockMode = PmdPerformanceLaws.ENVELOPE_CLOCK_NORMAL
-                            sawEnvelopeSpeedDirective = true
                         } else if (value.equals("Extend", ignoreCase = true)) {
                             envelopeClockMode = PmdPerformanceLaws.ENVELOPE_CLOCK_EXTENDED
-                            sawEnvelopeSpeedDirective = true
                         } else {
                             diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#EnvelopeSpeed requires Normal or Extend"))
                         }
@@ -389,6 +383,7 @@ object MmlParser {
             }
             lineIndex++
         }
+        if (!sawMmlV2Directive) diagnostics.add(MmlDiagnostic(1, 1, "Missing #MML 2 directive"))
         if (bpm == null) diagnostics.add(MmlDiagnostic(1, 1, "Missing #BPM directive"))
         if (barNumerator == null || barDenominator == null) diagnostics.add(MmlDiagnostic(1, 1, "Missing #BAR directive"))
         if (diagnostics.isNotEmpty()) return MmlParseResult.Failure(diagnostics)
@@ -399,7 +394,7 @@ object MmlParser {
             val commands = mutableListOf<MmlCommand>()
             if (channelSource.text.isNotBlank()) {
                 parseCommands(
-                    channelSource, 0, channelSource.text.length, dialectVersion,
+                    channelSource, 0, channelSource.text.length,
                     MmlChannelId.entries[i], 0, commands, diagnostics
                 )
             }
@@ -414,19 +409,11 @@ object MmlParser {
             if (builder != null) {
                 val patternSource = builder.build()
                 val commands = mutableListOf<MmlCommand>()
-                parseCommands(patternSource, 0, patternSource.text.length, dialectVersion, MmlChannelId.R, 0, commands, diagnostics)
+                parseCommands(patternSource, 0, patternSource.text.length, MmlChannelId.R, 0, commands, diagnostics)
                 assignExpansionOccurrences(commands)
                 rhythmPatterns.add(MmlRhythmPattern(i, commands))
             }
             i++
-        }
-        if (diagnostics.isNotEmpty()) return MmlParseResult.Failure(diagnostics)
-        if (dialectVersion == 1 && (lfoRate >= 0 || fm3Extended)) {
-            diagnostics.add(MmlDiagnostic(1, 1, "#LFO and #FM3EXTEND require #MML 2"))
-        }
-        if (dialectVersion == 1 && macroNames.isNotEmpty()) diagnostics.add(MmlDiagnostic(1, 1, "#MACRO requires #MML 2"))
-        if (dialectVersion == 1 && (sawPmdClockDirective || sawEnvelopeSpeedDirective)) {
-            diagnostics.add(MmlDiagnostic(1, 1, "#PMDCLOCK and #EnvelopeSpeed require #MML 2"))
         }
         if (diagnostics.isNotEmpty()) return MmlParseResult.Failure(diagnostics)
         assignSourceOrder(resultTracks, rhythmPatterns)
@@ -437,7 +424,6 @@ object MmlParser {
                 barDenominator!!,
                 resultTracks,
                 eqBands,
-                dialectVersion,
                 lfoRate,
                 fm3Extended,
                 bpmMilli!!,
@@ -491,7 +477,6 @@ object MmlParser {
         source: ChannelSource,
         start: Int,
         end: Int,
-        dialectVersion: Int,
         channel: MmlChannelId,
         loopDepth: Int,
         output: MutableList<MmlCommand>,
@@ -505,10 +490,6 @@ object MmlParser {
             if (c.isWhitespace()) {
                 i++
             } else if (c == '[') {
-                if (dialectVersion == 1 && loopDepth > 0) {
-                    diagnostics.add(MmlDiagnostic(source.lineAt(i), source.columnAt(i), "Nested loops are not supported"))
-                    return
-                }
                 if (loopDepth >= MAX_LOOP_DEPTH) {
                     diagnostics.add(MmlDiagnostic(source.lineAt(i), source.columnAt(i), "Loop nesting exceeds $MAX_LOOP_DEPTH"))
                     return
@@ -526,7 +507,7 @@ object MmlParser {
                     return
                 }
                 val loopCommands = mutableListOf<MmlCommand>()
-                parseCommands(source, i + 1, close, dialectVersion, channel, loopDepth + 1, loopCommands, diagnostics)
+                parseCommands(source, i + 1, close, channel, loopDepth + 1, loopCommands, diagnostics)
                 val expandedSize = output.size.toLong() + loopCommands.size.toLong() * repeatCount.toLong()
                 if (expandedSize > MAX_EXPANDED_COMMANDS) {
                     diagnostics.add(MmlDiagnostic(source.lineAt(i), source.columnAt(i), "Expanded loop exceeds parser command capacity"))
@@ -539,7 +520,6 @@ object MmlParser {
                         source,
                         i + 1,
                         close,
-                        dialectVersion,
                         channel,
                         loopDepth + 1,
                         output,
