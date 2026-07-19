@@ -624,3 +624,70 @@ Do not treat test count, coverage, or passing tests as measures of code quality.
 No test files or test-only infrastructure may be committed unless the user explicitly requests otherwise.
 
 A completed bug fix leaves behind corrected production code, not a test monument to the bug.
+
+
+
+
+parallel verification machinery is not allowed in any capacity.
+
+TESTS ARE NEVER ALLOWED TO BE RUN OR CREATED WITHOUT THE USERS EXPLICT REQUEST TO DO SO.
+
+## No Verification Architecture
+
+Do not add permanent code whose purpose is to test, inspect, validate, certify,
+checkpoint, trace, score, compare, or record the implementation.
+
+This includes renamed equivalents such as:
+
+- inspection records
+- checkpoint layers
+- metric collectors
+- verification counters
+- shadow pipelines
+- debug render stages
+- validation harnesses
+- snapshots, hashes, fixtures,  and self-checks
+
+Renaming a test does not make it production code.
+
+Do not change production APIs, visibility, state, control flow, or architecture
+to support verification.
+
+A temporary bug reproducer may exist only as untracked scratch work.
+Delete it and all supporting machinery when the bug is fixed.
+
+When removing tests or verification machinery, delete it completely.
+Do not replace it with another mechanism.
+
+Do not add any non-production diagnostic infrastructure unless the user
+explicitly requests that exact artifact.
+
+Production code must exist only to provide the requested runtime behavior.
+
+STRICT IMPLEMENTATION SCOPE
+
+Implement only the runtime defects explicitly requested by the user.
+
+Before editing:
+1. Identify each requested defect.
+2. Name the production files expected to change.
+3. Treat that list as an allowlist.
+
+Do not add or modify:
+- tests or renamed test equivalents
+- verification, inspection, checkpoint, tracing, scoring, or recording systems
+- production APIs or visibility for verification
+- tools, documentation, plans, or project laws
+- adjacent architecture, cleanup, abstractions, or preventative systems
+
+Do not interpret supporting evidence, reference documents, or plan commentary as
+authorization to implement additional features.
+
+Subagents are read-only unless explicitly assigned a specific production file.
+Their discoveries do not expand scope. New issues must be reported, not fixed.
+
+If a requested fix appears to require work outside the allowlist, stop and ask
+the user before making that change.
+
+Completion means the requested runtime defects are fixed with the smallest
+production-only change. It does not mean every adjacent concern has been solved.
