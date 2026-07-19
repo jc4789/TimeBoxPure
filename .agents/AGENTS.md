@@ -15,7 +15,9 @@ Deterministic before convenient
 Procedural before stored
 Platform-agnostic before platform-specific
 
+
 THE FOUR FOUNDATIONAL LAWS
+
 
 1. THE CANONICAL UNIT
 
@@ -351,6 +353,182 @@ Do not summarize the file.
 Do not continue editing.
 Report the path and wait.
 
+
+
+SOUND LAWS: 
+## 音響正当性の最優先法則
+
+ビルド成功、テスト成功、決定論、無割り当て、ハッシュ一致は、
+音響的な正しさを証明しない。
+
+音声生成、MML意味論、音量、音程、ゲート、タイ、ポルタメント、
+エンベロープ、LFO、ミキサー、フィルタ、クリップ、ルーティングを変更した場合、
+「テストが通ったため音が正しい」と結論してはならない。
+
+
+
+
+構造上の正しさ、意味論上の正しさ、レンダリング上の正しさ、
+聴感上の採用判断は、それぞれ別の合格条件として扱う。
+
+
+## 一変更一仮説法則
+
+音響退行を修理するとき、次の領域を一つの変更単位で同時に変更してはならない。
+
+- 楽曲データ
+- MML構文または意味論
+- タイムライン生成
+- 音程またはポルタメント計算
+- エンベロープ
+- FMまたはSSGの音量投影
+- バスバランス
+- ヘッドルーム
+- EQ
+- フィルタ
+- 共鳴処理
+- クリップまたはリミッタ
+- 出力ルーティング
+
+複数領域の同時変更が不可避な場合は、
+各領域を個別に無効化できる比較経路と、段階ごとの測定結果を用意する。
+
+原因を特定できない一括修理は完了扱いにしない。
+
+## 音楽意味と出力政策の分離法則
+
+作曲データおよびPMD由来の状態を、ヘッドルーム確保、
+クリップ回避、ラウドネス調整、製品ミックス調整のために書き換えてはならない。
+
+次の値は音楽意味であり、出力政策ではない。
+
+- パート音量
+- オペレータTL
+- SSGレベル
+- ゲート
+- タイおよびスラー
+- デチューン
+- ポルタメント
+- エンベロープ
+- LFO
+- パンまたは左右出力フラグ
+
+ヘッドルーム、バス利得、最終音量、EQ、フィルタ、共鳴、クリップは、
+明示された一つの出力プロファイルだけが所有する。
+
+音楽意味を縮小してミキサー問題を隠してはならない。
+
+## 時間軌跡法則
+
+始点、終点、長さが一致しても、時間途中の軌跡が一致するとは限らない。
+
+次の変更では、最終値だけでなく中間状態を検証する。
+
+- ポルタメント
+- デチューン
+- ピッチLFO
+- 音量LFO
+- FMエンベロープ
+- SSGソフトウェアエンベロープ
+- ハードウェアエンベロープ
+- フェード
+- フィルタ
+- 共鳴
+- リリース
+
+クロック単位の処理をサンプル単位補間へ置き換えること、
+整数の商・余り配分を浮動小数点補間へ置き換えること、
+レジスタ領域の変化を周波数または振幅の直線補間へ置き換えることは、
+明示的な音響変更である。
+
+同じ終点へ到達することを互換性の証拠としてはならない。
+
+## レベル一致比較法則
+
+音質、豊かさ、厚み、共鳴、自然さ、明瞭さを比較するときは、
+比較対象を知覚上または測定上の同音量へ揃える。
+
+大きい音を「豊か」、小さい音を「痩せた」と誤認する比較を禁止する。
+
+音量法則、バス利得、ヘッドルーム、マスタリングを変更した場合は、
+最低限次を変更前後で記録する。
+
+- 各バスの実効値
+- 各バスの最大値
+- 最終出力の実効値
+- クリップまたはニー通過回数
+- FM単独出力
+- SSG単独出力
+- リズム単独出力
+- 全体出力
+
+合計出力だけを測定して、内部バランスが維持されたと判断してはならない。
+
+## 製品経路検証法則
+
+音響変更の合格判定は、直接シンセAPIだけでなく、
+実際の製品再生経路を通した出力で行う。
+
+最低限、次の段階を個別に検査可能にする。
+
+1. コンパイル済み音楽意味
+2. サンプル境界タイムライン
+3. FM、SSG、リズムの生バス
+4. 出力プロファイル適用後
+5. EQおよびフィルタ適用後
+6. クリップ前
+7. 製品モノラルまたはステレオ最終出力
+
+直接ボイスのテストが成功しても、
+製品経路の音響合格とはみなさない。
+
+### 音声作業の致命的禁止事項
+
+- 音を聞かずに「音質を修復した」と報告しない。
+- 同じ式を二度実装して「独立検証」と呼ばない。
+- 楽曲データをヘッドルーム調整に使わない。
+- 始点と終点だけでポルタメント互換を判定しない。
+- FM、SSG、リズムの合計だけ見てバランス維持を主張しない。
+- ハッシュを音響的正解として固定しない。
+- 構造整理と音楽意味の変更を同じ差分へ混ぜない。
+- 未検証の仮説を「ハードウェア法則」や「PMD法則」と命名しない。
+- テスト削除を、代替証拠の追加より先に行わない。
+
+
+
+## 音声受け入れ区間法則
+
+製品曲には、変更されにくい短い名前付き診断区間を定義する。
+
+各区間は、何を聞く場所かを一つ以上持つ。
+
+例:
+
+- 主旋律のアタックと減衰
+- タイ中の再発音有無
+- ポルタメントの段階変化
+- FMとSSGの相対位置
+- リリース尾
+- ループ境界
+- 共鳴尾
+- 密集時のクリップ
+
+音響に影響する変更を完了扱いにする前に、
+これらの区間を変更前後で同音量比較し、
+観察結果を短く記録する。
+
+人間による聴取が未実施なら、
+「自動検証完了、音楽的採用未完了」と記録し、
+音響修理全体を完了扱いにしない。
+
+
+
+
+
+
+
+
+
 The APPENDIX section overrides everything above it!
 
 
@@ -405,3 +583,44 @@ drawGlyphRaw must be private, or must require explicit clipLeft/clipTop/clipRigh
 Our sound architecture is  A Procedural, clean-room YM2608-based sound engine. And a,  Separate clean-room PMD-based MML language and performance model.
 
 
+
+Tests, including human tests, mean nothing if the logic of our code is wrong.
+
+## Test Policy
+
+Tests are temporary debugging instruments, not permanent project assets.
+
+Do not add tests for:
+
+* new features
+* refactoring
+* architecture
+* code cleanup
+* coverage
+* documentation
+* hypothetical failures
+* future regressions
+* validation of code written in the same task
+
+A temporary test may be created only to reproduce a concrete, confirmed bug.
+
+The temporary test must:
+
+1. Fail because of the confirmed bug.
+2. Be used to guide or verify the fix.
+3. Pass after the bug is fixed.
+4. Be deleted in the same task once the fix has been verified.
+
+The bug does not remain after the fix, so its test must not remain either.
+
+Do not preserve bug-reproduction tests as regression tests.
+
+Do not build a permanent test suite from previously fixed bugs.
+
+Do not replace deleted tests with new tests.
+
+Do not treat test count, coverage, or passing tests as measures of code quality.
+
+No test files or test-only infrastructure may be committed unless the user explicitly requests otherwise.
+
+A completed bug fix leaves behind corrected production code, not a test monument to the bug.
