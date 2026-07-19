@@ -15,47 +15,44 @@ class SongDefinition(
     val displayTitle: String,
     val kind: SongKind,
     val previewDurationMs: Long,
-    private val playbackFactory: () -> SongPlayback?
+    private val playbackFactory: (Float) -> SongPlayback?
 ) {
-    fun buildPlayback(): SongPlayback? = playbackFactory()
+    fun buildPlayback(volume: Float): SongPlayback? = playbackFactory(volume)
 }
 
 object SongCatalog {
-    const val DEFAULT_FOCUS_ID = MmlSongBank.BAD_APPLE_LLS_KEY
-    const val DEFAULT_RELAX_ID = MmlSongBank.BAD_APPLE_LLS_KEY
+    const val DEFAULT_FOCUS_ID = MmlSongBank.SENBONZAKURA_DEMO_KEY
+    const val DEFAULT_RELAX_ID = MmlSongBank.SENBONZAKURA_DEMO_KEY
 
     private const val DEFAULT_PREVIEW_MS = 7000L
 
     val all: Array<SongDefinition> = arrayOf(
-        SongDefinition(MmlSongBank.BAD_APPLE_LLS_KEY, "BAD APPLE!! / LOTUS LAND STORY", SongKind.MML, DEFAULT_PREVIEW_MS) {
-            val arrangement = MmlSongBank.getArrangement(MmlSongBank.BAD_APPLE_LLS_KEY)
+        SongDefinition(MmlSongBank.SENBONZAKURA_DEMO_KEY, "BAD APPLE!! / LOTUS LAND STORY", SongKind.MML, DEFAULT_PREVIEW_MS) { volume ->
+            val arrangement = MmlSongBank.getArrangement(MmlSongBank.SENBONZAKURA_DEMO_KEY, volume)
+            if (arrangement == null) null else SongPlayback.Arrangement(arrangement)
+        },
+        SongDefinition(MmlSongBank.RIN_TO_SHITE_KEY, "RIN TO SHITE", SongKind.MML, DEFAULT_PREVIEW_MS) { volume ->
+            val arrangement = MmlSongBank.getArrangement(MmlSongBank.RIN_TO_SHITE_KEY, volume)
             if (arrangement == null) null else SongPlayback.Arrangement(arrangement)
         }
     )
 
     fun byId(id: String): SongDefinition? {
-        val canonicalId = canonicalId(id)
         var i = 0
         while (i < all.size) {
             val song = all[i]
-            if (song.id == canonicalId) return song
+            if (song.id == id) return song
             i++
         }
         return null
     }
 
     fun indexOf(id: String): Int {
-        val canonicalId = canonicalId(id)
         var i = 0
         while (i < all.size) {
-            if (all[i].id == canonicalId) return i
+            if (all[i].id == id) return i
             i++
         }
         return 0
-    }
-
-    private fun canonicalId(id: String): String = when (id) {
-        MmlSongBank.SENBONZAKURA_DEMO_KEY -> MmlSongBank.BAD_APPLE_LLS_KEY
-        else -> id
     }
 }

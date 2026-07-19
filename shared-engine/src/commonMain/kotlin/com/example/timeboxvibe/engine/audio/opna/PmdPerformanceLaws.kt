@@ -20,12 +20,4 @@ object PmdPerformanceLaws {
     // Stable compile-time gate randomization seed; loop playback reuses the
     // resulting primitive gate clocks exactly.
     const val GATE_RANDOM_SEED = 0x6D2B79F5
-
-    const val FM_FINE_VOLUME_MAX = 127
-    const val SSG_VOLUME_MAX = 15
-    private const val OPN_TL_INTERNAL_STEP = 8
-
-    /** Provisional TimeBox clean-room policy; this is not a PMD driver-layout claim. */
-    fun fmVolumeAttenuation(volume: Int): Int =
-        (FM_FINE_VOLUME_MAX - volume.coerceIn(0, FM_FINE_VOLUME_MAX)) * OPN_TL_INTERNAL_STEP
 }

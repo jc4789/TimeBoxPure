@@ -9,21 +9,25 @@ internal object PmdSampleClock {
         var previousTick = 0L
         var bpmMilli = song.bpmMilli
         var tempoIndex = 0
-        while (tempoIndex < song.tempoChangeCount && song.tempoTick(tempoIndex) < targetTick) {
-            val changeTick = song.tempoTick(tempoIndex).coerceAtLeast(previousTick)
-            val denominator = bpmMilli.toLong() * CompiledOpnaSong.TICKS_PER_QUARTER
-            val numerator = (changeTick - previousTick) * sampleRate.toLong() * 60_000L + remainder
-            samples += numerator / denominator
-            remainder = numerator % denominator
+        while (tempoIndex < song.tempoChangeCount && song.tempoTick[tempoIndex] < targetTick) {
+            val changeTick = song.tempoTick[tempoIndex].coerceAtLeast(previousTick)
+            val result = advance(changeTick - previousTick, sampleRate, bpmMilli, remainder)
+            samples += result.first
+            remainder = result.second
             previousTick = changeTick
-            val nextBpm = song.tempoBpmMilli(tempoIndex)
+            val nextBpm = song.tempoBpmMilli[tempoIndex]
             remainder = rescaleRemainder(remainder, bpmMilli, nextBpm)
             bpmMilli = nextBpm
             tempoIndex++
         }
+        val result = advance(targetTick - previousTick, sampleRate, bpmMilli, remainder)
+        return samples + result.first
+    }
+
+    private fun advance(ticks: Long, sampleRate: Int, bpmMilli: Int, remainder: Long): Pair<Long, Long> {
         val denominator = bpmMilli.toLong() * CompiledOpnaSong.TICKS_PER_QUARTER
-        val numerator = (targetTick - previousTick) * sampleRate.toLong() * 60_000L + remainder
-        return samples + numerator / denominator
+        val numerator = ticks * sampleRate.toLong() * 60_000L + remainder
+        return Pair(numerator / denominator, numerator % denominator)
     }
 
     private fun rescaleRemainder(remainder: Long, oldBpmMilli: Int, newBpmMilli: Int): Long {

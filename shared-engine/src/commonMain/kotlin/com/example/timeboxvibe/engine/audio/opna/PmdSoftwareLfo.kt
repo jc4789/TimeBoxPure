@@ -253,7 +253,7 @@ internal class PmdSoftwareLfo(
         if (depthChangeClock < depthChangeSpeed) return
         depthChangeClock = 0
         val sign = if (depthA < 0) -1 else 1
-        depthA = ((kotlin.math.abs(depthA) + depthChangeAmount).coerceIn(0, 127) * sign)
+        depthA = ((kotlin.math.abs(depthA) + depthChangeAmount).coerceIn(0, 128) * sign)
         step = waveformStep()
         if (depthChangeTime > 0) {
             depthChangeRemaining--

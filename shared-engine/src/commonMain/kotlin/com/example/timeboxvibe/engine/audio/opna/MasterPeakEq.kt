@@ -1,5 +1,7 @@
 package com.example.timeboxvibe.engine.audio.opna
 
+import com.example.timeboxvibe.engine.EqType
+import com.example.timeboxvibe.engine.SongEqBand
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.pow
@@ -21,8 +23,8 @@ internal class MasterPeakEq(private val sampleRate: Int) {
     private var y1R = FloatArray(0)
     private var y2R = FloatArray(0)
 
-    fun configure(profile: OpnaRenderProfile) {
-        bandCount = profile.eqBandCount
+    fun configure(bands: List<SongEqBand>) {
+        bandCount = bands.size
         b0 = FloatArray(bandCount)
         b1 = FloatArray(bandCount)
         b2 = FloatArray(bandCount)
@@ -39,22 +41,16 @@ internal class MasterPeakEq(private val sampleRate: Int) {
 
         var i = 0
         while (i < bandCount) {
-            if (profile.eqBandTypeCode(i) == OpnaRenderProfile.EQ_TYPE_PEAK) {
-                configurePeak(
-                    i,
-                    profile.eqBandFrequencyHz(i),
-                    profile.eqBandGainDb(i),
-                    profile.eqBandQ(i)
-                )
-            }
+            val band = bands[i]
+            if (band.type == EqType.PEAK) configurePeak(i, band)
             i++
         }
     }
 
-    private fun configurePeak(index: Int, frequencyHz: Float, gainDb: Float, q: Float) {
-        val amplitude = 10.0.pow(gainDb.toDouble() / 40.0)
-        val omega = 2.0 * PI * frequencyHz.toDouble() / sampleRate.toDouble()
-        val alpha = sin(omega) / (2.0 * q.toDouble())
+    private fun configurePeak(index: Int, band: SongEqBand) {
+        val amplitude = 10.0.pow(band.gainDb.toDouble() / 40.0)
+        val omega = 2.0 * PI * band.frequencyHz.toDouble() / sampleRate.toDouble()
+        val alpha = sin(omega) / (2.0 * band.q.toDouble())
         val cosOmega = cos(omega)
         val a0 = 1.0 + alpha / amplitude
         b0[index] = ((1.0 + alpha * amplitude) / a0).toFloat()

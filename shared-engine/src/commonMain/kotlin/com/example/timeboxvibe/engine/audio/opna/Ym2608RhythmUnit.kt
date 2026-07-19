@@ -22,17 +22,6 @@ internal class Ym2608RhythmUnit(sampleRate: Int) {
         }
     }
 
-    /** Preserves the Phase 1 ordinary authored-drum velocity/pan law on the shared YM generator. */
-    fun shotAuthored(drumKindOrdinal: Int, velocity: Float, pan: Int): Boolean {
-        val voice = authoredDrumVoice(drumKindOrdinal)
-        if (voice < 0) return false
-        val kind = drumKind(voice)
-        generator.setGain(kind, velocity.coerceAtLeast(0f))
-        generator.setPan(kind, pan)
-        trigger(generator, kind)
-        return true
-    }
-
     fun dump(mask: Int) {
         var voice = 0
         while (voice < VOICE_COUNT) {
@@ -104,11 +93,6 @@ internal class Ym2608RhythmUnit(sampleRate: Int) {
     internal fun generatorGainSnapshot(voice: Int): Float =
         generator.gainSnapshot(drumKind(voice.coerceIn(0, VOICE_COUNT - 1)))
 
-    internal fun generatorPanSnapshot(voice: Int): Int =
-        generator.panSnapshot(drumKind(voice.coerceIn(0, VOICE_COUNT - 1)))
-
-    internal fun hasActiveVoices(): Boolean = generator.hasActiveVoices()
-
     private fun refreshAllVoices() {
         var voice = 0
         while (voice < VOICE_COUNT) {
@@ -132,16 +116,6 @@ internal class Ym2608RhythmUnit(sampleRate: Int) {
         3 -> ProceduralDrums.DrumKind.HAT
         4 -> ProceduralDrums.DrumKind.TOM
         else -> ProceduralDrums.DrumKind.RIMSHOT
-    }
-
-    private fun authoredDrumVoice(drumKindOrdinal: Int): Int = when (drumKindOrdinal) {
-        ProceduralDrums.DrumKind.KICK.ordinal -> 0
-        ProceduralDrums.DrumKind.SNARE.ordinal -> 1
-        ProceduralDrums.DrumKind.HAT.ordinal -> 3
-        ProceduralDrums.DrumKind.TOM.ordinal -> 4
-        ProceduralDrums.DrumKind.CYMBAL.ordinal -> 2
-        ProceduralDrums.DrumKind.RIMSHOT.ordinal -> 5
-        else -> -1
     }
 
     private fun trigger(drums: ProceduralDrums, kind: ProceduralDrums.DrumKind) {

@@ -85,6 +85,8 @@ class OpnRateEnvelope {
         private set
     var attenuation: Int = MAX_ATTENUATION
         private set
+    val level: Float
+        get() = (MAX_ATTENUATION - attenuation).toFloat() / MAX_ATTENUATION.toFloat()
 
     var attackRate: Int = 0
     var decayRate: Int = 0
@@ -162,6 +164,11 @@ class OpnRateEnvelope {
         } else {
             value shl 1
         }
+    }
+
+    fun next(): Float {
+        nextAttenuation()
+        return level
     }
 
     private fun finishAttack() {

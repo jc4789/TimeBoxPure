@@ -26,9 +26,15 @@ Use this skill when code touches:
 - clipping / mixing
 - channel state
 
-## Audio Law
+## Audio Laws
 
-Audio is generated.
+
+
+-Audio is generated.
+
+-Our sound architecture has two main layers,    A Procedural, clean-room YM2608-based sound engine. And, a  Separate clean-room PMD-based MML language and performance model. 
+
+
 
 Forbidden:
 
@@ -41,7 +47,8 @@ Forbidden:
 - collections in audio callback
 - coroutine scheduling in audio callback
 - trig calls in hot loop unless explicitly approved
-
+- Verification Architecture.
+- Production snapshots, counters, inspection renderers, or diagnostic APIs.
 ## Required Pattern
 
 State is preallocated:

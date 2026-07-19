@@ -94,34 +94,8 @@ internal class PmdPerformanceState(sampleRate: Int) {
     fun fm3Frame(part: Int): PmdModulationFrame? =
         if (part in fm3Parts.indices) fm3Parts[part].modulation else null
 
-    fun setFmVolume(part: Int, value: Int) {
-        if (part in fmParts.indices) fmParts[part].volume = value.coerceIn(0, PmdPerformanceLaws.FM_FINE_VOLUME_MAX)
-    }
-
-    fun setFm3Volume(part: Int, value: Int) {
-        if (part in fm3Parts.indices) fm3Parts[part].volume = value.coerceIn(0, PmdPerformanceLaws.FM_FINE_VOLUME_MAX)
-    }
-
-    fun setSsgVolume(part: Int, value: Int) {
-        if (part in ssgParts.indices) ssgParts[part].volume = value.coerceIn(0, PmdPerformanceLaws.SSG_VOLUME_MAX)
-    }
-
-    fun setFmDetune(part: Int, value: Int, kind: Int): Boolean =
-        selectedPart(fmParts, part)?.setDetune(value, kind) ?: false
-
-    fun setFm3Detune(part: Int, value: Int, kind: Int): Boolean =
-        selectedPart(fm3Parts, part)?.setDetune(value, kind) ?: false
-
-    fun setSsgDetune(part: Int, value: Int, kind: Int): Boolean =
-        selectedPart(ssgParts, part)?.setDetune(value, kind) ?: false
-
-    fun fmDetuneRaw(part: Int): Int = selectedPart(fmParts, part)?.effectiveDetuneRaw() ?: 0
-    fun fm3DetuneRaw(part: Int): Int = selectedPart(fm3Parts, part)?.effectiveDetuneRaw() ?: 0
-    fun ssgDetuneRaw(part: Int): Int = selectedPart(ssgParts, part)?.effectiveDetuneRaw() ?: 0
-
-    /** Direct-preview setup only; compiled playback uses persistent authored part volume. */
-    fun setDirectSsgBaseLevel(part: Int, level: Int) {
-        setSsgVolume(part, level)
+    fun setSsgBaseLevel(part: Int, level: Int) {
+        if (part in ssgParts.indices) ssgParts[part].ssgBaseLevel = level.coerceIn(0, 15)
     }
 
     fun configureSsgEnvelope(
@@ -238,6 +212,10 @@ internal class PmdPerformanceState(sampleRate: Int) {
     fun setFm3LfoDepthEvolution(part: Int, index: Int, speed: Int, depth: Int, time: Int) =
         selectedLfo(fm3Parts, part, index)?.setDepthEvolution(speed, depth, time) ?: Unit
 
+    fun setVolume(part: Int, value: Int) {
+        if (part in fm3Parts.indices) fm3Parts[part].volume = value.coerceIn(0, 127)
+    }
+
     fun setSlotMask(part: Int, value: Int) {
         if (part in fm3Parts.indices) fm3Parts[part].slotMask = value and 15
     }
@@ -254,17 +232,11 @@ internal class PmdPerformanceState(sampleRate: Int) {
     internal fun ssgEnvelopeLevelOffsetSnapshot(part: Int): Int {
         if (part !in ssgParts.indices) return 0
         val state = ssgParts[part]
-        return state.envelope?.levelOffsetSnapshot(state.volume) ?: 0
+        return state.envelope?.levelOffsetSnapshot(state.ssgBaseLevel) ?: 0
     }
 
-    internal fun fmVolumeSnapshot(part: Int): Int =
-        if (part in fmParts.indices) fmParts[part].volume else 0
-
-    internal fun fm3VolumeSnapshot(part: Int): Int =
+    internal fun volumeSnapshot(part: Int): Int =
         if (part in fm3Parts.indices) fm3Parts[part].volume else 0
-
-    internal fun ssgVolumeSnapshot(part: Int): Int =
-        if (part in ssgParts.indices) ssgParts[part].volume else 0
 
     internal fun hardwareLfoPmsSnapshot(part: Int): Int =
         selectedPart(fmParts, part)?.hardwarePms ?: 0
@@ -336,8 +308,7 @@ internal class PmdPerformanceState(sampleRate: Int) {
         val ssgFrame = if (withEnvelope) PmdSsgFrame() else null
         var volume = 127
         var slotMask = 0
-        private var partDetuneRaw = 0
-        private var masterDetuneRaw = 0
+        var ssgBaseLevel = DEFAULT_SSG_LEVEL
         var hardwarePms = 0
         var hardwareAms = 0
         var hardwareDelayKind = CompiledOpnaSong.HW_LFO_DELAY_NONE
@@ -360,26 +331,6 @@ internal class PmdPerformanceState(sampleRate: Int) {
             envelope?.noteOn()
         }
 
-        fun setDetune(value: Int, kind: Int): Boolean {
-            val nextPart = when (kind) {
-                CompiledOpnaSong.PART_DETUNE_ABSOLUTE -> value.toLong()
-                CompiledOpnaSong.PART_DETUNE_RELATIVE -> partDetuneRaw.toLong() + value.toLong()
-                CompiledOpnaSong.MASTER_DETUNE_ABSOLUTE -> partDetuneRaw.toLong()
-                else -> return false
-            }
-            val nextMaster = if (kind == CompiledOpnaSong.MASTER_DETUNE_ABSOLUTE) value.toLong()
-                else masterDetuneRaw.toLong()
-            val effective = nextPart + nextMaster
-            if (nextPart !in PmdDetune.MIN_RAW.toLong()..PmdDetune.MAX_RAW.toLong() ||
-                nextMaster !in PmdDetune.MIN_RAW.toLong()..PmdDetune.MAX_RAW.toLong() ||
-                effective !in PmdDetune.MIN_RAW.toLong()..PmdDetune.MAX_RAW.toLong()) return false
-            partDetuneRaw = nextPart.toInt()
-            masterDetuneRaw = nextMaster.toInt()
-            return true
-        }
-
-        fun effectiveDetuneRaw(): Int = partDetuneRaw + masterDetuneRaw
-
         fun prepare(frames: Int) {
             val output = modulation
             output.pitchTarget1 = lfo1.targetsPitch
@@ -388,14 +339,10 @@ internal class PmdPerformanceState(sampleRate: Int) {
             output.volumeTarget2 = lfo2.targetsVolume
             output.tlMask1 = lfo1.tlMask()
             output.tlMask2 = lfo2.tlMask()
-            val selectedSsg = ssgFrame
-            output.baseAttenuation = if (selectedSsg == null) {
-                PmdPerformanceLaws.fmVolumeAttenuation(volume)
-            } else {
-                0
-            }
+            output.baseAttenuation = (127 - volume) * OpnRateEnvelope.MAX_ATTENUATION / 127
             output.hardwarePms = hardwarePms
             output.hardwareAms = hardwareAms
+            val selectedSsg = ssgFrame
             var frame = 0
             while (frame < frames) {
                 val pitch1 = lfo1.pitchValue()
@@ -411,7 +358,7 @@ internal class PmdPerformanceState(sampleRate: Int) {
                     selectedSsg.tonePeriodOffset[frame] = pitch1 + pitch2
                     selectedSsg.volumeOffset[frame] = volume1 + volume2
                     selectedSsg.softwareEnvelopeLevel[frame] =
-                        selectedEnvelope?.levelFor(volume) ?: volume
+                        selectedEnvelope?.levelFor(ssgBaseLevel) ?: ssgBaseLevel
                     selectedEnvelope?.advanceSample()
                     selectedSsg.releaseFinished[frame] = selectedEnvelope?.finishedRelease() == true
                 }
@@ -425,14 +372,9 @@ internal class PmdPerformanceState(sampleRate: Int) {
             lfo1.reset()
             lfo2.reset()
             envelope?.reset()
-            volume = if (ssgFrame == null) {
-                PmdPerformanceLaws.FM_FINE_VOLUME_MAX
-            } else {
-                PmdPerformanceLaws.SSG_VOLUME_MAX
-            }
+            volume = 127
             slotMask = initialSlotMask
-            partDetuneRaw = 0
-            masterDetuneRaw = 0
+            ssgBaseLevel = DEFAULT_SSG_LEVEL
             hardwarePms = 0
             hardwareAms = 0
             hardwareDelayKind = CompiledOpnaSong.HW_LFO_DELAY_NONE
@@ -441,7 +383,7 @@ internal class PmdPerformanceState(sampleRate: Int) {
             tempoMilliBpm = 120_000
             clocksPerQuarter = PmdPerformanceLaws.DEFAULT_CLOCKS_PER_QUARTER
             modulation.clear()
-            ssgFrame?.clear(volume)
+            ssgFrame?.clear(ssgBaseLevel)
         }
 
         fun hardwareLfoDelayFrames(): Int {
@@ -474,6 +416,8 @@ internal class PmdPerformanceState(sampleRate: Int) {
         const val FM3_SEED_FAMILY = 0x10203040
         const val SECOND_LFO_SEED_XOR = 0x2468ACE0
         const val PART_SEED_STEP = 0x10203
+        const val DEFAULT_SSG_LEVEL = 12
+
         fun seedFor(family: Int, part: Int): Int =
             PmdPerformanceLaws.SOFTWARE_LFO_RANDOM_SEED xor family xor (part * PART_SEED_STEP)
     }

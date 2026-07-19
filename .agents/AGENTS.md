@@ -580,7 +580,7 @@ drawGlyphRaw must be private, or must require explicit clipLeft/clipTop/clipRigh
 
 
 
-Our sound architecture is  A Procedural, clean-room YM2608-based sound engine. And a,  Separate clean-room PMD-based MML language and performance model.
+Our sound architecture has two main layers,    A Procedural, clean-room YM2608-based sound engine. And, a  Separate clean-room PMD-based MML language and performance model. 
 
 
 
@@ -691,3 +691,39 @@ the user before making that change.
 
 Completion means the requested runtime defects are fixed with the smallest
 production-only change. It does not mean every adjacent concern has been solved.
+
+
+
+### Uncertainty is a reason to preserve the baseline and investigate carefully—not to rewrite it.
+
+## Safe Baseline Presumption
+
+The  baseline (The current code) is accepted production behavior. It does not need
+to be re-proven by each review.
+
+The following are not defects and do not authorize changes:
+
+- the current review did not confirm a detail;
+- the agent did not find documentation;
+- the agent does not understand why the code exists;
+- the behavior is old, approximate, dirty, or unconventional;
+- a subagent reports uncertainty.
+
+Never convert:
+
+`not checked` -> `unproven` -> `probably wrong` -> `replace`
+
+A baseline behavior may change only when:
+
+1. the user explicitly authorizes that exact change;
+2. a concrete production defect is demonstrated; or
+3. a direct code-versus-authoritative-reference contradiction is identified.
+
+The proposed change carries the entire burden of proof.
+
+When evidence is incomplete, preserve the baseline and stop. Uncertainty is not
+permission to simplify, modernize, redesign, or replace working behavior.
+
+Before changing baseline behavior, state the exact behavior, evidence, files,
+symbols, and smallest proposed change, then wait for user approval.
+
