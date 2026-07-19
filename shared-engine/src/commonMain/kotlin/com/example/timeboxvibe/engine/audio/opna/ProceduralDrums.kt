@@ -196,6 +196,19 @@ class ProceduralDrums(private val configuredSampleRate: Int = 48_000) {
         DrumKind.RIMSHOT -> rimGain
     }
 
+    internal fun panSnapshot(kind: DrumKind): Int = when (kind) {
+        DrumKind.KICK -> kickPan
+        DrumKind.SNARE -> snarePan
+        DrumKind.HAT -> hatPan
+        DrumKind.TOM -> tomPan
+        DrumKind.CYMBAL -> cymbalPan
+        DrumKind.RIMSHOT -> rimPan
+    }
+
+    internal fun hasActiveVoices(): Boolean =
+        kickState != IDLE || snareState != IDLE || hatState != IDLE ||
+            tomState != IDLE || cymbalState != IDLE || rimState != IDLE
+
     fun stopAll() {
         silence()
     }

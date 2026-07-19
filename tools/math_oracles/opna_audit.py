@@ -5,7 +5,7 @@ import re
 
 # Banned tokens to search for in OPNA audio hot-paths
 BANNED_TOKENS = [
-    r"Random", r"nextFloat", r"nextInt", r"nextDouble",
+    r"\bRandom\s*[.(]", r"nextFloat", r"nextInt", r"nextDouble",
     r"mutableListOf", r"arrayListOf",
     r"\.map\b", r"\.flatMap\b", r"buildList", r"generateSequence",
     r"arrayOf", r"Pair\s*\(", r"\bList<", r"\bMap<", r"\bSet<", r"\bSequence<",
@@ -14,6 +14,8 @@ BANNED_TOKENS = [
     r"java\.", r"System\.currentTimeMillis", r"System\.nanoTime", r"Thread\b", r"Runtime\b"
 ]
 
+COMMON_MAIN_BANNED_TOKENS = [r"\bkotlin\.jvm\b"]
+
 def extract_functions(content):
     """
     Finds functions (render, renderOne, noteOn, noteOff, trigger*) and returns their bodies.
@@ -21,9 +23,11 @@ def extract_functions(content):
     """
     func_pattern = re.compile(
         r"\bfun\s+(render[A-Za-z0-9_]*|noteOn[A-Za-z0-9_]*|noteOff[A-Za-z0-9_]*|"
-        r"trigger[A-Za-z0-9_]*|computeOp[A-Za-z0-9_]*|advanceOp|clockEnvelope|"
-        r"panMonoToStereo|prepare|handleSequencerEvent|setLfoFrame|clockPitchRamp|"
-        r"clockSpecialPitchRamps|operatorAttenuation|advancePhase|leftPanGain|rightPanGain)\s*\("
+        r"trigger[A-Za-z0-9_]*|process[A-Za-z0-9_]*|applyGainAndClamp[A-Za-z0-9_]*|"
+        r"mix[A-Za-z0-9_]*|computeOp[A-Za-z0-9_]*|advanceOp|advanceSample|clockEnvelope|"
+        r"panMonoToStereo|prepare[A-Za-z0-9_]*|handle[A-Za-z0-9_]*|setLfoFrame|clockPitchRamp|"
+        r"clockSpecialPitchRamps|operatorAttenuation|advancePhase|levelFor|finishOrLoop|"
+        r"reset[A-Za-z0-9_]*|allNotesOff|leftPanGain|rightPanGain)\s*\("
     )
     bodies = []
     
@@ -65,6 +69,13 @@ def audit_file(filepath):
     # We audit specific functions (hot-paths)
     funcs = extract_functions(content)
     violations = []
+
+    normalized = filepath.replace("\\", "/")
+    if "/shared-engine/src/commonMain/" in normalized:
+        for token_pattern in COMMON_MAIN_BANNED_TOKENS:
+            matches = re.findall(token_pattern, content)
+            if matches:
+                violations.append(("commonMain source", token_pattern, matches))
     
     for func_sig, body in funcs:
         for token_pattern in BANNED_TOKENS:

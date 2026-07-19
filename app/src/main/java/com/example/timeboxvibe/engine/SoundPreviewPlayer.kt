@@ -7,12 +7,8 @@ import android.media.AudioTrack
 import android.os.Build
 import android.os.PowerManager
 import android.util.Log
-import com.example.timeboxvibe.engine.SongCatalog
-import com.example.timeboxvibe.engine.SongPlayback
-import com.example.timeboxvibe.engine.audio.mml.MmlArrangementScheduler
-import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
-import kotlin.math.exp
-import kotlin.math.sin
+import com.example.timeboxvibe.engine.audio.ProceduralTimerTick
+import com.example.timeboxvibe.engine.audio.opna.OpnaPlaybackSession
 
 object SoundPreviewPlayer {
     private const val TAG = "SoundPreviewPlayer"
@@ -26,16 +22,19 @@ object SoundPreviewPlayer {
 
     @Volatile
     private var activeTrack: AudioTrack? = null
+    @Volatile
+    private var activeSession: OpnaPlaybackSession? = null
     private var tickTrack: AudioTrack? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
     fun playPreview(context: Context, soundKey: String, volume: Float) {
         stop()
         val song = SongCatalog.byId(soundKey) ?: return
-        when (val playback = song.buildPlayback(volume)) {
+        when (val playback = song.buildPlayback()) {
             is SongPlayback.Arrangement -> playArrangementStreaming(
                 context,
                 playback.lanes,
+                userGain = volume,
                 shouldLoop = false,
                 stopAfterMs = song.previewDurationMs
             )
@@ -47,29 +46,10 @@ object SoundPreviewPlayer {
         try {
             var track = tickTrack
             if (track == null) {
-                val sampleRate = 44100
-                val durationMs = 35
-                val numSamples = sampleRate * durationMs / 1000
+                val sampleRate = ProceduralTimerTick.SAMPLE_RATE
+                val numSamples = sampleRate * ProceduralTimerTick.DURATION_MILLISECONDS / 1000
                 val buffer = FloatArray(numSamples)
-
-                for (i in 0 until numSamples) {
-                    val t = i.toFloat() / sampleRate
-                    val freq = 300.0 * exp(-50.0 * t)
-                    val phase = 2.0 * Math.PI * freq * t
-
-                    var sample = if (sin(phase) > 0) 0.8f else -0.8f
-
-                    val ageMs = i * 1000 / sampleRate
-                    val envelope = when {
-                        ageMs < 2 -> ageMs / 2f
-                        else -> {
-                            val decayFactor = (ageMs - 2) / (durationMs - 2).toFloat()
-                            exp(-8.0 * decayFactor).toFloat()
-                        }
-                    }
-                    sample *= envelope * 0.15f * volume
-                    buffer[i] = sample.coerceIn(-1.0f, 1.0f)
-                }
+                ProceduralTimerTick.fill(buffer, volume)
 
                 track = AudioTrack.Builder()
                     .setAudioAttributes(
@@ -103,6 +83,8 @@ object SoundPreviewPlayer {
 
     fun stop() {
         isStreaming = false
+        activeSession?.stop()
+        activeSession = null
         val t = streamThread
         streamThread = null
         if (t != null) {
@@ -133,8 +115,10 @@ object SoundPreviewPlayer {
     fun playGentleReminder(context: Context, soundKey: String, volume: Float) {
         stop()
         val song = SongCatalog.byId(soundKey) ?: return
-        when (val playback = song.buildPlayback(volume)) {
-            is SongPlayback.Arrangement -> playArrangementStreaming(context, playback.lanes, shouldLoop = false, stopAfterMs = 5000L)
+        when (val playback = song.buildPlayback()) {
+            is SongPlayback.Arrangement -> playArrangementStreaming(
+                context, playback.lanes, volume, shouldLoop = false, stopAfterMs = 5000L
+            )
             null -> return
         }
     }
@@ -142,17 +126,21 @@ object SoundPreviewPlayer {
     fun playAlarm(context: Context, soundKey: String, volume: Float) {
         stop()
         val song = SongCatalog.byId(soundKey) ?: return
-        when (val playback = song.buildPlayback(volume)) {
-            is SongPlayback.Arrangement -> playArrangementStreaming(context, playback.lanes, shouldLoop = true)
+        when (val playback = song.buildPlayback()) {
+            is SongPlayback.Arrangement -> playArrangementStreaming(
+                context, playback.lanes, volume, shouldLoop = true
+            )
             null -> return
         }
     }
 
-    private fun playArrangementStreaming(context: Context, arrangement: ArrangementLanes, shouldLoop: Boolean, stopAfterMs: Long = -1L) {
-        if (arrangement.routing != ArrangementRouting.MML_LOGICAL_TRACKS) {
-            Log.w(TAG, "Rejected retired legacy arrangement routing")
-            return
-        }
+    private fun playArrangementStreaming(
+        context: Context,
+        arrangement: ArrangementLanes,
+        userGain: Float,
+        shouldLoop: Boolean,
+        stopAfterMs: Long = -1L
+    ) {
         try {
             val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
             val wl = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TimeBox::SoundPreviewWakeLock")
@@ -167,27 +155,13 @@ object SoundPreviewPlayer {
         val thread = Thread(Runnable {
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO)
 
-            val sampleRate = 48000 
-            val chunkSize = 1024
-
-            val synth = OpnaLikeSynthesizer(sampleRate)
-
-            synth.enableOutputFilter = true
-            synth.configureMasterEq(arrangement.eqBands)
-            var i = 0
-            while (i < synth.fm.size) {
-                synth.fm[i].enableOversampling = true
-                i++
+            val session = OpnaPlaybackSession.createProduct(arrangement, userGain, shouldLoop)
+            if (session.isComplete) {
+                session.stop()
+                return@Runnable
             }
-
-            val player = MmlArrangementScheduler.createPlayer(arrangement, synth, sampleRate)
-
-            val compiled = requireNotNull(arrangement.compiledOpnaSong) {
-                "Catalog playback requires the unified MML event program"
-            }
-            val maxDurationMs = compiled.durationMilliseconds()
-
-            if (maxDurationMs <= 0L) return@Runnable
+            val sampleRate = session.sampleRate
+            val chunkSize = session.maximumRenderChunk
 
             val minBufferSize = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
             val audioTrackBufferSize = maxOf(minBufferSize, chunkSize * 8)
@@ -217,71 +191,52 @@ object SoundPreviewPlayer {
                 builder.build()
             } catch (e: Exception) {
                 e.printStackTrace()
+                session.stop()
                 return@Runnable
             }
 
             synchronized(this@SoundPreviewPlayer) {
                 activeTrack = audioTrack
+                activeSession = session
             }
 
             try {
                 audioTrack.play()
             } catch (e: Exception) {
                 e.printStackTrace()
+                session.stop()
                 try { audioTrack.release() } catch (ex: Exception) {}
                 synchronized(this@SoundPreviewPlayer) {
                     if (activeTrack == audioTrack) activeTrack = null
+                    if (activeSession === session) activeSession = null
                 }
                 return@Runnable
             }
 
             val floatBuffer = FloatArray(chunkSize)
             val shortBuffer = ShortArray(chunkSize)
-            var currentSampleOffset = 0L
-            val songLenSamples = player.loopLengthSamples
+            var renderedFrames = 0L
             var lastUnderrunCount = 0
 
             try {
                 while (Thread.currentThread() == streamThread && !Thread.currentThread().isInterrupted) {
-                    val elapsedGlobalMs = (currentSampleOffset * 1000L) / sampleRate
+                    val elapsedGlobalMs = (renderedFrames * 1000L) / sampleRate
                     if (stopAfterMs > 0L && elapsedGlobalMs >= stopAfterMs) {
                         break
                     }
-                    if (!shouldLoop && elapsedGlobalMs >= maxDurationMs) {
+                    if (session.isComplete) {
                         break
                     }
 
-                    val looping = shouldLoop && songLenSamples > 0L
-                    var renderOffset = if (looping) currentSampleOffset % songLenSamples else currentSampleOffset
-                    var framesFilled = 0
-                    val totalSamples = chunkSize
-                    while (framesFilled < totalSamples) {
-                        val framesRemaining = totalSamples - framesFilled
-                        val framesToRender = if (looping) {
-                            minOf(framesRemaining.toLong(), songLenSamples - renderOffset).toInt()
-                        } else {
-                            framesRemaining
-                        }
-
-                        synth.render(floatBuffer, framesToRender, player, renderOffset)
-
-                        var k = 0
-                        while (k < framesToRender) {
-                            val sample = floatBuffer[k]
-                            shortBuffer[framesFilled + k] =
-                                (sample * 32767f).coerceIn(-32768f, 32767f).toInt().toShort()
-                            k++
-                        }
-
-                        framesFilled += framesToRender
-                        renderOffset += framesToRender
-                        if (looping && renderOffset == songLenSamples) {
-                            player.reset(synth)
-                            renderOffset = 0L
-                        }
+                    session.render(floatBuffer, chunkSize)
+                    var k = 0
+                    while (k < chunkSize) {
+                        shortBuffer[k] = (floatBuffer[k] * 32767f)
+                            .coerceIn(-32768f, 32767f).toInt().toShort()
+                        k++
                     }
 
-                    val written = audioTrack.write(shortBuffer, 0, totalSamples, AudioTrack.WRITE_BLOCKING)
+                    val written = audioTrack.write(shortBuffer, 0, chunkSize, AudioTrack.WRITE_BLOCKING)
                     if (written < 0) {
                         break
                     }
@@ -294,17 +249,19 @@ object SoundPreviewPlayer {
                         }
                     }
 
-                    currentSampleOffset += chunkSize
+                    renderedFrames += chunkSize
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
+                session.stop()
                 try { audioTrack.stop() } catch (e: Exception) {}
                 try { audioTrack.release() } catch (e: Exception) {}
                 synchronized(this@SoundPreviewPlayer) {
                     if (activeTrack == audioTrack) {
                         activeTrack = null
                     }
+                    if (activeSession === session) activeSession = null
                 }
             }
         }, "SoundStreamThread")

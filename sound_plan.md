@@ -108,7 +108,7 @@ The corpus scanner is evidence of occurrence and normalized observations, not pr
 
 The current Bad Apple audit passes only the fixed source window `[288, 5280)`, with the current x20 tick conversion, for recovered pitched lanes A-E, G, and H. It compares only tick, duration, MIDI pitch, and patch (`tools/pmd_corpus_audit.py:933`). It does not compare the K/R rhythm data, control-only parts, gate, volume, envelope, detune, tie/retrigger behavior, shared state, register-equivalent state, or rendered audio. This is a useful migration fixture, not whole-song parity evidence.
 
-The Bad Apple dump/corpus scan confirms that the selected source window also exercises 10 rhythm patterns and 14 selections, four portamentos, four ties, 29 Q-gate changes, 28 volume changes, 17 detunes, loops, and SSG envelopes. It contains LFO clock-mode setup but no active software-LFO definition/wave/switch; those active cases belong to LOGO, ST03, and STAFF. These observations define missing verifier coverage, not automatic proof that the current lowering is correct.
+The Bad Apple dump/corpus scan confirms 28 pitched-part volume declarations, 29 `q` gate declarations, 17 detunes, four portamentos, four ties, eight `E` definitions, 20 `MX` declarations, and zero active software-LFO commands across the complete source. The selected production window `[288, 5280)` contains 25 volume declarations, 22 `q` declarations, 10 detunes, all four portamentos and ties, and all eight `E` definitions. Redundant declarations are normalized when comparing effective production state. The source also exercises rhythm pattern selection, but the verifier does not yet expand K/R bytes into timed rhythm shots. These observations define verifier coverage and its remaining rhythm limit, not automatic proof that lowering is correct.
 
 The verifier also has structural limitations that Phase 2 must remove: it drops parts with no pitched notes, separates notes from controls so same-clock order is lost, mutates some state such as relative volume without emitting a semantic event, does not model note key-off/retrigger lifecycle, and hashes K/R pattern bytes without producing timed rhythm semantics. Its compact repeated-note representation is lossy when non-pitch fields differ. Full decoded traces must remain ephemeral local outputs; they must not become checked-in reconstructions of the source songs.
 
@@ -395,6 +395,8 @@ Resolve the `C0` family first: `C0/F9` and `C0/FF` occur in 44 of the 45 unique 
 ## 9. Implementation phases
 
 ## Phase 1 — Remove duplicate product architecture without removing parity
+
+Implementation status (2026-07-18): code and Android automated exit gates complete; Phase 2 not started. The named-excerpt human listening record remains an external musical-acceptance gate.
 
 This is the first implementation phase. Do not add new PMD features until it passes.
 

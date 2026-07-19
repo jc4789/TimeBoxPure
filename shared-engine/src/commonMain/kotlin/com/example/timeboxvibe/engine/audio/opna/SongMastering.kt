@@ -1,6 +1,5 @@
 package com.example.timeboxvibe.engine.audio.opna
 
-import com.example.timeboxvibe.engine.SongEqBand
 import com.example.timeboxvibe.engine.audio.AudioLaws
 
 /** Product-output processing kept separate from chip and driver state. */
@@ -9,17 +8,28 @@ internal class SongMastering(sampleRate: Int) {
     private var filterStateR: Float = 0f
     private val masterEq = MasterPeakEq(sampleRate)
     private val stereoResonator = ProceduralStereoResonator(sampleRate)
+    private var chipMixHeadroom: Float = AudioLaws.CHIP_MIX_HEADROOM
+    private var outputGain: Float = AudioLaws.OPNA_OUTPUT_GAIN
+    private var masterGain: Float = OpnaAudioConstants.MASTER_GAIN
+    private var userGain: Float = 1f
 
-    var filterAlpha: Float = 0.50f
-    var enableOutputFilter: Boolean = true
-    var enableStereoResonator: Boolean = false
+    private var filterAlpha: Float = 0.50f
+    private var enableOutputFilter: Boolean = true
+    private var enableStereoResonator: Boolean = false
     var preClampPeak: Float = 0f
         private set
     var preClampKneeCrossings: Int = 0
         private set
 
-    fun configureEq(bands: List<SongEqBand>) {
-        masterEq.configure(bands)
+    fun configure(profile: OpnaRenderProfile) {
+        filterAlpha = profile.outputFilterAlpha
+        enableOutputFilter = profile.enableOutputFilter
+        enableStereoResonator = profile.enableStereoResonator
+        chipMixHeadroom = profile.chipMixHeadroom
+        outputGain = profile.outputGain
+        masterGain = profile.masterGain
+        userGain = profile.userGain
+        masterEq.configure(profile)
     }
 
     fun reset() {
@@ -57,13 +67,12 @@ internal class SongMastering(sampleRate: Int) {
     }
 
     private fun applyGainAndClampMono(buffer: FloatArray, frames: Int) {
-        val outputGain = AudioLaws.OPNA_OUTPUT_GAIN * AudioLaws.CHIP_MIX_HEADROOM *
-            OpnaAudioConstants.MASTER_GAIN
+        val finalGain = outputGain * chipMixHeadroom * masterGain * userGain
         var peak = 0f
         var kneeCrossings = 0
         var i = 0
         while (i < frames) {
-            val x = buffer[i] * outputGain
+            val x = buffer[i] * finalGain
             val filtered = if (enableOutputFilter) {
                 val f = (1f - filterAlpha) * x + filterAlpha * filterStateL
                 filterStateL = f
@@ -82,14 +91,13 @@ internal class SongMastering(sampleRate: Int) {
     }
 
     private fun applyGainAndClampStereo(buffer: FloatArray, frames: Int) {
-        val outputGain = AudioLaws.OPNA_OUTPUT_GAIN * AudioLaws.CHIP_MIX_HEADROOM *
-            OpnaAudioConstants.MASTER_GAIN
+        val finalGain = outputGain * chipMixHeadroom * masterGain * userGain
         val totalSamples = frames * 2
         var peak = 0f
         var kneeCrossings = 0
         var i = 0
         while (i < totalSamples) {
-            val x = buffer[i] * outputGain
+            val x = buffer[i] * finalGain
             val filtered = if (enableOutputFilter) {
                 if ((i % 2) == 0) {
                     val f = (1f - filterAlpha) * x + filterAlpha * filterStateL

@@ -8,7 +8,10 @@ import com.example.timeboxvibe.engine.audio.AudioLaws
  * Includes shared hardware LFO AM/PM and operator SSG-EG. CSM and chip timers
  * remain intentionally out of scope.
  */
-class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
+class Fm4OpVoice(
+    val sampleRate: Int = AudioLaws.SAMPLE_RATE,
+    val enableOversampling: Boolean = false
+) {
 
     private val opState: Array<OperatorState> = Array(AudioLaws.FM_OPERATORS) { OperatorState() }
     private val opSpec: Array<OperatorSpec?> = arrayOfNulls(AudioLaws.FM_OPERATORS)
@@ -22,10 +25,9 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private var packedPitch: Int = 0
     private var op0Feedback1: Int = 0
     private var op0Feedback2: Int = 0
-    var noteGain: Float = 1f
 
     private var panOverride: Int = -1
-    private var detuneCents: Int = 0
+    private var partDetuneRaw: Int = 0
     private var targetMidi: Int = -1
     private var requestedSlideFrames: Int = 0
     private var lfoDelayRemaining: Int = 0
@@ -43,19 +45,12 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private val specialRampTarget = LongArray(AudioLaws.FM_OPERATORS)
     private val specialRampFrames = IntArray(AudioLaws.FM_OPERATORS)
     private val specialRampPosition = IntArray(AudioLaws.FM_OPERATORS)
-    private val specialBaseCents = IntArray(AudioLaws.FM_OPERATORS)
+    private val specialPartDetuneRaw = IntArray(AudioLaws.FM_OPERATORS)
     private val slotFnumDetune = IntArray(AudioLaws.FM_OPERATORS)
     private val slotKeyOnDelayFrames = IntArray(AudioLaws.FM_OPERATORS)
     private val pendingKeyOnFrames = IntArray(AudioLaws.FM_OPERATORS)
     private val pendingKeyOn = BooleanArray(AudioLaws.FM_OPERATORS)
 
-    var enableOversampling: Boolean = false
-        set(value) {
-            field = value
-            if (hasPitch && patch != null) {
-                recalcPhaseSteps(patch!!)
-            }
-        }
     private val oversampleBuffer = FloatArray(4096)
     private val oversampleRate = sampleRate * 2
 
@@ -66,7 +61,6 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     fun applyPatch(p: FmPatch) {
         if (patch === p) return
         OpnLogTables.warmUp()
-        OpnEnvelopeCompatibility.warmUp()
         patch = p
         configuredOperatorMask = 15
         channelAlgorithm = p.algorithm.coerceIn(0, 7)
@@ -84,7 +78,6 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     internal fun applyPatchToSlots(p: FmPatch, slotMask: Int) {
         OpnLogTables.warmUp()
-        OpnEnvelopeCompatibility.warmUp()
         channelAlgorithm = p.algorithm.coerceIn(0, 7)
         if ((slotMask and 1) != 0) channelFeedback = p.feedback.coerceIn(0, 7)
         configuredOperatorMask = configuredOperatorMask or (slotMask and 15)
@@ -114,50 +107,25 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         val state = opState[opIdx]
         state.tl = spec.tl
         state.amEnabled = spec.ams != 0
-        state.opnEnvelope.configureSsgEg(spec.ssgEg)
+        val envelope = state.opnEnvelope
+        envelope.attackRate = spec.ar.coerceIn(0, 31)
+        envelope.decayRate = spec.dr.coerceIn(0, 31)
+        envelope.sustainRate = spec.sr.coerceIn(0, 31)
+        envelope.sustainLevel = spec.sl.coerceIn(0, 15)
+        envelope.releaseRate = spec.rr.coerceIn(0, 15)
+        envelope.keyScale = spec.ks.coerceIn(0, 3)
+        envelope.configureSsgEg(spec.ssgEg)
     }
 
-    private fun setupOpStateWithAdsrOverride(
+    private fun prepareOperatorForNote(
         opIdx: Int,
         spec: OperatorSpec,
-        attackOverride: Float,
-        decayOverride: Float,
-        sustainOverride: Float,
-        releaseOverride: Float,
+        notePitch: Int,
         updateTl: Boolean = true
     ) {
         val state = opState[opIdx]
         if (updateTl) state.tl = spec.tl
-        OpnEnvelopeCompatibility.configure(
-            state.opnEnvelope,
-            spec,
-            OpnPitch.block(packedPitch),
-            OpnPitch.fnum(packedPitch),
-            attackOverride,
-            decayOverride,
-            sustainOverride,
-            releaseOverride
-        )
-    }
-
-    private fun setupOperatorForNote(
-        opIdx: Int,
-        spec: OperatorSpec,
-        algorithm: Int,
-        attack: Float,
-        decay: Float,
-        sustain: Float,
-        release: Float
-    ) {
-        val carrier = isCarrier(opIdx, algorithm)
-        setupOpStateWithAdsrOverride(
-            opIdx,
-            spec,
-            if (carrier) attack else NO_ADSR_OVERRIDE,
-            if (carrier) decay else NO_ADSR_OVERRIDE,
-            if (carrier) sustain else NO_ADSR_OVERRIDE,
-            if (carrier) release else NO_ADSR_OVERRIDE
-        )
+        state.opnEnvelope.setKeyScale(OpnPitch.block(notePitch), OpnPitch.fnum(notePitch))
     }
 
     internal fun operatorEnvelopeSnapshot(opIdx: Int): Int {
@@ -180,6 +148,12 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     internal fun operatorTlSnapshot(opIdx: Int): Int =
         opState[opIdx.coerceIn(0, AudioLaws.FM_OPERATORS - 1)].tl
 
+    internal fun operatorDriverAttenuationSnapshot(opIdx: Int): Int =
+        currentDriverVolumeOffset[opIdx.coerceIn(0, AudioLaws.FM_OPERATORS - 1)]
+
+    internal fun operatorDriverPitchSnapshot(opIdx: Int): Int =
+        currentDriverPitchQ20[opIdx.coerceIn(0, AudioLaws.FM_OPERATORS - 1)]
+
     internal fun algorithmSnapshot(): Int = channelAlgorithm
 
     internal fun feedbackSnapshot(): Int = channelFeedback
@@ -200,15 +174,6 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     internal fun feedbackHistorySnapshot(): Long =
         (op0Feedback1.toLong() shl 32) or (op0Feedback2.toLong() and 0xffffffffL)
 
-    internal fun releaseFinished(): Boolean {
-        var opIndex = 0
-        while (opIndex < AudioLaws.FM_OPERATORS) {
-            if (opState[opIndex].opnEnvelope.stage != OpnRateEnvelope.OFF) return false
-            opIndex++
-        }
-        return true
-    }
-
     private fun recalcPhaseSteps(p: FmPatch) {
         opState[0].phaseStep = calcPhaseStep(p.op0)
         opState[1].phaseStep = calcPhaseStep(p.op1)
@@ -218,18 +183,18 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     private fun calcPhaseStep(spec: OperatorSpec): UInt {
         val effectiveSampleRate = if (enableOversampling) oversampleRate else sampleRate
-        return OpnPitch.phaseStep29(packedPitch, spec, effectiveSampleRate, detuneCents)
+        return OpnPitch.phaseStep29(packedPitch, spec, effectiveSampleRate)
     }
 
     internal fun setNoteControls(
         pan: Int,
-        cents: Int,
+        detuneRaw: Int,
         delayFrames: Int,
         slideTargetMidi: Int,
         slideFrames: Int
     ) {
         panOverride = pan.coerceIn(0, 3)
-        detuneCents = cents.coerceIn(-1_200, 1_200)
+        partDetuneRaw = detuneRaw
         lfoDelayRemaining = delayFrames.coerceAtLeast(0)
         targetMidi = slideTargetMidi
         requestedSlideFrames = slideFrames.coerceAtLeast(0)
@@ -278,43 +243,14 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     fun noteOn(midi: Int) {
         lfoDelayRemaining = 0
-        noteOnInternal(midi, NO_ADSR_OVERRIDE, NO_ADSR_OVERRIDE, NO_ADSR_OVERRIDE, NO_ADSR_OVERRIDE)
+        noteOnInternal(midi)
     }
 
-    fun noteOn(
-        midi: Int,
-        attack: Float?,
-        decay: Float?,
-        sustain: Float?,
-        release: Float?
-    ) {
-        lfoDelayRemaining = 0
-        noteOnInternal(
-            midi,
-            attack ?: NO_ADSR_OVERRIDE,
-            decay ?: NO_ADSR_OVERRIDE,
-            sustain ?: NO_ADSR_OVERRIDE,
-            release ?: NO_ADSR_OVERRIDE
-        )
+    internal fun noteOnScheduled(midi: Int) {
+        noteOnInternal(midi)
     }
 
-    internal fun noteOnScheduled(
-        midi: Int,
-        attack: Float,
-        decay: Float,
-        sustain: Float,
-        release: Float
-    ) {
-        noteOnInternal(midi, attack, decay, sustain, release)
-    }
-
-    private fun noteOnInternal(
-        midi: Int,
-        attack: Float,
-        decay: Float,
-        sustain: Float,
-        release: Float
-    ) {
+    private fun noteOnInternal(midi: Int) {
         specialMode = false
         val wasKeyDown = keyDown
         val p = patch
@@ -332,15 +268,15 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             }
         }
 
-        packedPitch = OpnPitch.nearestBlockFnumForMidi(midi)
+        packedPitch = OpnPitch.lowerPmdDetune(OpnPitch.nearestBlockFnumForMidi(midi), partDetuneRaw)
+        if (packedPitch == OpnPitch.INVALID_PACKED_PITCH) return
         hasPitch = true
         if (p != null) {
             recalcPhaseSteps(p)
-            val alg = p.algorithm
-            setupOperatorForNote(0, p.op0, alg, attack, decay, sustain, release)
-            setupOperatorForNote(1, p.op1, alg, attack, decay, sustain, release)
-            setupOperatorForNote(2, p.op2, alg, attack, decay, sustain, release)
-            setupOperatorForNote(3, p.op3, alg, attack, decay, sustain, release)
+            prepareOperatorForNote(0, p.op0, packedPitch)
+            prepareOperatorForNote(1, p.op1, packedPitch)
+            prepareOperatorForNote(2, p.op2, packedPitch)
+            prepareOperatorForNote(3, p.op3, packedPitch)
             configurePitchRamp(p)
             targetMidi = -1
             requestedSlideFrames = 0
@@ -383,7 +319,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     }
 
     internal fun noteOnOperator(operator: Int, midi: Int, slideTargetMidi: Int = -1, slideFrames: Int = 0) {
-        noteOnSlots(1 shl operator.coerceIn(0, AudioLaws.FM_OPERATORS - 1), midi, slideTargetMidi, slideFrames, detuneCents)
+        noteOnSlots(1 shl operator.coerceIn(0, AudioLaws.FM_OPERATORS - 1), midi, slideTargetMidi, slideFrames, partDetuneRaw)
     }
 
     internal fun noteOnSlots(
@@ -391,7 +327,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         midi: Int,
         slideTargetMidi: Int = -1,
         slideFrames: Int = 0,
-        cents: Int = 0
+        detuneRaw: Int = 0
     ) {
         val pitch = OpnPitch.nearestBlockFnumForMidi(midi)
         specialMode = true
@@ -402,21 +338,23 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             if ((slotMask and (1 shl index)) != 0) {
                 val spec = opSpec[index]
                 if (spec != null) {
+                    val loweredPitch = lowerSpecialPitch(pitch, detuneRaw, slotFnumDetune[index])
+                    if (loweredPitch == OpnPitch.INVALID_PACKED_PITCH) {
+                        index++
+                        continue
+                    }
                     specialPackedPitch[index] = pitch
-                    specialBaseCents[index] = cents.coerceIn(-1_200, 1_200)
-                    setupOpStateWithAdsrOverride(
-                        index, spec, NO_ADSR_OVERRIDE, NO_ADSR_OVERRIDE,
-                        NO_ADSR_OVERRIDE, NO_ADSR_OVERRIDE, updateTl = false
-                    )
+                    specialPartDetuneRaw[index] = detuneRaw
+                    prepareOperatorForNote(index, spec, loweredPitch, updateTl = false)
                     val rate = if (enableOversampling) oversampleRate else sampleRate
                     val op = opState[index]
-                    op.phaseStep = OpnPitch.phaseStep29(pitch, spec, rate, specialBaseCents[index], slotFnumDetune[index])
+                    op.phaseStep = OpnPitch.phaseStep29(loweredPitch, spec, rate)
                     specialRampStart[index] = op.phaseStep.toLong()
                     specialRampTarget[index] = if (slideTargetMidi in 0..127 && slideFrames > 0) {
-                        OpnPitch.phaseStep29(
-                            OpnPitch.nearestBlockFnumForMidi(slideTargetMidi), spec, rate,
-                            specialBaseCents[index], slotFnumDetune[index]
-                        ).toLong()
+                        val target = lowerSpecialPitch(OpnPitch.nearestBlockFnumForMidi(slideTargetMidi),
+                            specialPartDetuneRaw[index], slotFnumDetune[index])
+                        if (target == OpnPitch.INVALID_PACKED_PITCH) op.phaseStep.toLong()
+                        else OpnPitch.phaseStep29(target, spec, rate).toLong()
                     } else op.phaseStep.toLong()
                     specialRampFrames[index] = if (slideTargetMidi in 0..127) slideFrames.coerceAtLeast(0) else 0
                     specialRampPosition[index] = 0
@@ -479,9 +417,8 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         op0Feedback1 = 0
         op0Feedback2 = 0
         lowPassPrev = 0f
-        noteGain = 1f
         panOverride = -1
-        detuneCents = 0
+        partDetuneRaw = 0
         targetMidi = -1
         requestedSlideFrames = 0
         lfoDelayRemaining = 0
@@ -497,7 +434,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             specialRampTarget[i] = 0L
             specialRampFrames[i] = 0
             specialRampPosition[i] = 0
-            specialBaseCents[i] = 0
+            specialPartDetuneRaw[i] = 0
             slotFnumDetune[i] = 0
             slotKeyOnDelayFrames[i] = 0
             pendingKeyOnFrames[i] = 0
@@ -537,8 +474,6 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             return
         }
 
-        val combinedGain = gainScale * noteGain
-
         if (enableOversampling) {
             val osFrames = frames * 2
             if (oversampleBuffer.size < osFrames) return
@@ -547,9 +482,9 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             while (frame < frames) {
                 val first = frame * 2
                 setLfoFrame(lfo, frame, clockFrame = true, driverFrame, fm3DriverFrames)
-                oversampleBuffer[first] = renderOne(clockEnvelope = true) * combinedGain
+                oversampleBuffer[first] = renderOne(clockEnvelope = true) * gainScale
                 setLfoFrame(lfo, frame, clockFrame = false, driverFrame, fm3DriverFrames)
-                oversampleBuffer[first + 1] = renderOne(clockEnvelope = false) * combinedGain
+                oversampleBuffer[first + 1] = renderOne(clockEnvelope = false) * gainScale
                 frame++
             }
             applyLowPassAndDownsample(oversampleBuffer, osFrames, buffer, startFrame, frames)
@@ -558,7 +493,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             while (i < frames) {
                 setLfoFrame(lfo, i, clockFrame = true, driverFrame, fm3DriverFrames)
                 val sample = renderOne(clockEnvelope = true)
-                buffer[startFrame + i] += sample * combinedGain
+                buffer[startFrame + i] += sample * gainScale
                 i++
             }
         }
@@ -753,14 +688,14 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         }
         val bit = 1 shl operator
         var pitch = 0
-        if (frame.pitchTarget1 && (frame.tlMask1 == 0 || (frame.tlMask1 and bit) != 0)) {
+        if (frame.pitchTarget1 && (!specialMode || frame.tlMask1 == 0 || (frame.tlMask1 and bit) != 0)) {
             pitch += frame.pitch1Q20[frameIndex]
         }
-        if (frame.pitchTarget2 && (frame.tlMask2 == 0 || (frame.tlMask2 and bit) != 0)) {
+        if (frame.pitchTarget2 && (!specialMode || frame.tlMask2 == 0 || (frame.tlMask2 and bit) != 0)) {
             pitch += frame.pitch2Q20[frameIndex]
         }
-        var attenuation = frame.baseAttenuation
         val carrier = isCarrier(operator, channelAlgorithm)
+        var attenuation = if (specialMode || carrier) frame.baseAttenuation else 0
         if (frame.volumeTarget1 && (if (frame.tlMask1 == 0) carrier else (frame.tlMask1 and bit) != 0)) {
             attenuation -= frame.volume1[frameIndex] * 8
         }
@@ -785,7 +720,9 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                     else -> p.op3
                 }
                 val rate = if (enableOversampling) oversampleRate else sampleRate
-                OpnPitch.phaseStep29(OpnPitch.nearestBlockFnumForMidi(targetMidi), spec, rate, detuneCents).toLong()
+                val target = OpnPitch.lowerPmdDetune(OpnPitch.nearestBlockFnumForMidi(targetMidi), partDetuneRaw)
+                if (target == OpnPitch.INVALID_PACKED_PITCH) opState[i].phaseStep.toLong()
+                else OpnPitch.phaseStep29(target, spec, rate).toLong()
             } else {
                 opState[i].phaseStep.toLong()
             }
@@ -803,12 +740,46 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private fun recalcSpecialOperator(index: Int) {
         val spec = opSpec[index] ?: return
         val rate = if (enableOversampling) oversampleRate else sampleRate
-        val step = OpnPitch.phaseStep29(
-            specialPackedPitch[index], spec, rate, specialBaseCents[index], slotFnumDetune[index]
-        )
+        val pitch = lowerSpecialPitch(specialPackedPitch[index], specialPartDetuneRaw[index], slotFnumDetune[index])
+        if (pitch == OpnPitch.INVALID_PACKED_PITCH) return
+        val step = OpnPitch.phaseStep29(pitch, spec, rate)
         opState[index].phaseStep = step
         specialRampStart[index] = step.toLong()
         if (specialRampFrames[index] <= 0) specialRampTarget[index] = step.toLong()
+    }
+
+    internal fun startHeldPitchRamp(targetMidi: Int, detuneRaw: Int, frames: Int) {
+        val p = patch ?: return
+        partDetuneRaw = detuneRaw
+        this.targetMidi = targetMidi
+        requestedSlideFrames = frames.coerceAtLeast(0)
+        configurePitchRamp(p)
+        this.targetMidi = -1
+        requestedSlideFrames = 0
+    }
+
+    internal fun startHeldSlotPitchRamp(slotMask: Int, targetMidi: Int, detuneRaw: Int, frames: Int) {
+        val rate = if (enableOversampling) oversampleRate else sampleRate
+        var index = 0
+        while (index < AudioLaws.FM_OPERATORS) {
+            if ((slotMask and (1 shl index)) != 0) {
+                val spec = opSpec[index]
+                val target = lowerSpecialPitch(OpnPitch.nearestBlockFnumForMidi(targetMidi), detuneRaw, slotFnumDetune[index])
+                if (spec != null && target != OpnPitch.INVALID_PACKED_PITCH) {
+                    specialRampStart[index] = opState[index].phaseStep.toLong()
+                    specialRampTarget[index] = OpnPitch.phaseStep29(target, spec, rate).toLong()
+                    specialRampFrames[index] = frames.coerceAtLeast(0)
+                    specialRampPosition[index] = 0
+                }
+            }
+            index++
+        }
+    }
+
+    private fun lowerSpecialPitch(packed: Int, partRaw: Int, slotRaw: Int): Int {
+        val combined = partRaw.toLong() + slotRaw.toLong()
+        if (combined !in PmdDetune.MIN_RAW.toLong()..PmdDetune.MAX_RAW.toLong()) return OpnPitch.INVALID_PACKED_PITCH
+        return OpnPitch.lowerPmdDetune(packed, combined.toInt())
     }
 
     private fun keyOnSpecialOperator(index: Int) {
@@ -866,7 +837,6 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     }
 
     private companion object {
-        const val NO_ADSR_OVERRIDE = -1f
         const val PHASE_CYCLE_BITS = 29
         const val PHASE_ADDRESS_BITS = 10
         const val PHASE_ADDRESS_SHIFT = PHASE_CYCLE_BITS - PHASE_ADDRESS_BITS

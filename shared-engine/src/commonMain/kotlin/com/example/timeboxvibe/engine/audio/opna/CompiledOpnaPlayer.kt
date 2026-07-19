@@ -4,11 +4,7 @@ package com.example.timeboxvibe.engine.audio.opna
 class CompiledOpnaPlayer internal constructor(
     internal val timeline: CompiledOpnaTimeline
 ) {
-    private val seekMonoBuffer = FloatArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
-    private val seekStereoBuffer = FloatArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK * 2)
     private var renderedSampleOffset: Long = 0L
-    private var activeChannelCount: Int = CHANNELS_MONO
-    private var activeOutputStage: Int = STAGE_PROFILED_PRE_MASTER
     private var activeSynthesizer: OpnaLikeSynthesizer? = null
 
     var nextEventIndex: Int = 0
@@ -24,14 +20,31 @@ class CompiledOpnaPlayer internal constructor(
     fun reset(synthesizer: OpnaLikeSynthesizer) {
         nextEventIndex = 0
         renderedSampleOffset = 0L
-        activeChannelCount = CHANNELS_MONO
-        activeOutputStage = STAGE_PROFILED_PRE_MASTER
         activeSynthesizer = synthesizer
         synthesizer.reset()
     }
 
-    /** One cursor and one dispatcher serve raw, profiled, mono, and stereo timeline playback. */
+    /** Sequential product/offline cursor. Seeking belongs to [OfflineOpnaRenderer]. */
     internal fun render(
+        synthesizer: OpnaLikeSynthesizer,
+        buffer: FloatArray,
+        startFrame: Int,
+        frames: Int,
+        channelCount: Int,
+        outputStage: Int
+    ) {
+        if (activeSynthesizer == null) activeSynthesizer = synthesizer
+        require(activeSynthesizer === synthesizer) {
+            "A compiled cursor belongs to one synthesizer; use an independent offline renderer"
+        }
+        renderContiguous(
+            synthesizer, buffer, startFrame, frames, renderedSampleOffset,
+            channelCount, outputStage
+        )
+        renderedSampleOffset += frames
+    }
+
+    internal fun renderAtSequentialOffset(
         synthesizer: OpnaLikeSynthesizer,
         buffer: FloatArray,
         startFrame: Int,
@@ -41,43 +54,16 @@ class CompiledOpnaPlayer internal constructor(
         outputStage: Int
     ) {
         require(currentSampleOffset >= 0L) { "currentSampleOffset must be non-negative" }
-        prepareInterval(synthesizer, currentSampleOffset, channelCount, outputStage)
-        renderContiguous(
-            synthesizer, buffer, startFrame, frames, currentSampleOffset,
-            channelCount, outputStage
-        )
-        renderedSampleOffset = currentSampleOffset + frames
-    }
-
-    private fun prepareInterval(
-        synthesizer: OpnaLikeSynthesizer,
-        currentSampleOffset: Long,
-        channelCount: Int,
-        outputStage: Int
-    ) {
-        if (activeSynthesizer !== synthesizer || activeChannelCount != channelCount ||
-            activeOutputStage != outputStage ||
-            currentSampleOffset < renderedSampleOffset
-        ) {
+        if (currentSampleOffset == 0L && renderedSampleOffset != 0L) {
             nextEventIndex = 0
             renderedSampleOffset = 0L
-            activeChannelCount = channelCount
-            activeOutputStage = outputStage
             activeSynthesizer = synthesizer
             synthesizer.resetTimelineDomains()
         }
-        val seekBuffer = if (channelCount == CHANNELS_STEREO) seekStereoBuffer else seekMonoBuffer
-        while (renderedSampleOffset < currentSampleOffset) {
-            val frames = minOf(
-                OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK.toLong(),
-                currentSampleOffset - renderedSampleOffset
-            ).toInt()
-            renderContiguous(
-                synthesizer, seekBuffer, 0, frames, renderedSampleOffset,
-                channelCount, outputStage
-            )
-            renderedSampleOffset += frames
+        require(currentSampleOffset == renderedSampleOffset) {
+            "Arbitrary interval replay belongs to OfflineOpnaRenderer"
         }
+        render(synthesizer, buffer, startFrame, frames, channelCount, outputStage)
     }
 
     private fun renderContiguous(
@@ -93,7 +79,7 @@ class CompiledOpnaPlayer internal constructor(
         var renderPosition = 0
         while (renderPosition < frames) {
             val eventIndex = nextEventIndex
-            if (eventIndex >= timeline.eventCount || timeline.sampleTime[eventIndex] >= chunkEnd) {
+            if (eventIndex >= timeline.eventCount || timeline.sampleTime(eventIndex) >= chunkEnd) {
                 synthesizer.renderTimelineSegment(
                     buffer,
                     startFrame + renderPosition,
@@ -103,7 +89,7 @@ class CompiledOpnaPlayer internal constructor(
                 )
                 break
             }
-            val eventOffset = (timeline.sampleTime[eventIndex] - currentSampleOffset).toInt()
+            val eventOffset = (timeline.sampleTime(eventIndex) - currentSampleOffset).toInt()
             if (eventOffset > renderPosition) {
                 synthesizer.renderTimelineSegment(
                     buffer,

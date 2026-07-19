@@ -1,4 +1,4 @@
-"""Offline PMD corpus inventory and normalized trace oracle.
+"""Offline PMD corpus inventory and lossless semantic trace verifier.
 
 This tool reads user-supplied Touhou archives through THTK, scans PMD M86/M26
 part streams, reports conservative opcode/subcommand capabilities, and
@@ -43,9 +43,26 @@ BAD_APPLE_SHA256 = "60e0e4e9742db3d97bd02238f2602ad7f671c71077479d71593e69710be8
 BAD_APPLE_WINDOW_START = 288
 BAD_APPLE_WINDOW_END = 5280
 PMD_TO_MML_TICKS = 20
+# Small non-expressive ST02 aggregate fixed by repair_plan.md and confirmed
+# against the independently hashed M86 payload in both supplied archives.
+BAD_APPLE_EXPECTED_SEMANTIC_COUNTS = {
+    "pitched_volume_transition_count": 28,
+    "gate_change_count": 29,
+    "detune_change_count": 17,
+    "target_portamento_count": 4,
+    "tie_count": 4,
+    "tie_without_retrigger_count": 4,
+    "envelope_definition_count": 8,
+    "lfo_clock_declaration_count": 20,
+    "active_software_lfo_count": 0,
+}
+BAD_APPLE_EXPECTED_SEMANTIC_IDENTITY_SHA256 = (
+    "a9585db265e8e3b1ceb1ab4c4b1a1dc0728391d371b2385a10f1b862a4d942e1"
+)
 MAX_TRACE_STEPS = 100_000
 REPORT_SCHEMA_VERSION = 2
-NORMALIZED_ORACLE_SCHEMA_VERSION = 2
+SEMANTIC_TRACE_SCHEMA_VERSION = 3
+STRUCTURAL_INVENTORY_EVIDENCE = "STRUCTURAL_ONLY_NOT_SEMANTIC_PARITY_EVIDENCE"
 REQUIRED_INDEPENDENT_CHECKPOINT_TRACES = 4
 INDEPENDENT_CHECKPOINT_DERIVATION_KIND = "INDEPENDENT_REGISTER_OR_STATE_TRACE"
 SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -126,6 +143,14 @@ def list_archive(thdat: Path, archive: Path) -> list[ListedEntry]:
 def extract_entries(thdat: Path, archive: Path, entries: list[ListedEntry]) -> dict[str, bytes]:
     if not entries:
         return {}
+    seen_names: set[str] = set()
+    for entry in entries:
+        normalized = entry.name.casefold()
+        if normalized in seen_names:
+            raise PmdScanError(
+                f"Archive contains a duplicate music entry name: {entry.name!r}"
+            )
+        seen_names.add(normalized)
     with tempfile.TemporaryDirectory(prefix="timebox-pmd-corpus-") as directory:
         root = Path(directory).resolve()
         run_thdat(thdat, ["-x4", str(archive), *(entry.name for entry in entries)], cwd=root)
@@ -373,12 +398,73 @@ def pmd_pitch(value: int, shift: int, default_shift: int) -> int | None:
     return (octave + 1 + pitch // 12) * 12 + pitch % 12
 
 
+def part_owner(part_index: int) -> str:
+    if part_index < 6:
+        return "fm_part"
+    if part_index < 9:
+        return "ssg_part"
+    if part_index == 9:
+        return "adpcm_part"
+    return "rhythm_part"
+
+
+def semantic_family(name: str) -> str:
+    if name in {
+        "volume", "volume_up", "volume_down", "fine_volume_up", "fine_volume_down",
+        "volume_step_up", "volume_step_down",
+    }:
+        return "volume"
+    if name in {"gate_q", "gate_minimum", "gate_random_range", "gate_random_mode"}:
+        return "gate"
+    if name in {"detune", "detune_extended", "fm3_slot_detune", "fm3_slot_detune_relative"}:
+        return "detune"
+    if name.startswith("software_envelope"):
+        return "envelope"
+    if "lfo" in name:
+        return "lfo"
+    if name.startswith("rhythm_"):
+        return "rhythm"
+    if name in {
+        "tempo", "bar_length", "master_transpose", "status_write", "status_add",
+        "special_control",
+    }:
+        return "shared_state"
+    if name in {"tie", "slur"}:
+        return "note_lifecycle"
+    if name.startswith("loop_") or name == "part_loop":
+        return "loop"
+    return "part_state"
+
+
+def semantic_control_payload(name: str, parameters: list[int], effective_value: int | None = None) -> dict:
+    payload: dict = {"parameters": parameters}
+    if effective_value is not None:
+        payload["effective_value"] = effective_value
+    if name == "tempo" and parameters:
+        payload["mode"] = f"0x{parameters[0]:02X}" if len(parameters) == 2 else "absolute"
+        if len(parameters) == 2 and parameters[0] == 0xFD:
+            payload["relative_bpm"] = signed_byte(parameters[1])
+        elif len(parameters) == 2 and parameters[0] == 0xFF:
+            payload["timer_or_bpm_value"] = parameters[1]
+    elif name == "software_envelope" and len(parameters) == 4:
+        payload["definition"] = {
+            "attack_level": parameters[0],
+            "decay_delta": signed_byte(parameters[1]),
+            "sustain_rate": parameters[2],
+            "release_rate": parameters[3],
+        }
+    elif name == "detune" and len(parameters) == 2:
+        payload["signed_value"] = struct.unpack("<h", bytes(parameters))[0]
+    return payload
+
+
 def trace_part(
     payload: bytes,
     part_index: int,
     note_limit: int,
     *,
     follow_part_loop: bool = True,
+    source_provenance: dict | None = None,
 ) -> dict:
     data = bytearray(payload[1:])
     pointer = struct.unpack_from("<H", data, part_index * 2)[0]
@@ -395,7 +481,55 @@ def trace_part(
     previous_midi: int | None = None
     notes: list[dict] = []
     controls: list[dict] = []
+    events: list[dict] = []
+    pending_tie = False
+    pending_slur = False
+    last_note_event: dict | None = None
+    note_id = 0
     steps = 0
+
+    def emit(clock: int, offset: int, family: str, event_type: str, event_payload: dict) -> dict:
+        source = {
+            "part": PMD_PART_NAMES[part_index],
+            "stream_offset": offset,
+        }
+        if source_provenance is not None:
+            for key in (
+                "archive_id", "archive_sha256", "entry_sha256", "format", "driver_profile",
+            ):
+                if key in source_provenance:
+                    source[key] = source_provenance[key]
+        row = {
+            "clock": clock,
+            "sequence": len(events),
+            "part": PMD_PART_NAMES[part_index],
+            "owner": part_owner(part_index),
+            "family": family,
+            "type": event_type,
+            "payload": event_payload,
+            "source": source,
+        }
+        events.append(row)
+        return row
+
+    def emit_control(offset: int, name: str, parameters: list[int], effective_value: int | None = None) -> None:
+        control = {"tick": tick, "offset": offset, "name": name}
+        if len(parameters) == 1 and name in {
+            "instrument", "volume", "gate_q", "transpose", "master_transpose",
+            "transpose_relative", "bar_length",
+        }:
+            control["value"] = effective_value if effective_value is not None else parameters[0]
+        else:
+            control["parameters"] = parameters
+        controls.append(control)
+        emit(
+            tick,
+            offset,
+            semantic_family(name),
+            name,
+            semantic_control_payload(name, parameters, effective_value),
+        )
+
     while len(notes) < note_limit and steps < MAX_TRACE_STEPS:
         steps += 1
         if not (0 <= pointer < len(data)):
@@ -404,6 +538,9 @@ def trace_part(
         opcode = data[pointer]
         pointer += 1
         if opcode < 0x80:
+            if part_index == 10:
+                emit(tick, offset, "rhythm", "rhythm_pattern_select", {"pattern": opcode})
+                continue
             if pointer >= len(data):
                 raise PmdScanError(f"Truncated trace note at 0x{offset:04X}")
             duration = data[pointer]
@@ -411,24 +548,51 @@ def trace_part(
             midi = previous_midi if opcode & 0x0F == 0x0C else pmd_pitch(opcode, shift, default_shift)
             if midi is not None:
                 previous_midi = midi
-                notes.append(
+                note = {
+                    "tick": tick,
+                    "duration": duration,
+                    "midi": midi,
+                    "patch": patch,
+                    "volume": volume,
+                    "gate_tail": gate_tail,
+                    "shift": shift + default_shift,
+                    "detune": detune,
+                }
+                notes.append(note)
+                action = "tie_continue" if pending_tie else "slur_retrigger" if pending_slur else "key_on"
+                last_note_event = emit(
+                    tick,
+                    offset,
+                    "note",
+                    "note",
                     {
-                        "tick": tick,
-                        "duration": duration,
+                        "note_id": note_id,
                         "midi": midi,
+                        "written_duration": duration,
+                        "gate_end_clock": max(tick, tick + duration - gate_tail),
+                        "key_off_clock": max(tick, tick + duration - gate_tail),
+                        "key_action": action,
                         "patch": patch,
-                        "volume": volume,
-                        "gate_tail": gate_tail,
-                        "shift": shift + default_shift,
+                        "effective_volume": volume,
+                        "transpose": shift + default_shift,
                         "detune": detune,
-                    }
+                        "portamento_target_midi": None,
+                        "portamento_duration": None,
+                    },
                 )
+                note_id += 1
+                pending_tie = False
+                pending_slur = False
+            else:
+                emit(tick, offset, "note", "rest", {"written_duration": duration})
             tick += duration
         elif opcode == 0x80:
             if part_loop is None:
+                emit(tick, offset, "loop", "part_end", {})
                 break
             if not follow_part_loop:
                 part_loop_end_tick = tick
+                emit(tick, offset, "loop", "part_loop_end", {})
                 break
             pointer = part_loop
         elif opcode == 0xDA:
@@ -440,21 +604,46 @@ def trace_part(
             target_midi = pmd_pitch(target, shift, default_shift)
             if midi is not None:
                 previous_midi = midi
-                notes.append(
+                note = {
+                    "tick": tick, "duration": duration, "midi": midi, "target_midi": target_midi,
+                    "patch": patch, "volume": volume, "gate_tail": gate_tail,
+                    "shift": shift + default_shift, "detune": detune,
+                }
+                notes.append(note)
+                action = "tie_continue" if pending_tie else "slur_retrigger" if pending_slur else "key_on"
+                last_note_event = emit(
+                    tick,
+                    offset,
+                    "note",
+                    "portamento",
                     {
-                        "tick": tick, "duration": duration, "midi": midi, "target_midi": target_midi,
-                        "patch": patch, "volume": volume, "gate_tail": gate_tail,
-                        "shift": shift + default_shift, "detune": detune,
-                    }
+                        "note_id": note_id,
+                        "midi": midi,
+                        "written_duration": duration,
+                        "gate_end_clock": max(tick, tick + duration - gate_tail),
+                        "key_off_clock": max(tick, tick + duration - gate_tail),
+                        "key_action": action,
+                        "patch": patch,
+                        "effective_volume": volume,
+                        "transpose": shift + default_shift,
+                        "detune": detune,
+                        "portamento_target_midi": target_midi,
+                        "portamento_duration": duration,
+                    },
                 )
+                note_id += 1
+                pending_tie = False
+                pending_slur = False
             tick += duration
         elif opcode == 0xF9:
             target = struct.unpack_from("<H", data, pointer)[0]
             data[target + 1] = 0
             pointer += 2
+            emit(tick, offset, "loop", "counted_loop_start", {})
         elif opcode == 0xF8:
             repeats = data[pointer]
             data[pointer + 1] = (data[pointer + 1] + 1) & 0xFF
+            emit(tick, offset, "loop", "counted_loop_end", {"repeat_count": repeats})
             if repeats and repeats == data[pointer + 1]:
                 pointer += 4
             else:
@@ -462,53 +651,62 @@ def trace_part(
         elif opcode == 0xF7:
             target = struct.unpack_from("<H", data, pointer)[0]
             pointer += 2
+            emit(tick, offset, "loop", "counted_loop_exit", {})
             if (data[target] - 1) & 0xFF == data[target + 1]:
                 pointer = target + 4
         elif opcode == 0xF6:
             part_loop = pointer
             part_loop_tick = tick
+            emit(tick, offset, "loop", "part_loop_start", {})
         elif opcode == 0xFF:
             patch = data[pointer]
-            controls.append({"tick": tick, "offset": offset, "name": "instrument", "value": patch})
+            emit_control(offset, "instrument", [patch], patch)
             pointer += 1
         elif opcode == 0xFD:
             volume = data[pointer]
-            controls.append({"tick": tick, "offset": offset, "name": "volume", "value": volume})
+            emit_control(offset, "volume", [volume], volume)
             pointer += 1
         elif opcode == 0xFE:
             gate_tail = data[pointer]
-            controls.append({"tick": tick, "offset": offset, "name": "gate_q", "value": gate_tail})
+            emit_control(offset, "gate_q", [gate_tail], gate_tail)
             pointer += 1
         elif opcode == 0xF5:
             shift = signed_byte(data[pointer])
-            controls.append({"tick": tick, "offset": offset, "name": "transpose", "value": shift})
+            emit_control(offset, "transpose", [data[pointer]], shift)
             pointer += 1
         elif opcode == 0xB2:
             default_shift = signed_byte(data[pointer])
-            controls.append({"tick": tick, "offset": offset, "name": "master_transpose", "value": default_shift})
+            emit_control(offset, "master_transpose", [data[pointer]], default_shift)
             pointer += 1
         elif opcode == 0xE7:
             shift += signed_byte(data[pointer])
-            controls.append({"tick": tick, "offset": offset, "name": "transpose_relative", "value": shift})
+            emit_control(offset, "transpose_relative", [data[pointer]], shift)
             pointer += 1
         elif opcode == 0xFA:
             detune = struct.unpack_from("<h", data, pointer)[0]
-            controls.append({"tick": tick, "offset": offset, "name": "detune", "value": detune})
+            emit_control(offset, "detune", list(data[pointer:pointer + 2]), detune)
             pointer += 2
         elif opcode == 0xF4:
             volume = min(127 if part_index < 6 else 15, volume + (4 if part_index < 6 else 1))
+            emit_control(offset, "volume_up", [], volume)
         elif opcode == 0xF3:
             volume = max(0, volume - (4 if part_index < 6 else 1))
+            emit_control(offset, "volume_down", [], volume)
+        elif opcode == 0xFB:
+            pending_tie = True
+            if last_note_event is not None:
+                last_note_event["payload"]["tie_to_next"] = True
+                last_note_event["payload"]["key_off_clock"] = None
+            emit_control(offset, "tie", [])
+        elif opcode == 0xC1:
+            pending_slur = True
+            emit_control(offset, "slur", [])
         else:
             count = command_parameter_count(data, pointer, opcode)
-            controls.append(
-                {
-                    "tick": tick,
-                    "offset": offset,
-                    "name": COMMAND_NAMES[opcode],
-                    "parameters": list(data[pointer:pointer + count]),
-                }
-            )
+            if pointer + count > len(data):
+                raise PmdScanError(f"Truncated {COMMAND_NAMES[opcode]} in trace")
+            parameters = list(data[pointer:pointer + count])
+            emit_control(offset, COMMAND_NAMES[opcode], parameters)
             pointer += count
     if steps >= MAX_TRACE_STEPS:
         raise PmdScanError(f"Trace exceeded {MAX_TRACE_STEPS} steps")
@@ -523,6 +721,7 @@ def trace_part(
         "part": PMD_PART_NAMES[part_index],
         "notes": notes,
         "controls": controls,
+        "events": events,
         "loop": loop,
         "steps": steps,
     }
@@ -570,153 +769,93 @@ def decode_fm_voice(payload: bytes, patch_id: int) -> dict | None:
     return None
 
 
-def normalized_control(control: dict) -> dict:
-    result = {"tick": control["tick"], "offset": control["offset"], "name": control["name"]}
-    if "value" in control:
-        result["value"] = control["value"]
-    else:
-        parameters = control.get("parameters", [])
-        result["parameters"] = parameters
-        if control["name"] == "tempo" and len(parameters) == 2:
-            result["tempo_mode"] = f"0x{parameters[0]:02X}"
-            if parameters[0] == 0xFD:
-                result["relative_bpm"] = signed_byte(parameters[1])
-            elif parameters[0] == 0xFF:
-                result["timer_or_bpm_value"] = parameters[1]
-        elif control["name"] == "software_envelope" and len(parameters) == 4:
-            result["decoded"] = {
-                "attack_level": parameters[0],
-                "decay_delta": signed_byte(parameters[1]),
-                "sustain_rate": parameters[2],
-                "release_rate": parameters[3],
-            }
-    return result
-
-
-def build_normalized_song_oracle(name: str, payload: bytes, provenance: dict) -> dict:
-    """Build compact deterministic semantic data; no source/archive bytes are retained."""
+def build_semantic_song_trace(name: str, payload: bytes, provenance: dict) -> dict:
+    """Build one deterministic event stream; no source/archive bytes are retained."""
     entry_sha256 = sha256_bytes(payload)
     if provenance["entry_sha256"] != entry_sha256:
         raise PmdScanError(
-            f"Oracle provenance hash mismatch for {name}: "
+            f"Semantic trace provenance hash mismatch for {name}: "
             f"expected {provenance['entry_sha256']}, got {entry_sha256}"
         )
     scan = scan_song(name, payload)
-    used_part_indices = [index for index, part in enumerate(scan["parts"]) if part["notes"] > 0]
-    parts = []
+    if scan["errors"]:
+        raise PmdScanError(f"Cannot trace {name}: {'; '.join(scan['errors'])}")
+    parts: list[dict] = []
+    merged_events: list[dict] = []
     patch_ids: set[int] = set()
-    control_counts: Counter[str] = Counter()
-    for part_index in used_part_indices:
-        trace = trace_part(payload, part_index, 100_000, follow_part_loop=False)
-        notes = []
+    for part_index in range(PMD_PART_POINTER_COUNT):
+        trace = trace_part(
+            payload,
+            part_index,
+            100_000,
+            follow_part_loop=False,
+            source_provenance=provenance,
+        )
         for note in trace["notes"]:
             if note["patch"] is not None:
                 patch_ids.add(note["patch"])
-            notes.append(
-                [
-                    note["tick"], note["duration"], note["midi"], note["volume"],
-                    note["patch"], note["gate_tail"], note["shift"], note["detune"],
-                    note.get("target_midi"),
-                ]
-            )
-        controls = [normalized_control(control) for control in trace["controls"]]
-        control_counts.update(control["name"] for control in controls)
-        part = {
+        meaningful = [event for event in trace["events"] if event["type"] != "part_end"]
+        if not meaningful:
+            continue
+        for event in trace["events"]:
+            event["source"]["song"] = name
+            event["source"]["entry_sha256"] = entry_sha256
+        merged_events.extend(trace["events"])
+        part_summary = {
             "part": trace["part"],
-            "note_count": len(notes),
-            "end_tick": max((note[0] + note[1] for note in notes), default=0),
-            "note_columns": [
-                "tick", "duration", "midi", "volume", "patch", "gate_tail",
-                "transpose", "detune", "target_midi",
-            ],
-            "notes": notes,
-            "controls": controls,
+            "owner": part_owner(part_index),
+            "note_count": len(trace["notes"]),
+            "event_count": len(trace["events"]),
+            "end_clock": max((event["clock"] for event in trace["events"]), default=0),
         }
         if trace["loop"] is not None:
-            part["loop"] = trace["loop"]
-        parts.append(part)
+            part_summary["loop"] = trace["loop"]
+        parts.append(part_summary)
+
+    part_order = {part: index for index, part in enumerate(PMD_PART_NAMES)}
+    merged_events.sort(key=lambda event: (event["clock"], part_order[event["part"]], event["sequence"]))
+    previous_clock: int | None = None
+    same_clock_order = 0
+    for event in merged_events:
+        if event["clock"] != previous_clock:
+            previous_clock = event["clock"]
+            same_clock_order = 0
+        event["order"] = same_clock_order
+        same_clock_order += 1
+
     patches = []
     for patch_id in sorted(patch_ids):
         decoded = decode_fm_voice(payload, patch_id)
         if decoded is not None:
             patches.append(decoded)
-    oracle = {
-        "schema_version": NORMALIZED_ORACLE_SCHEMA_VERSION,
+    family_counts = Counter(event["family"] for event in merged_events)
+    type_counts = Counter(event["type"] for event in merged_events)
+    trace = {
+        "schema_version": SEMANTIC_TRACE_SCHEMA_VERSION,
         "song": name,
         "source_sha256": entry_sha256,
         "source_size": len(payload),
         "parts": parts,
+        "events": merged_events,
         "patches": patches,
         "summary": {
             "part_count": len(parts),
+            "event_count": len(merged_events),
             "note_count": sum(part["note_count"] for part in parts),
-            "control_counts": dict(sorted(control_counts.items())),
+            "family_counts": dict(sorted(family_counts.items())),
+            "type_counts": dict(sorted(type_counts.items())),
         },
     }
-    oracle["archive_id"] = provenance["archive_id"]
-    oracle["archive_sha256"] = provenance["archive_sha256"]
-    oracle["entry_sha256"] = provenance["entry_sha256"]
-    oracle["format"] = provenance["format"]
-    oracle["driver_profile"] = provenance["driver_profile"]
-    canonical = json.dumps(oracle, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    oracle["oracle_sha256"] = sha256_bytes(canonical)
-    return oracle
+    for key in ("archive_id", "archive_sha256", "entry_sha256", "format", "driver_profile"):
+        trace[key] = provenance[key]
+    canonical = json.dumps(trace, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    trace["semantic_sha256"] = sha256_bytes(canonical)
+    return trace
 
 
-def compact_normalized_oracle(oracle: dict) -> dict:
-    """Replace repetitive full note rows with deterministic, readable runs."""
-    compact = {key: value for key, value in oracle.items() if key not in ("parts", "oracle_sha256")}
-    compact_parts = []
-    for part in oracle["parts"]:
-        notes = part["notes"]
-        runs = []
-        index = 0
-        while index < len(notes):
-            maximum_period = min(16, len(notes) - index)
-            best_period = 1
-            best_repeats = 1
-            period = 1
-            while period <= maximum_period:
-                repeats = 1
-                while index + (repeats + 1) * period <= len(notes):
-                    matched = True
-                    compare = 0
-                    while compare < period:
-                        first = notes[index + compare]
-                        other = notes[index + repeats * period + compare]
-                        if first[1:] != other[1:] or other[0] != first[0] + repeats * period * first[1]:
-                            matched = False
-                            break
-                        compare += 1
-                    if not matched:
-                        break
-                    repeats += 1
-                if repeats * period > best_repeats * best_period:
-                    best_period = period
-                    best_repeats = repeats
-                period += 1
-            first = notes[index]
-            pitches = [notes[index + item][2] for item in range(best_period)]
-            runs.append(
-                {
-                    "tick": first[0], "duration": first[1], "pitches": pitches,
-                    "repeats": best_repeats, "volume": first[3], "patch": first[4],
-                    "gate_tail": first[5], "transpose": first[6], "detune": first[7],
-                    "target_midi": first[8],
-                }
-            )
-            index += best_period * best_repeats
-        compact_part = {
-            "part": part["part"], "note_count": part["note_count"],
-            "end_tick": part["end_tick"], "note_runs": runs, "controls": part["controls"],
-        }
-        if "loop" in part:
-            compact_part["loop"] = part["loop"]
-        compact_parts.append(compact_part)
-    compact["parts"] = compact_parts
-    canonical = json.dumps(compact, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    compact["oracle_sha256"] = sha256_bytes(canonical)
-    return compact
+def build_normalized_song_oracle(name: str, payload: bytes, provenance: dict) -> dict:
+    """Compatibility name for callers; the returned schema is the lossless semantic stream."""
+    return build_semantic_song_trace(name, payload, provenance)
 
 
 def production_tracks(mml_bank: Path) -> dict[str, str]:
@@ -736,54 +875,158 @@ def production_tracks(mml_bank: Path) -> dict[str, str]:
     return tracks
 
 
-def parse_production_mml(source: str) -> tuple[list[tuple], int]:
+def parse_production_mml(
+    source: str,
+    semantic_events: list[dict] | None = None,
+    part: str = "A",
+) -> tuple[list[tuple], int]:
     index = 0
     octave = 4
     default_length = 4
     tick = 0
     patch: str | None = None
     events: list[tuple] = []
+    pending_tie = False
+
+    def emit(offset: int, family: str, event_type: str, payload: dict) -> None:
+        if semantic_events is None:
+            return
+        part_index = PMD_PART_NAMES.index(part) if part in PMD_PART_NAMES else 0
+        semantic_events.append(
+            {
+                "clock": tick,
+                "sequence": len(semantic_events),
+                "part": part,
+                "owner": part_owner(part_index),
+                "family": family,
+                "type": event_type,
+                "payload": payload,
+                "source": {"part": part, "mml_offset": offset},
+            }
+        )
+
+    def signed_integer(start: int) -> tuple[int, int]:
+        cursor = start
+        sign = 1
+        if cursor < len(source) and source[cursor] in "+-":
+            if source[cursor] == "-":
+                sign = -1
+            cursor += 1
+        digits = cursor
+        while cursor < len(source) and source[cursor].isdigit():
+            cursor += 1
+        if cursor == digits:
+            raise PmdScanError(f"Production control requires an integer at {start}")
+        return sign * int(source[digits:cursor]), cursor
+
+    def integer_list(start: int, maximum: int) -> tuple[list[int], int]:
+        values = []
+        cursor = start
+        while len(values) < maximum:
+            value, cursor = signed_integer(cursor)
+            values.append(value)
+            if cursor >= len(source) or source[cursor] != ",":
+                break
+            cursor += 1
+        return values, cursor
+
+    def inline_pitch(token: str) -> int:
+        match = re.fullmatch(r"([a-gA-G])([+#-]?)", token)
+        if match is None:
+            raise PmdScanError(f"Invalid production portamento pitch {token!r}")
+        letter = match.group(1).lower()
+        accidental = 1 if match.group(2) in ("+", "#") else -1 if match.group(2) == "-" else 0
+        pitch = {"c": 0, "d": 2, "e": 4, "f": 5, "g": 7, "a": 9, "b": 11}[letter]
+        return (octave + 1) * 12 + pitch + accidental
+
     while index < len(source):
         command = source[index]
         if command.isspace() or command == "|":
             index += 1
         elif command == "@":
+            offset = index
             index += 1
             start = index
             while index < len(source) and (source[index].isalnum() or source[index] == "_"):
                 index += 1
             patch = source[start:index]
+            emit(offset, "part_state", "instrument", {"value": patch})
         elif command in "VvQpq":
+            offset = index
+            raw = command
             index += 1
-            if index < len(source) and source[index] in "+-":
-                index += 1
-            while index < len(source) and source[index].isdigit():
-                index += 1
+            value, index = signed_integer(index)
+            if raw in "Qq":
+                emit(offset, "gate", "gate_q", {"effective_value": value})
+            elif raw == "V":
+                emit(offset, "volume", "volume", {"effective_value": value})
+            elif raw == "v":
+                emit(offset, "volume", "coarse_volume", {"effective_value": value})
+            else:
+                emit(offset, "part_state", "pan", {"effective_value": value})
         elif command == "E":
+            offset = index
             index += 1
             if index < len(source) and source[index] in "xX":
                 index += 1
-                start = index
-                while index < len(source) and source[index].isdigit():
-                    index += 1
-                if index == start:
-                    raise PmdScanError("Production EX control requires a mode")
+                mode, index = signed_integer(index)
+                emit(offset, "envelope", "envelope_clock_mode", {"mode": mode})
             else:
-                value_count = 0
-                while value_count < 6:
-                    if index < len(source) and source[index] in "+-":
-                        index += 1
-                    start = index
-                    while index < len(source) and source[index].isdigit():
-                        index += 1
-                    if index == start:
-                        raise PmdScanError("Production E control requires numeric parameters")
-                    value_count += 1
-                    if index >= len(source) or source[index] != ",":
-                        break
-                    index += 1
-                if value_count not in (4, 5, 6):
+                values, index = integer_list(index, 6)
+                if len(values) not in (4, 5, 6):
                     raise PmdScanError("Production E control requires four, five, or six parameters")
+                payload = {"parameters": values}
+                if len(values) == 4:
+                    payload["definition"] = {
+                        "attack_level": values[0],
+                        "decay_delta": values[1],
+                        "sustain_rate": values[2],
+                        "release_rate": values[3],
+                    }
+                emit(offset, "envelope", "software_envelope", payload)
+        elif command == "D":
+            offset = index
+            index += 1
+            value, index = signed_integer(index)
+            emit(offset, "detune", "detune", {"signed_value": value})
+        elif command == "M":
+            offset = index
+            index += 1
+            kind = "define"
+            if index < len(source) and source[index] == "M":
+                kind = "tl_mask"
+                index += 1
+            elif index < len(source) and source[index] in "WXD":
+                kind = {
+                    "W": "wave", "X": "clock_mode", "D": "depth_evolution",
+                }[source[index]]
+                index += 1
+            lfo_index = 0
+            if index < len(source) and source[index] in "AB":
+                lfo_index = 1 if source[index] == "B" else 0
+                index += 1
+            maximum = 4 if kind in {"define", "depth_evolution"} else 1
+            values, index = integer_list(index, maximum)
+            event_type = (
+                f"software_lfo_{lfo_index + 1}"
+                if kind == "define"
+                else f"software_lfo_{lfo_index + 1}_{kind}"
+            )
+            emit(
+                offset,
+                "lfo",
+                event_type,
+                {"parameters": values},
+            )
+        elif command == "*":
+            offset = index
+            index += 1
+            lfo_index = 0
+            if index < len(source) and source[index] in "AB":
+                lfo_index = 1 if source[index] == "B" else 0
+                index += 1
+            value, index = signed_integer(index)
+            emit(offset, "lfo", f"software_lfo_{lfo_index + 1}_switch", {"parameters": [value]})
         elif command in "ol":
             index += 1
             start = index
@@ -797,7 +1040,64 @@ def parse_production_mml(source: str) -> tuple[list[tuple], int]:
         elif command in "<>":
             octave += 1 if command == ">" else -1
             index += 1
+        elif command in "()":
+            offset = index
+            increase = command == ")"
+            index += 1
+            fine = index < len(source) and source[index] == "%"
+            if fine:
+                index += 1
+            start = index
+            while index < len(source) and source[index].isdigit():
+                index += 1
+            amount = int(source[start:index]) if index > start else 1
+            emit(
+                offset,
+                "volume",
+                "relative_volume",
+                {"delta": amount if increase else -amount, "fine": fine},
+            )
+        elif command == "{":
+            offset = index
+            close = source.find("}", index + 1)
+            if close < 0:
+                raise PmdScanError("Unclosed production portamento")
+            content = source[index + 1:close].replace(" ", "")
+            pitches = re.findall(r"[a-gA-G][+#-]?", content)
+            if len(pitches) != 2 or "".join(pitches) != content:
+                raise PmdScanError("Production portamento requires exactly two pitches")
+            source_midi = inline_pitch(pitches[0])
+            target_midi = inline_pitch(pitches[1])
+            index = close + 1
+            start = index
+            while index < len(source) and source[index].isdigit():
+                index += 1
+            denominator = int(source[start:index]) if index > start else default_length
+            dotted = index < len(source) and source[index] == "."
+            if dotted:
+                index += 1
+            duration = 1920 // denominator
+            if dotted:
+                duration += duration // 2
+            action = "tie_continue" if pending_tie else "key_on"
+            voice = int(patch) if patch is not None and patch.isdigit() else None
+            events.append((tick, duration, source_midi, voice, target_midi))
+            emit(
+                offset,
+                "note",
+                "portamento",
+                {
+                    "midi": source_midi,
+                    "portamento_target_midi": target_midi,
+                    "portamento_duration": duration,
+                    "key_action": action,
+                    "patch": voice,
+                },
+            )
+            pending_tie = False
+            tick += duration
         elif command.lower() in "abcdefgr":
+            offset = index
             letter = command.lower()
             index += 1
             accidental = 0
@@ -820,12 +1120,31 @@ def parse_production_mml(source: str) -> tuple[list[tuple], int]:
             if letter != "r":
                 pitch = {"c": 0, "d": 2, "e": 4, "f": 5, "g": 7, "a": 9, "b": 11}[letter]
                 midi = (octave + 1) * 12 + pitch + accidental
+                was_tied = pending_tie
                 if events and events[-1][4] and events[-1][2] == midi and events[-1][0] + events[-1][1] == tick:
                     previous = events[-1]
                     events[-1] = (previous[0], previous[1] + duration, midi, previous[3], linked)
                 else:
                     voice = int(patch) if patch is not None and patch.isdigit() else None
                     events.append((tick, duration, midi, voice, linked))
+                emit(
+                    offset,
+                    "note",
+                    "note",
+                    {
+                        "midi": midi,
+                        "written_duration": duration,
+                        "key_action": "tie_continue" if was_tied else "key_on",
+                        "tie_to_next": linked,
+                        "patch": int(patch) if patch is not None and patch.isdigit() else None,
+                    },
+                )
+                if linked:
+                    emit(offset, "note_lifecycle", "tie", {})
+                pending_tie = linked
+            else:
+                emit(offset, "note", "rest", {"written_duration": duration})
+                pending_tie = False
             tick += duration
         else:
             raise PmdScanError(f"Unsupported production MML token {command!r} at {index}")
@@ -843,6 +1162,271 @@ def decode_bad_apple_part(payload: bytes, channel_index: int) -> list[tuple]:
         for event in trace
         if BAD_APPLE_WINDOW_START <= event[0] < BAD_APPLE_WINDOW_END
     ]
+
+
+def summarize_bad_apple_semantics(events: list[dict]) -> dict:
+    pitched_volume = [
+        event for event in events
+        if event["type"] == "volume" and event["part"] != "K"
+    ]
+    gates = [event for event in events if event["type"] == "gate_q"]
+    detunes = [event for event in events if event["type"] == "detune"]
+    portamentos = [
+        event for event in events
+        if event["type"] == "portamento"
+        and event["payload"].get("portamento_target_midi") is not None
+        and event["payload"].get("portamento_duration", 0) > 0
+    ]
+    ties = [event for event in events if event["type"] == "tie"]
+    valid_ties = []
+    for tie in ties:
+        part_notes = [
+            event for event in events
+            if event["part"] == tie["part"] and event["family"] == "note"
+            and event["type"] in {"note", "portamento"}
+        ]
+        previous = next(
+            (event for event in reversed(part_notes) if event["sequence"] < tie["sequence"]),
+            None,
+        )
+        following = next(
+            (event for event in part_notes if event["sequence"] > tie["sequence"]),
+            None,
+        )
+        if (
+            previous is not None
+            and following is not None
+            and previous["payload"].get("tie_to_next") is True
+            and previous["payload"].get("key_off_clock") is None
+            and following["payload"].get("key_action") == "tie_continue"
+        ):
+            valid_ties.append(tie)
+    envelopes = [event for event in events if event["type"] == "software_envelope"]
+    lfo_clocks = [
+        event for event in events
+        if event["type"] in {"software_lfo_1_clock_mode", "software_lfo_2_clock_mode"}
+    ]
+    active_lfos = []
+    for event in events:
+        if event["type"] in {"software_lfo_1", "software_lfo_2"}:
+            active_lfos.append(event)
+        elif event["type"] in {"software_lfo_1_switch", "software_lfo_2_switch"}:
+            parameters = event["payload"].get("parameters", [])
+            if parameters and parameters[0] != 0:
+                active_lfos.append(event)
+
+    counts = {
+        "pitched_volume_transition_count": len(pitched_volume),
+        "gate_change_count": len(gates),
+        "detune_change_count": len(detunes),
+        "target_portamento_count": len(portamentos),
+        "tie_count": len(ties),
+        "tie_without_retrigger_count": len(valid_ties),
+        "envelope_definition_count": len(envelopes),
+        "lfo_clock_declaration_count": len(lfo_clocks),
+        "active_software_lfo_count": len(active_lfos),
+    }
+    mismatches = {
+        key: {"expected": expected, "actual": counts[key]}
+        for key, expected in BAD_APPLE_EXPECTED_SEMANTIC_COUNTS.items()
+        if counts[key] != expected
+    }
+
+    def transition_values(selected: list[dict], value_key: str) -> list[dict]:
+        return [
+            {
+                "part": event["part"],
+                "clock": event["clock"],
+                "value": event["payload"].get(value_key),
+            }
+            for event in selected
+        ]
+
+    source_domain = {
+        "pitched_volume_transitions": transition_values(pitched_volume, "effective_value"),
+        "gate_changes": transition_values(gates, "effective_value"),
+        "detune_changes": transition_values(detunes, "signed_value"),
+        "portamentos": [
+            {
+                "part": event["part"],
+                "clock": event["clock"],
+                "source_midi": event["payload"]["midi"],
+                "target_midi": event["payload"]["portamento_target_midi"],
+                "duration": event["payload"]["portamento_duration"],
+                "key_action": event["payload"]["key_action"],
+            }
+            for event in portamentos
+        ],
+        "ties": [
+            {"part": event["part"], "clock": event["clock"]}
+            for event in ties
+        ],
+        "envelope_definitions": [
+            {
+                "part": event["part"],
+                "clock": event["clock"],
+                "definition": event["payload"].get("definition"),
+            }
+            for event in envelopes
+        ],
+        "lfo_clock_declarations": [
+            {
+                "part": event["part"],
+                "clock": event["clock"],
+                "type": event["type"],
+                "parameters": event["payload"].get("parameters", []),
+            }
+            for event in lfo_clocks
+        ],
+    }
+    semantic_identity = sha256_bytes(
+        json.dumps(source_domain, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    )
+    if semantic_identity != BAD_APPLE_EXPECTED_SEMANTIC_IDENTITY_SHA256:
+        mismatches["semantic_identity_sha256"] = {
+            "expected": BAD_APPLE_EXPECTED_SEMANTIC_IDENTITY_SHA256,
+            "actual": semantic_identity,
+        }
+
+    return {
+        "passed": not mismatches,
+        "counts": counts,
+        "mismatches": mismatches,
+        "semantic_identity_sha256": semantic_identity,
+        "expected_semantic_identity_sha256": BAD_APPLE_EXPECTED_SEMANTIC_IDENTITY_SHA256,
+        "source_domain": source_domain,
+    }
+
+
+def build_bad_apple_semantic_gate(payload: bytes) -> dict:
+    events: list[dict] = []
+    for part_index in range(PMD_PART_POINTER_COUNT):
+        trace = trace_part(payload, part_index, 100_000, follow_part_loop=False)
+        events.extend(trace["events"])
+    part_order = {part: index for index, part in enumerate(PMD_PART_NAMES)}
+    events.sort(key=lambda event: (event["clock"], part_order[event["part"]], event["sequence"]))
+    return summarize_bad_apple_semantics(events)
+
+
+def normalize_effective_note_semantics(
+    events: Iterable[dict],
+    *,
+    window_start: int = 0,
+    window_end: int | None = None,
+    tick_scale: int = 1,
+    pmd_control_tick_scale: int = PMD_TO_MML_TICKS,
+) -> list[dict]:
+    """Reduce authored controls to effective note state without retaining a full trace."""
+    state = {
+        "volume": None,
+        "gate_tail": 0,
+        "detune": 0,
+        "envelope": None,
+        "lfo_clock_modes": [0, 0],
+        "lfo_switches": [0, 0],
+    }
+    rows: list[dict] = []
+    for event in events:
+        clock = event["clock"]
+        event_type = event["type"]
+        payload = event["payload"]
+        if event_type in {"volume", "volume_up", "volume_down"}:
+            state["volume"] = payload.get("effective_value")
+        elif event_type == "relative_volume":
+            delta = payload["delta"]
+            if not payload.get("fine", False) and event.get("owner") == "fm_part":
+                delta *= 4
+            if state["volume"] is None:
+                raise PmdScanError("Relative production volume precedes an absolute volume")
+            maximum = 127 if event.get("owner") == "fm_part" else 15
+            state["volume"] = max(0, min(maximum, state["volume"] + delta))
+        elif event_type == "gate_q":
+            state["gate_tail"] = payload["effective_value"]
+        elif event_type == "detune":
+            state["detune"] = payload["signed_value"]
+        elif event_type == "software_envelope":
+            definition = payload.get("definition")
+            state["envelope"] = (
+                None if definition is None else {
+                    "attack_level": definition["attack_level"],
+                    "decay_delta": definition["decay_delta"],
+                    "sustain_rate": definition["sustain_rate"],
+                    "release_rate": definition["release_rate"],
+                }
+            )
+        elif event_type in {"software_lfo_1_clock_mode", "software_lfo_2_clock_mode"}:
+            lfo_index = 0 if "_1_" in event_type else 1
+            parameters = payload.get("parameters", [])
+            if parameters:
+                state["lfo_clock_modes"][lfo_index] = parameters[0]
+        elif event_type in {"software_lfo_1_switch", "software_lfo_2_switch"}:
+            lfo_index = 0 if "_1_" in event_type else 1
+            parameters = payload.get("parameters", [])
+            if parameters:
+                state["lfo_switches"][lfo_index] = parameters[0]
+
+        if event_type not in {"note", "portamento"}:
+            continue
+        if clock < window_start or window_end is not None and clock >= window_end:
+            continue
+        active_lfos = [
+            {"index": index + 1, "clock_mode": state["lfo_clock_modes"][index]}
+            for index in range(2)
+            if state["lfo_switches"][index] != 0
+        ]
+        written_duration = payload.get(
+            "written_duration", payload.get("portamento_duration")
+        )
+        if written_duration is None:
+            raise PmdScanError("A semantic note event is missing its written duration")
+        duration = written_duration * tick_scale
+        row = {
+            "tick": (clock - window_start) * tick_scale,
+            "duration": duration,
+            "midi": payload["midi"],
+            "patch": payload.get("patch"),
+            "volume": state["volume"],
+            "gate_tail": state["gate_tail"] * pmd_control_tick_scale,
+            "detune": state["detune"],
+            "target_midi": payload.get("portamento_target_midi"),
+            "portamento_duration": (
+                None
+                if payload.get("portamento_duration") is None
+                else payload["portamento_duration"] * tick_scale
+            ),
+            "key_action": payload.get("key_action", "key_on"),
+            "tie_to_next": payload.get("tie_to_next") is True,
+            "envelope": state["envelope"],
+            # MX is behaviorally relevant only while the corresponding LFO is active.
+            "active_lfos": active_lfos,
+        }
+        previous = rows[-1] if rows else None
+        same_effective_state = previous is not None and all(
+            previous[key] == row[key]
+            for key in (
+                "midi", "patch", "volume", "gate_tail", "detune", "envelope", "active_lfos",
+            )
+        )
+        if (
+            previous is not None
+            and previous["tie_to_next"]
+            and row["key_action"] == "tie_continue"
+            and previous["target_midi"] is None
+            and row["target_midi"] is None
+            and previous["tick"] + previous["duration"] == row["tick"]
+            and same_effective_state
+        ):
+            previous["duration"] += duration
+            previous["tie_to_next"] = row["tie_to_next"]
+        else:
+            rows.append(row)
+    return rows
+
+
+def semantic_rows_sha256(rows: list[dict]) -> str:
+    return sha256_bytes(
+        json.dumps(rows, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    )
 
 
 def trace_part_window(payload: bytes, channel_index: int, end_tick: int) -> list[tuple]:
@@ -938,7 +1522,10 @@ def audit_bad_apple(payload: bytes, mml_bank: Path) -> dict:
     lanes = []
     failed = False
     for channel, source_channel in (("A", 0), ("B", 1), ("C", 2), ("D", 3), ("E", 4), ("G", 6), ("H", 7)):
-        actual, total_ticks = parse_production_mml(tracks[channel])
+        production_semantics: list[dict] = []
+        actual, total_ticks = parse_production_mml(
+            tracks[channel], production_semantics, channel
+        )
         expected = decode_bad_apple_part(payload, source_channel)
         mismatches = []
         for index in range(min(len(actual), len(expected))):
@@ -947,6 +1534,32 @@ def audit_bad_apple(payload: bytes, mml_bank: Path) -> dict:
                     {"index": index, "mml": list(actual[index]), "pmd": list(expected[index])}
                 )
         if len(actual) != len(expected) or mismatches:
+            failed = True
+        source_semantics = trace_part(
+            payload, source_channel, 100_000, follow_part_loop=False
+        )["events"]
+        expected_effective = normalize_effective_note_semantics(
+            source_semantics,
+            window_start=BAD_APPLE_WINDOW_START,
+            window_end=BAD_APPLE_WINDOW_END,
+            tick_scale=PMD_TO_MML_TICKS,
+        )
+        actual_effective = normalize_effective_note_semantics(production_semantics)
+        effective_mismatches = []
+        for index in range(min(len(actual_effective), len(expected_effective))):
+            if actual_effective[index] != expected_effective[index]:
+                differing_fields = [
+                    key for key in expected_effective[index]
+                    if actual_effective[index].get(key) != expected_effective[index][key]
+                ]
+                effective_mismatches.append(
+                    {"index": index, "fields": differing_fields}
+                )
+        effective_mismatch_count = (
+            len(effective_mismatches)
+            + abs(len(actual_effective) - len(expected_effective))
+        )
+        if effective_mismatch_count:
             failed = True
         lanes.append(
             {
@@ -958,9 +1571,32 @@ def audit_bad_apple(payload: bytes, mml_bank: Path) -> dict:
                 "mismatches": mismatches[:5],
                 "pmd_volumes": sorted({event[5] for event in expected}),
                 "pmd_gate_tails": sorted({event[6] for event in expected}),
+                "effective_semantic_event_count": len(actual_effective),
+                "effective_semantic_mismatch_count": effective_mismatch_count,
+                "effective_semantic_mismatches": effective_mismatches[:5],
+                "production_effective_semantic_sha256": semantic_rows_sha256(actual_effective),
+                "source_effective_semantic_sha256": semantic_rows_sha256(expected_effective),
             }
         )
-    return {"sha256": digest, "passed": not failed, "lanes": lanes}
+    semantic_gate = build_bad_apple_semantic_gate(payload)
+    return {
+        "sha256": digest,
+        "passed": not failed and semantic_gate["passed"],
+        "lanes": lanes,
+        "semantic_aggregate_gate": semantic_gate,
+        "owned_production_effective_semantics": {
+            "passed": not failed,
+            "domains": [
+                "volume", "gate", "detune", "portamento", "tie_lifecycle",
+                "software_envelope", "active_software_lfo_clock_mode",
+                "shared_clock_and_transpose_projection", "note_order",
+            ],
+            "normalization": (
+                "Authored declaration counts are collapsed to effective note state; "
+                "inactive software-LFO clock declarations do not create behavior."
+            ),
+        },
+    }
 
 
 def build_non_exact_ranking(songs: Iterable[dict]) -> list[dict]:
@@ -1088,7 +1724,13 @@ def build_import_assessments(
         }
         if is_product:
             capabilities_exact = not non_exact and not song["errors"]
-            passed = capabilities_exact and checkpoint_ready
+            candidate_traces = [
+                trace for trace in revalidated_checkpoint_audit["traces"]
+                if trace["song"].strip().casefold() == requested_name.strip().casefold()
+                and trace["entry_sha256"].lower() == song["sha256"].lower()
+            ]
+            candidate_checkpoint_ready = checkpoint_ready and bool(candidate_traces)
+            passed = capabilities_exact and candidate_checkpoint_ready
             assessments.append(
                 {
                     "song": requested_name,
@@ -1097,11 +1739,17 @@ def build_import_assessments(
                     "passed": passed,
                     "capabilities_exact": capabilities_exact,
                     "global_checkpoint_ready": checkpoint_ready,
+                    "candidate_checkpoint_ready": candidate_checkpoint_ready,
+                    "candidate_checkpoint_trace_count": len(candidate_traces),
                     "admission_blockers": [
                         blocker
                         for blocker, blocked in (
                             ("candidate uses non-EXACT capabilities or has scan errors", not capabilities_exact),
                             ("global four-trace independent checkpoint gate is incomplete", not checkpoint_ready),
+                            (
+                                "no independent checkpoint trace matches the candidate song and payload identity",
+                                checkpoint_ready and not candidate_traces,
+                            ),
                         )
                         if blocked
                     ],
@@ -1390,8 +2038,22 @@ def audit_corpus(
         if not matches:
             traces.append({"song": requested_name, "error": "not found"})
             continue
+        if len(matches) != 1:
+            traces.append(
+                {
+                    "song": requested_name,
+                    "error": "ambiguous entry name; specify a unique archive/hash identity",
+                    "matching_sha256": [digest for digest, _ in matches],
+                }
+            )
+            continue
         digest, source = matches[0]
-        traced = trace_part(source["payload"], 0, trace_note_limit)
+        traced = trace_part(
+            source["payload"],
+            0,
+            trace_note_limit,
+            source_provenance=source["provenance"],
+        )
         traces.append(
             {
                 "song": requested_name,
@@ -1413,12 +2075,19 @@ def audit_corpus(
         if not matches:
             oracles.append({"song": requested_name, "error": "not found"})
             continue
+        if len(matches) != 1:
+            oracles.append(
+                {
+                    "song": requested_name,
+                    "error": "ambiguous entry name; specify a unique archive/hash identity",
+                    "matching_sha256": [digest for digest, _ in matches],
+                }
+            )
+            continue
         _, source = matches[0]
         oracles.append(
-            compact_normalized_oracle(
-                build_normalized_song_oracle(
-                    requested_name.upper(), source["payload"], source["provenance"]
-                )
+            build_semantic_song_trace(
+                requested_name.upper(), source["payload"], source["provenance"]
             )
         )
     errors = []
@@ -1428,6 +2097,7 @@ def audit_corpus(
     checkpoint_audit = build_independent_checkpoint_audit()
     report = {
         "schema_version": REPORT_SCHEMA_VERSION,
+        "structural_inventory_evidence": STRUCTURAL_INVENTORY_EVIDENCE,
         "archives": archive_reports,
         "archive_entry_count": len(songs),
         "unique_payload_count": len(unique_payloads),
@@ -1460,15 +2130,6 @@ def write_json(path: Path, report: dict) -> None:
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def write_compact_json(path: Path, value: dict) -> None:
-    """Write a checked-in semantic oracle without report-only whitespace."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n",
-        encoding="utf-8",
-    )
-
-
 def write_csv(path: Path, ranking: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as stream:
@@ -1483,6 +2144,7 @@ def write_csv(path: Path, ranking: list[dict]) -> None:
 
 def print_report(report: dict) -> None:
     print("PMD CORPUS AUDIT")
+    print(f"inventory_evidence={report['structural_inventory_evidence']}")
     for archive in report["archives"]:
         print(
             f"archive={archive['path']} sha256={archive['sha256']} "
@@ -1512,7 +2174,7 @@ def print_report(report: dict) -> None:
             f"{item['feature']} songs={item['unique_songs']} "
             f"occurrences={item['occurrences']}"
         )
-    print("NORMALIZED TRACES")
+    print("PART TRACES")
     for trace in report["traces"]:
         if "error" in trace:
             print(f"{trace['song']}: ERROR {trace['error']}")
@@ -1526,12 +2188,12 @@ def print_report(report: dict) -> None:
             )
     for oracle in report["normalized_oracles"]:
         if "error" in oracle:
-            print(f"ORACLE {oracle['song']}: ERROR {oracle['error']}")
+            print(f"SEMANTIC {oracle['song']}: ERROR {oracle['error']}")
         else:
             print(
-                f"ORACLE {oracle['song']} sha256={oracle['source_sha256']} "
-                f"parts={oracle['summary']['part_count']} notes={oracle['summary']['note_count']} "
-                f"oracle_sha256={oracle['oracle_sha256']}"
+                f"SEMANTIC {oracle['song']} sha256={oracle['source_sha256']} "
+                f"parts={oracle['summary']['part_count']} events={oracle['summary']['event_count']} "
+                f"semantic_sha256={oracle['semantic_sha256']}"
             )
     for assessment in report["import_assessments"]:
         if "error" in assessment:
@@ -1548,10 +2210,17 @@ def print_report(report: dict) -> None:
     audit = report["bad_apple_audit"]
     if audit is not None:
         print(f"BAD APPLE AUDIT passed={audit['passed']} sha256={audit['sha256']}")
+        aggregate = audit["semantic_aggregate_gate"]
+        print(
+            "  semantic_aggregate="
+            f"{'PASS' if aggregate['passed'] else 'FAIL'} "
+            + " ".join(f"{key}={value}" for key, value in aggregate["counts"].items())
+        )
         for lane in audit["lanes"]:
             print(
                 f"  {lane['channel']}: MML={lane['mml_events']} PMD={lane['pmd_events']} "
-                f"ticks={lane['ticks']} mismatches={lane['mismatch_count']}"
+                f"ticks={lane['ticks']} tuple_mismatches={lane['mismatch_count']} "
+                f"effective_mismatches={lane['effective_semantic_mismatch_count']}"
             )
 
 
@@ -1589,10 +2258,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--bad-apple-audit", action="store_true")
     parser.add_argument("--json-out", type=Path)
-    parser.add_argument(
-        "--oracle-out", type=Path,
-        help="Write the single --oracle-song result as a standalone compact fixture",
-    )
     parser.add_argument("--csv-out", type=Path)
     parser.add_argument("--strict", action="store_true")
     args = parser.parse_args(argv)
@@ -1612,10 +2277,6 @@ def main(argv: list[str] | None = None) -> int:
     print_report(report)
     if args.json_out is not None:
         write_json(args.json_out, report)
-    if args.oracle_out is not None:
-        if len(report["normalized_oracles"]) != 1:
-            parser.error("--oracle-out requires exactly one --oracle-song")
-        write_compact_json(args.oracle_out, report["normalized_oracles"][0])
     if args.csv_out is not None:
         write_csv(args.csv_out, report["non_exact_ranking"])
     failed = bool(report["scan_errors"])

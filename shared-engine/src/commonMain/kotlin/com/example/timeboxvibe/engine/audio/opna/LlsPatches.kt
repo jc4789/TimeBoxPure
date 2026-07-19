@@ -63,7 +63,6 @@ object LlsPatches {
         sl = sl,
         rr = rr,
         ks = ks,
-        ams = am,
-        egMode = EgMode.OPN_RATE
+        ams = am
     )
 }

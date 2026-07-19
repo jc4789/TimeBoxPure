@@ -2,7 +2,7 @@
 
 ## Current Engine Laws
 
-- Shared engine code is Kotlin Multiplatform `commonMain`: no `java.*`, Android APIs, runtime content I/O, or hidden JVM assumptions.
+- Shared engine code is Kotlin Multiplatform `commonMain`: no `kotlin.jvm`, `java.*`, `javax.*`, Android APIs, runtime content I/O, or hidden JVM assumptions.
 - Audio, visuals, fonts, and UI geometry are procedural. Do not add sample files or runtime-loaded assets.
 - Audio/render hot paths use caller-provided buffers, preallocated state, primitive loops, and no heap allocation or collection operators.
 - Platform wrappers only present pixels/audio and forward primitive input/lifecycle events.
@@ -11,174 +11,113 @@
 
 ## Production Audio Contract
 
-- `SongCatalog` is MML-only. It currently exposes `BAD APPLE!! / LOTUS LAND STORY` and `RIN TO SHITE`.
-- Focus and relax defaults both use `MmlSongBank.SENBONZAKURA_DEMO_KEY`. This is a persisted legacy ID that now points to Bad Apple; do not infer content from its name or rename it casually.
-- Production uses `ArrangementRouting.MML_LOGICAL_TRACKS`, `MmlArrangementScheduler`, `CompiledOpnaTimeline`, and `CompiledOpnaPlayer`. `LEGACY` playback is rejected.
-- Android music playback is true mono: `OpnaLikeSynthesizer.render(...)`, one PCM sample per frame, PCM16 streaming, and `AudioFormat.CHANNEL_OUT_MONO`.
-- Stereo rendering remains an optional engine path. `ProceduralStereoResonator` defaults off and is not used by production playback.
+- `SongCatalog` exposes exactly one product song: `BAD APPLE!! / LOTUS LAND STORY`.
+- Its canonical ID is `synth-mml-bad-apple-lls`. The persisted legacy ID `synth-mml-senbonzakura-demo` resolves to that same catalog entry; do not add a duplicate entry.
+- Stable source requires explicit `#MML 2`. There is one parser/compiler backend and one exact compiled representation.
+- Production playback is `CompiledOpnaSong` -> exact `CompiledOpnaTimeline` -> `CompiledOpnaPlayer`, owned by `OpnaPlaybackSession` under one immutable `OpnaRenderProfile`.
+- Android `SoundPreviewPlayer` is terminal glue only: thread/wake lock, `AudioTrack`, PCM16 conversion, buffers, and session calls.
+- Production Android playback is mono. Stereo and arbitrary-interval inspection remain available through `OfflineOpnaRenderer` for engine work.
 - `USAGE_ALARM` is intentional for this productivity/alarm application.
-- No `MediaPlayer`, sample asset, or runtime music-file path is part of production playback.
+- No `MediaPlayer`, sample asset, runtime music-file path, `OpnaSequencer`, or scheduler-side song state is part of production playback.
 
-## Repaired Runtime Ownership
+## Runtime Ownership
 
-- Catalog MML has one runtime path: `CompiledOpnaSong` -> exact `CompiledOpnaTimeline` -> `CompiledOpnaPlayer`. The compiled-song-to-`OpnaSequencer` compatibility translator was removed; `OpnaSequencer` remains only for direct procedural motifs/tests.
-- `OpnaChipState` owns only physical chip voices/register-equivalent state. `PmdPerformanceState` owns six FM, three SSG, and four FM3 logical-part driver states; `OpnaMixer` owns selected output-profile bus gains; `SongMastering` owns EQ/filter/resonator/clipping state and accumulated measurements.
-- Compiled songs carry exact used-only `CompiledInstrumentBank` instances. Shared built-ins are compile-time sources; LOGO patch 79 is song-local and no longer extends the global built-in ID namespace.
-- FM3 C1-C4 carry explicit logical-part IDs, independent volume/two-LFO state, and slot masks. Channel C is an explicit register-control lane; unsupported part-local controls fail compilation instead of disappearing.
-- FM3 slot ownership is time-aware: simultaneous cross-part overlap fails, while sequential reuse is legal. ALG remains channel-global and patch FB changes only when slot 1 participates.
-- Legacy authored drums, YM2608 rhythm-register controls, and PMD K/R SSG effects use separate procedural generators and reset domains. Timeline precedence is global -> state -> off/dump -> on/shot -> zero-gate off.
+- `CompiledOpnaSong` owns exact-size typed semantic payload tables with named fields. `CompiledOpnaTimeline` owns only compact, canonically ordered sample-boundary arrays and typed references into the song.
+- `CompiledOpnaPlayer` is the single dispatcher. Stale note-off identity, sample-zero setup, canonical sub-order, reset, chunk, and loop behavior are explicit.
+- `OpnaRenderProfile` is the single product render-policy owner: 48 kHz, maximum block size, oversampling, output profile, mix/headroom/master gains, filter/resonator policy, EQ, and final user gain.
+- `OpnaPlaybackSession` owns synthesizer/player lifetime, sequential cursor, reset, stop, and loop restart. `OfflineOpnaRenderer` owns independent seek/replay state for inspection.
+- `OpnaChipState` owns six FM voices, three SSG voices/shared state, FM3 overlay state, and one `PercussionRouter`.
+- `PercussionRouter` has exactly two named domains: YM2608 rhythm and PMD SSG effect. Legacy authored drum kinds map explicitly into the YM2608 rhythm unit.
+- `SongMastering` owns post-profile EQ/filter/resonator/clipping state and measurements. User gain is applied only at final mastering.
+- `OperatorSpec` contains OPN register fields only. `OpnRateEnvelope` is the sole FM envelope implementation.
+- `PmdPerformanceState` is the one persistent logical-part owner for normal FM, FM3, and SSG volume, detune, envelope, and software-LFO state. Runtime payloads are primitive; parser/compiler-only typed wrappers must remain common Kotlin.
 
-## Procedural OPN Sound Engine
+## Procedural OPN Engine
 
 - Main files:
-  - `audio/opna/Fm4OpVoice.kt`
-  - `audio/opna/OpnPitch.kt`
-  - `audio/opna/OpnRateEnvelope.kt`
-  - `audio/opna/AudioSinLut.kt`
-  - `audio/opna/OpnaLikeSynthesizer.kt`
+  - `audio/opna/CompiledOpnaSong.kt`
   - `audio/opna/CompiledOpnaTimeline.kt`
   - `audio/opna/CompiledOpnaPlayer.kt`
-  - `audio/opna/OpnaSequencer.kt`
-  - `audio/opna/LlsPatches.kt`
-- Topology: 6 logical FM channels, 16 preallocated FM render voices, 4 operators per voice, all 8 OPN algorithms, 3 SSG channels, shared SSG noise/envelope state, and procedural drums.
-- Phase state and step are `UInt`. The accumulator wraps at 32 bits; the intentional 29-bit waveform coordinate reads bits `28..19` for the 10-bit operator phase.
-- Pitch selects the nearest legal 8 MHz OPN block/FNUM pair. MUL=0 means one-half; MUL=1..15 is direct. Signed detune uses the YM2608 keycode table.
-- Generated log-sine and power tables are warmed before playback. Rendering contains no trigonometric calls or table initialization.
+  - `audio/opna/OpnaPlaybackSession.kt`
+  - `audio/opna/OpnaRenderProfile.kt`
+  - `audio/opna/OpnaLikeSynthesizer.kt`
+  - `audio/opna/Fm4OpVoice.kt`
+  - `audio/opna/OpnRateEnvelope.kt`
+  - `audio/opna/PercussionRouter.kt`
+- Topology: six fixed FM channels/voices, four operators per voice, all eight OPN algorithms, three SSG channels, shared SSG noise/envelope state, FM3 C1-C4 overlay, and two percussion domains.
+- The fixed FM topology has no `P0`/`P1`, density selection, pooled ownership, reclaim logic, or pool snapshots. The retained `{cg}` chord form is a fixed two-note portamento gesture.
+- Phase state and step are `UInt`; the accumulator wraps at 32 bits and the intentional 29-bit waveform coordinate reads bits `28..19`.
+- Pitch selects the nearest legal 8 MHz OPN block/FNUM pair. Generated log-sine and power tables are warmed before playback.
 - Operator output is signed 14-bit. Attenuation combines log-sine, envelope, and TL in the integer logarithmic domain.
-- Feedback uses the two previous operator outputs. All algorithms share the same clean-room phase-modulation core.
-- FM envelope state is integer attenuation `0..1023` with OFF, ATTACK, DECAY, SUSTAIN, and RELEASE states.
-- AR/DR/SR/RR/SL/KS, zero-rate holds, key scaling, retriggering, AM, SSG-EG, hardware LFO PM/AM, two PMD software LFOs per FM/SSG part, CH3 operator pitch, detune, pan, and portamento are implemented.
+- AR/DR/SR/RR/SL/KS, SSG-EG, hardware LFO, two PMD software LFOs per logical part, FM3 operator pitch, detune, pan, and portamento are supported.
+- The sole FM envelope API is the integer `0..1023` OPN attenuation domain. Do not restore float ADSR or float compatibility accessors.
 - Optional 2x FM oversampling advances phase twice per output frame while clocking the envelope once.
-- SSG tone uses legal 12-bit periods derived from the standard 8 MHz `φM/(64*TP)` law. Its three fixed-duty tone counters, register-7 mixer bits, register-6 noise period, 17-bit noise LFSR, and hardware envelope registers are explicit shared chip state.
-- SSG fixed volume uses the distinct 16-code law; hardware-envelope output preserves all 32 levels of the logarithmic DAC law. Period writes preserve phase and shape-register writes restart deterministically.
-- `OpnaOutputProfile.TIMEBOX_LEGACY` remains the product default. `PC9801_86_REFERENCE` is an explicit selectable 25% SSG/FM balance hypothesis and is never selected from song identity.
-- Master peak EQ is configured before playback and processed allocation-free.
-- The core is independently derived and Yamaha-style; it is not copied MAME/ymfm code and is not a bit-perfect YM2608 emulator.
-- Unimplemented register-level features include CSM, timers, raw register writes, and a PMD/S98/VGM register-stream frontend.
-
-## LLS PMD Patches
-
-- `LlsPatches.At54`, `At74`, `At99`, and `At181` are OPN register voices decoded offline from ZUN's compiled PMD `.M` files using KAJA's published PMD layout.
-- PMD serialized operator order is converted to logical slots.
-- Algorithm, feedback, MUL, DT, TL, AR, DR, SR, SL, RR, KS, and AM fields are preserved.
-- Each patch uses `CHIP_CHANNEL_SCALE = 0.38f` to reserve shared-bus headroom for multi-carrier voices.
-- Patch/register contract tests protect the decoded definitions.
-- Do not repair a patch/timbre error by arbitrarily changing Android output gain. Diagnose operator topology, envelope behavior, decoded registers, and mix interaction first.
+- SSG tone/noise/envelope state follows explicit 8 MHz register-domain laws. Fixed-volume and hardware-envelope DAC laws remain distinct.
+- The clean-room core is Yamaha-style but is not copied emulator code and is not a bit-perfect YM2608 claim.
+- CSM, timers, raw register writes, PMD binary playback, and S98/VGM playback remain outside the stable engine.
 
 ## MML Layer
 
-- Main files:
-  - `audio/mml/MmlParser.kt`
-  - `audio/mml/MmlCompiler.kt`
-  - `audio/mml/MmlSongBank.kt`
-  - `audio/mml/RinToShiteSong.kt`
-  - `audio/mml/MmlArrangementScheduler.kt`
-- MML is embedded as Kotlin raw strings and compiled once before streaming. Parsing and compilation never occur in the audio callback.
-- Headerless MML is v1. `#MML 2` compiles into an exact-size `CompiledOpnaSong` independent of parser/catalog objects; setup expands it into one exact-size, canonically ordered sample-domain timeline.
-- Catalog playback advances a primitive cursor through `CompiledOpnaPlayer`; it does not allocate event objects or sort in the callback. `OpnaSequencer` remains only for direct procedural motifs/tests, not catalog translation or playback.
-- V2 channel layout is A-F FM, G-I SSG, and R rhythm, with optional C1-C4 operator parts under `#FM3EXTEND ON`.
-- V2 supports dots, ties/slurs, PMD `Q0..8`/`Q%0..255` plus source-clock `q` random/minimum rules, `V0..127`, relative accents, pan, signed-cent detune, portamento, hardware LFO, PMD `M/MA/MB`, `MW`, `*`, `MM`, `MX`, and `MD` software-LFO controls, chords, authored polyphony, macros, nested loops, and channel-A tempo changes. Loop expansion has an explicit occurrence ordinal; macro diagnostics point to the invocation location.
-- V2 supports mid-track named instrument changes and records the active patch on every primitive note event. V1 deliberately rejects instrument changes.
-- Timing uses 480 ticks per quarter. Exact milli-BPM and `#PMDCLOCK` state convert to samples with integer rational arithmetic and a carried remainder across tempo changes.
-- SSG parts accept ordered legacy/extended `E` software-envelope definitions and Normal/Extend `EX0`/`EX1` clock controls. Normal follows tempo; Extend is fixed at approximately 56 Hz.
-- `ST`, `SN`, `SNP`, `SEP`, and `SES` compile into typed shared-SSG state events. Patch application is shared-register-pure; compatibility expansion writes legacy patch state explicitly.
-- FM and SSG parts each preallocate two independent PMD software LFOs. The seven documented waveforms, delay/speed/depth/repetition, pitch/volume targets, key-on sync/free-run, fixed/tempo clocks, FM TL masks, depth evolution, and explicit deterministic random reset are ordered part state. PMD software LFO is rejected with the engine-only `P1` polyphonic mode because dynamically pooled voices are not PMD parts.
-- Hardware-LFO enable/rate and per-channel PMS/AMS/delay are typed timeline state. Raw-clock and note-length/dotted delay forms remain semantic until key-on, where current tempo resolves them with integer arithmetic. Omitted `H` delay retains prior state; FM3 operator parts share physical channel C state.
-- Compiled programs carry a lightweight playback-gain scalar; event arrays are shared when catalog volume changes.
-- Playback-gain copies also share the immutable exact song-local instrument bank; runtime patch lookup never consults the authored/global name registry.
-- MML2 is PMD-inspired, not a general PMD binary interpreter. Raw register commands, historical grace syntax, timers, CSM, and direct PMD binary playback remain unsupported.
+- Main files: `audio/mml/MmlParser.kt`, `audio/mml/MmlCompiler.kt`, and `audio/mml/MmlSongBank.kt`.
+- MML is embedded as Kotlin raw strings and compiled before streaming. Parsing and compilation never occur in the audio callback.
+- Stable MML requires `#MML 2`; the old headerless/v1 dialect and compiler backend are removed.
+- Channel layout is A-F FM, G-I SSG, R rhythm, with optional C1-C4 operator parts under `#FM3EXTEND ON`.
+- The compiler emits semantic builder calls into typed payload tables; it does not expose a generic event/value union API.
+- PMD volumes are persistent typed state: FM `V0..127` and exact coarse `v0..16`; SSG `V/v0..15`. Normal FM volume projects to carriers, while FM3 preserves disjoint logical-slot ownership. Timeline events carry no mix/mastering gain.
+- `D`, `DD`, and per-logical-part `DM` are signed raw PMD detune operations, not cents. Checked lowering rejects overflow or state that cannot become legal FM Block/FNUM or SSG period values; no wrap/saturation parity is claimed.
+- Timing uses 480 ticks per quarter. Exact milli-BPM and `#PMDCLOCK` convert to samples with integer rational arithmetic and a carried remainder.
+- LOGO remains a test-only research fixture. Rin and its production/test source were removed. Neither is product-loaded.
+- MML2 is PMD-inspired, not a general PMD binary interpreter.
 
 ## Current Bad Apple State
 
-- Production source constant: `MmlSongBank.BAD_APPLE_LLS_MML`.
-- Catalog title: `BAD APPLE!! / LOTUS LAND STORY`.
-- Tempo: 160.73 BPM, 4/4.
-- Current duration: 52 bars, approximately 77.64 seconds.
-- Master EQ:
-  - 180 Hz, -2.0 dB, Q 0.70
-  - 850 Hz, +1.5 dB, Q 0.65
-  - 2400 Hz, -4.0 dB, Q 0.85
-- The TH04 archive and `ST02.M86` were decoded by offline tooling only. No archive bytes, PMD binary, extracted asset, or runtime file access was added to the project.
-- Current source window is PMD clocks `288..<5280`, retaining the requested three-bar cut and 52-bar runtime.
-- A-E are coordinated source-derived FM1-FM5:
-  - A / FM1: 487 notes, `@74` harmonic bed.
-  - B / FM2: 205 notes, upper melody/doubling; begins on `@181`, then changes to `@99`.
-  - C / FM3: 205 notes, lower melody/doubling; begins on `@181`, then changes to `@99`.
-  - D / FM4: 570 notes with source `@99 -> @54 -> @99` transitions.
-  - E / FM5: 570 notes with source `@99 -> @54 -> @99` transitions.
-- G contains 712 source-derived SSG1 notes and H contains 710 source-derived SSG2 notes on clean-room `lls_square` voices.
-- PMD FM channel volume is mapped to 64% and the two summed SSG lanes to 37% before `MmlArrangementScheduler.MIX_GAIN = 0.75f`.
-- R remains the existing 405-shot procedural rhythm approximation.
-- Both active SSG lanes author the decoded PMD legacy software envelope `[AL=2, DD=-1, SR=24, RR=1]` as ordered part controls, clocked at 24 PMD clocks per quarter note.
-- The original cut is still ambiguous: the source has a 192-clock/two-bar leading opening, while the current duration edit removes 288 clocks/three bars (about 4.48 seconds). Change this only as an explicit musical decision.
-- `BAD_APPLE_LLS_MIGRATION_FIXTURE_MML` is an old headerless parser/migration fixture, not production song truth.
-- Current authored size is 3868 primitive events: 2037 FM notes, 1422 SSG notes, 405 rhythm shots, and four SSG envelope/mode controls. The exact runtime timeline contains 7328 ordered tempo, control, note-on, key-off, and rhythm events.
-- This is a source-coordinated reconstruction, not a complete or bit-authentic PMD claim. Exact decoded note timing, ties, mid-track patches, volume changes, PMD gate tails, and the LLS SSG software envelope are preserved for the included lanes. ST02 contains no active software-LFO definition/switch in the preserved source window, so Phase 4 intentionally leaves Bad Apple unchanged. Original rhythm semantics and the final cut decision remain unresolved.
-
-## Current Listening Risks
-
-- User reports across recent passes included excessive 2-3 kHz bite, electronic/sharp timbre, muddy or overpowering bass, weak low/high cohesion, missing mids, intermittent resonance, and distortion.
-- Mathematical, spectral, and unit tests cannot establish musical acceptance; listening remains the final gate.
-- Never paste one recovered PMD lane over handwritten accompaniment and call it authentic. The coordinated source channel set and mid-track patch transitions must remain aligned.
-- Do not apply a headphone Harman target literally as a synth-voice design target. Master EQ may control playback balance, but FM topology/envelopes and arrangement errors must be corrected at their source.
-- Production is mono intentionally. Do not reintroduce stereo widening/resonance without an explicit listening-driven decision.
-- Procedural drums are original approximations, not copied YM2608 rhythm-ROM samples.
-
-## Other Production Song
-
-- `RIN TO SHITE` is a ten-bar v2 PC-98-style finale at 136 BPM, adapted from score measures 67..76.
-- Five FM parts divide lead, polyphonic piano motion, and sustained block harmony.
-- It intentionally has no rhythm part or duplicate bass ostinato.
+- Production source: `MmlSongBank.BAD_APPLE_LLS_MML`; title: `BAD APPLE!! / LOTUS LAND STORY`.
+- Tempo is 160.73 BPM in 4/4; the 52-bar source window is approximately 77.64 seconds.
+- A-E are coordinated source-derived FM lanes, G-H are source-derived SSG lanes, and R is the retained procedural rhythm approximation.
+- The exact runtime timeline contains 7356 events.
+- Source-domain performance state is restored: the complete source has 28 volume, 29 gate, and 17 detune declarations; the corresponding `[288, 5280)` source window contains 25 volume, 22 gate, 10 detune declarations, all four tied portamentos, and all eight SSG envelope definitions. The owned embedded MML comparison normalizes redundant declarations to effective typed state and currently has zero pitched-lane mismatches.
+- Whole-output hashes are migration diagnostics only and are not musical or authenticity oracles.
+- The TH04 archive and `ST02.M86` were decoded by offline tooling only. No archive bytes, PMD binary, extracted asset, or runtime file access is in the app.
+- Musical acceptance still requires human listening; hashes and tests establish deterministic behavior, not taste.
 
 ## Hot Paths
 
+- `OpnaPlaybackSession.render`
+- `CompiledOpnaPlayer` primitive cursor dispatch
 - `OpnaLikeSynthesizer.render*`
 - `Fm4OpVoice.render` / `renderOne`
 - `OpnRateEnvelope.nextAttenuation`
-- `SsgVoice.render`
-- `ProceduralDrums.render`
-- `Lfo.prepare`
-- `PmdSoftwareLfo.advanceSample`
-- `SsgSharedState.prepare`
-- `CompiledOpnaPlayer` primitive cursor dispatch during catalog rendering
-- `OpnaSequencer` dispatch for retained procedural motifs/tests
+- SSG, PMD LFO, percussion-router, rhythm-unit, and mastering sample loops
 - Renderer, rasterizer, and scene `update/render` loops
 
 ## Key Constants
 
 - `AudioLaws.SAMPLE_RATE = 48000`
+- `OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK = 1024`
 - `AudioLaws.FM_CHANNELS = 6`
-- `AudioLaws.FM_RENDER_VOICES = 16`
 - `AudioLaws.FM_OPERATORS = 4`
 - `AudioLaws.SSG_CHANNELS = 3`
-- `OpnPitch.MASTER_CLOCK_HZ = 8_000_000`
-- FM clock divider `144`; EG divider `3`
-- Phase coordinate `2^29`; lookup shift `19`; lookup size `1024`
-- Envelope attenuation `0..1023`; TL `0..127`; signed operator peak `8191`
-- `OpnaSequencer.MAX_EVENTS = 8192` applies only to retained procedural motif/test usage.
-- `CompiledOpnaSong.MAX_AUTHORED_EVENTS = 262144` and tempo-change limit `4096` are malformed-input safety guards; built song and runtime timeline arrays are exact-size.
 - `MmlCompiler.TICKS_PER_QUARTER = 480`
-- Palette size `16`; canonical UI unit `U = 16`
+- `CompiledOpnaSong.MAX_AUTHORED_EVENTS = 262144`; built semantic tables and timelines are exact-size.
+- Palette size `16`; canonical UI unit `U = 16`.
 
 ## Verification
 
-- Latest repaired result: 247 shared-engine JVM tests, zero failures/errors/skips. The OPNA hot-path audit, Android shared compilation, app debug assembly, and 29 offline corpus-tool tests pass. No Windows-native tests were run.
-- Raw rendering has named unity-core and profiled-pre-master checkpoints for mono/stereo. They share `CompiledOpnaPlayer` dispatch, are chunk/loop deterministic, replay prior state for arbitrary intervals, and bypass `SongMastering`. Product rendering adds the selected output profile and mastering afterward.
-- Stereo conformance protects all four YM L/R output-enable combinations. Mastering peak/crossing history accumulates until explicit reset. All source-derived LLS and LOGO operator register fields, including AM separate from DR, are literal-regression protected.
-- Hardware-LFO expectations are independent test literals. Runtime coverage includes sample-zero setup, enable/rate edges, PMS/AMS/delay ordering and retention, both delay units, tempo-at-key-on conversion, pooled/FM3 mapping, mid-note changes, and reset replay. Software-LFO coverage includes the corrected first-value and MD sign-transition timing.
-- SSG conformance keeps fixed 16-code and envelope 32-level laws separate and covers typed shared controls, period/shape semantics, and patch purity.
-- The offline audit is fail-closed across decode, authoring, compiled song/timeline, dispatch, reset, and independent evidence. Product admission requires exact capabilities plus four valid, diverse, independently derived register/state traces.
-- Full normalized-oracle decompilation stops after one authored part pass, expands counted loops, and records part-loop start/end boundaries instead of replaying forever. The supplied TH04 archives currently decode as 23 unique M86 songs, 161 active parts, and 76,562 first-pass note events with zero scan errors.
-- Current independent checkpoint evidence is `0/4`; the LOGO normalized fixture remains a research/test oracle and is not admitted to `SongCatalog`.
-- Required local build:
+- The repair adds semantic volume/detune/glide, envelope/LFO, product-session lifecycle, and hot-loop verification. Invalid gain/hash/richness tests were removed instead of made green around known-bad behavior.
+- Final Android/JVM verification on 2026-07-18 passes 243 tests with zero failures, errors, or skips; shared Android compilation, app debug assembly, and `opnaAudit` pass.
+- The final `OpnaPlaybackSession.render` path is statically audited for allocation hazards. The local JBR proxy permits at most 512 bytes of measurement noise over 1,024,000 frames after warm-up; it is not evidence of exact Android-device allocation count.
+- Reset, loop, chunk, stale-ownership, stop/restart, typed-storage, and independent-session behavior are explicit fixtures.
+- Windows and iOS builds/tests are intentionally not run until their local toolchains are configured.
+- Required local verification:
 
 ```powershell
-$env:JAVA_HOME="D:\Programes\Android Studio\jbr"; .\gradlew :shared-engine:testDebugUnitTest :shared-engine:compileCommonMainKotlinMetadata :shared-engine:compileKotlinMetadata :shared-engine:compileDebugKotlinAndroid :app:compileDebugKotlin :app:assembleDebug
+$env:JAVA_HOME="D:\Programes\Android Studio\jbr"; .\gradlew :shared-engine:testDebugUnitTest :shared-engine:compileDebugKotlinAndroid :app:compileDebugKotlin :app:assembleDebug --rerun-tasks
 ```
 
 ## Current Task Focus
 
-- The architectural repair R0-R5 is implemented and locally verified. Do not restore note-attached hardware-LFO truth, scheduler-side song-state mutation, shared-register writes from `SsgVoice.applyPatch()`, the retired compiled-song sequencer path, or mixed chip/driver/output ownership.
-- Catalog expansion remains closed until four independent register/state traces validate the required capabilities and a timestamped, musically diverse human listening record exists. Automated tests are not musical approval.
-- Keep LOGO available only as the explicit research/test fixture until those gates pass. Do not bypass admission because its semantic oracle is green.
-- Keep the clean-room OPN core plus embedded MML as the forward architecture; do not add a PMD binary runtime, copied emulator, sample assets, or a UI framework rewrite.
+- `sound_plan.md` Phase 1 is the implemented architecture. Repair R1-R4 and executable R6 work are implemented; Phase 2 has not started.
+- R5 product mono fold-down and resonator evaluation remain blocked on the plan's raw-semantic, level-matched human listening gate. Do not tune resonator/EQ before that record exists.
+- Do not restore the retired sequencer, headerless/v1 MML, generic event unions, mutable synth policy, pooled FM voices, Rin, or a third percussion generator.
+- Keep LOGO test-only until the separate admission evidence and listening gates are deliberately satisfied.
+- Keep the clean-room OPN core plus embedded MML; do not add copied emulators, sample assets, PMD binary runtime, or a UI-framework rewrite.

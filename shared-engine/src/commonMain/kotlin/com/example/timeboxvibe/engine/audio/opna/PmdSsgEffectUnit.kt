@@ -57,6 +57,8 @@ internal class PmdSsgEffectUnit(sampleRate: Int) {
     internal fun generatorGainSnapshot(kind: ProceduralDrums.DrumKind): Float =
         generator.gainSnapshot(kind)
 
+    internal fun hasActiveVoices(): Boolean = generator.hasActiveVoices()
+
     private companion object {
         const val PAN_CENTER = 0
         const val TOM_FREQUENCY_HZ = 150f

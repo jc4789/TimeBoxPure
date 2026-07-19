@@ -8,7 +8,6 @@ class SsgVoice(
     var enabled: Boolean = false
     var frequency: Float = 0f
         private set
-    var noteGain: Float = 1f
     private var envelopeEnabled = false
     private var fixedLevel = 12
     private var pendingTargetFrequency = 0f
@@ -21,14 +20,15 @@ class SsgVoice(
 
     fun noteOn(freq: Float) {
         val period = SsgHardwareLaws.nearestTonePeriod(freq.toDouble())
+        val targetPeriod = if (pendingTargetFrequency > 0f)
+            SsgHardwareLaws.nearestTonePeriod(pendingTargetFrequency.toDouble()) else -1
+        noteOnPeriod(period, targetPeriod, pendingSlideFrames)
+    }
+
+    internal fun noteOnPeriod(period: Int, targetPeriod: Int = -1, slideFrames: Int = 0) {
         shared.writeTonePeriod(channelIndex, period)
-        if (pendingTargetFrequency > 0f) {
-            shared.writeToneRamp(
-                channelIndex,
-                SsgHardwareLaws.nearestTonePeriod(pendingTargetFrequency.toDouble()),
-                pendingSlideFrames
-            )
-        }
+        if (targetPeriod in SsgHardwareLaws.MIN_TONE_PERIOD..SsgHardwareLaws.MAX_TONE_PERIOD)
+            shared.writeToneRamp(channelIndex, targetPeriod, slideFrames)
         frequency = SsgHardwareLaws.toneFrequency(period).toFloat()
         enabled = true
         pendingTargetFrequency = 0f
@@ -38,6 +38,11 @@ class SsgVoice(
     fun setPitchRamp(targetFrequency: Float, frames: Int) {
         pendingTargetFrequency = targetFrequency
         pendingSlideFrames = frames.coerceAtLeast(0)
+    }
+
+    internal fun startHeldPitchRampPeriod(targetPeriod: Int, frames: Int) {
+        if (targetPeriod in SsgHardwareLaws.MIN_TONE_PERIOD..SsgHardwareLaws.MAX_TONE_PERIOD)
+            shared.writeToneRamp(channelIndex, targetPeriod, frames)
     }
 
     fun noteOff(releaseContinues: Boolean = false) {
@@ -59,7 +64,6 @@ class SsgVoice(
     fun reset() {
         enabled = false
         frequency = 0f
-        noteGain = 1f
         pendingTargetFrequency = 0f
         pendingSlideFrames = 0
         fixedLevel = DEFAULT_PATCH.fixedLevel
@@ -132,7 +136,6 @@ class SsgVoice(
         driverFrame: PmdSsgFrame?
     ) {
         if (!enabled) return
-        val combinedGain = gainScale * noteGain
         val toneEnabled = shared.toneEnabled(channelIndex)
         val noiseEnabled = shared.noiseEnabled(channelIndex)
         var i = 0
@@ -154,7 +157,7 @@ class SsgVoice(
                 val level = (envelopeLevel + driverVolume).coerceIn(0, 15)
                 SsgLevelLaw.fixedAmplitude(level)
             }
-            buffer[startFrame + i] += signal * amplitude * combinedGain
+            buffer[startFrame + i] += signal * amplitude * gainScale
             if (driverFrame?.releaseFinished?.get(i) == true) {
                 enabled = false
                 return

@@ -5,9 +5,8 @@ from __future__ import annotations
 import struct
 import sys
 import unittest
-import hashlib
-import json
 from pathlib import Path
+from unittest.mock import patch
 
 
 TOOLS = Path(__file__).resolve().parent
@@ -40,6 +39,16 @@ class PmdCorpusAuditTest(unittest.TestCase):
     def test_listing_parser_rejects_path_traversal(self) -> None:
         with self.assertRaisesRegex(audit.PmdScanError, "Unsafe archive entry"):
             audit.parse_thdat_listing("../ST00.M86 12 10")
+
+    def test_extraction_rejects_case_insensitive_duplicate_names_before_thdat(self) -> None:
+        entries = [
+            audit.ListedEntry("ST02.M86", 12, 10),
+            audit.ListedEntry("st02.m86", 12, 10),
+        ]
+        with patch.object(audit, "run_thdat") as run_thdat:
+            with self.assertRaisesRegex(audit.PmdScanError, "duplicate music entry"):
+                audit.extract_entries(Path("thdat.exe"), Path("archive.dat"), entries)
+        run_thdat.assert_not_called()
 
     def test_k_part_uses_one_byte_pattern_indices(self) -> None:
         result = audit.scan_part(bytes((0x00, 0x05, 0x7F, 0x80)), 0, "K")
@@ -121,45 +130,115 @@ class PmdCorpusAuditTest(unittest.TestCase):
             {"start_offset": 29, "start_tick": 2, "end_tick": 5},
         )
 
-    def test_logo_oracle_is_canonical_and_covers_all_authored_lanes(self) -> None:
-        path = TOOLS / "oracles/logo_m86_normalized.json"
-        oracle = json.loads(path.read_text(encoding="utf-8"))
-        stored_hash = oracle.pop("oracle_sha256")
-        canonical = json.dumps(
-            oracle, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-        ).encode("utf-8")
+    def test_semantic_trace_is_ordered_typed_and_keeps_control_only_parts(self) -> None:
+        data = bytearray(72)
+        pointers = [62] * audit.PMD_POINTER_COUNT
+        pointers[0] = 26
+        pointers[1] = 34
+        struct.pack_into("<13H", data, 0, *pointers)
+        data[26:34] = bytes((0xFD, 90, 0xFE, 2, 0x40, 6, 0x80, 0x80))
+        data[34:42] = bytes((0xF0, 2, 0xFF, 24, 1, 0xCA, 1, 0x80))
+        data[62] = 0x80
+        payload = bytes((0,)) + bytes(data)
+        digest = audit.sha256_bytes(payload)
+        provenance = {
+            "archive_id": "sha256:" + ("a" * 64),
+            "archive_sha256": "a" * 64,
+            "entry_sha256": digest,
+            "format": "M86",
+            "driver_profile": "PMD86_YM2608_86PCM",
+        }
 
-        self.assertEqual(oracle["schema_version"], 2)
-        self.assertEqual(
-            oracle["source_sha256"],
-            "1e572f2677129bdc16bc79323c2e8369ca1c958d9c2685e3c48e21e74c2e66f7",
-        )
-        self.assertEqual(oracle["entry_sha256"], oracle["source_sha256"])
-        self.assertEqual(
-            oracle["archive_id"],
-            "sha256:ca787b8ff66f7b3f10c97b3ecc77cd466772767e3e9e8cf5a0c71dd612b1c8d7",
-        )
-        self.assertEqual(
-            oracle["archive_sha256"],
-            "ca787b8ff66f7b3f10c97b3ecc77cd466772767e3e9e8cf5a0c71dd612b1c8d7",
-        )
-        self.assertEqual((oracle["format"], oracle["driver_profile"]), ("M86", "PMD86_YM2608_86PCM"))
-        self.assertEqual(stored_hash, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual([part["part"] for part in oracle["parts"]], ["A", "B", "G", "H", "I"])
-        self.assertEqual([part["note_count"] for part in oracle["parts"]], [2, 2, 64, 64, 64])
-        self.assertEqual(oracle["summary"]["note_count"], 196)
-        self.assertEqual(oracle["summary"]["control_counts"]["tempo"], 9)
-        self.assertEqual(oracle["summary"]["control_counts"]["software_lfo_1"], 5)
+        trace = audit.build_semantic_song_trace("SYNTH.M86", payload, provenance)
 
-    def test_logo_oracle_patch_79_is_decoded_register_state(self) -> None:
-        oracle = json.loads((TOOLS / "oracles/logo_m86_normalized.json").read_text(encoding="utf-8"))
-        patch = oracle["patches"][0]
+        self.assertEqual([part["part"] for part in trace["parts"]], ["A", "B"])
+        self.assertEqual(trace["schema_version"], audit.SEMANTIC_TRACE_SCHEMA_VERSION)
+        self.assertEqual(
+            [event["type"] for event in trace["events"][:4]],
+            ["volume", "gate_q", "note", "software_envelope"],
+        )
+        self.assertEqual([event["order"] for event in trace["events"][:4]], [0, 1, 2, 3])
+        envelope = next(event for event in trace["events"] if event["type"] == "software_envelope")
+        self.assertEqual(
+            envelope["payload"]["definition"],
+            {"attack_level": 2, "decay_delta": -1, "sustain_rate": 24, "release_rate": 1},
+        )
+        self.assertEqual(envelope["source"]["entry_sha256"], digest)
+        self.assertEqual(envelope["source"]["song"], "SYNTH.M86")
 
-        self.assertEqual((patch["id"], patch["algorithm"], patch["feedback"]), (79, 4, 7))
-        self.assertEqual([op["mul"] for op in patch["operators"]], [2, 2, 4, 4])
-        self.assertEqual([op["detune"] for op in patch["operators"]], [3, 7, 3, 7])
-        self.assertEqual([op["tl"] for op in patch["operators"]], [30, 31, 0, 0])
-        self.assertEqual([op["am"] for op in patch["operators"]], [0, 0, 0, 0])
+    def test_tied_portamento_retains_target_duration_and_key_lifecycle(self) -> None:
+        data = bytearray(48)
+        struct.pack_into("<H", data, 0, 26)
+        data[26:36] = bytes((0x40, 4, 0xFB, 0xDA, 0x41, 0x43, 6, 0x80, 0x80, 0x80))
+
+        trace = audit.trace_part(bytes((0,)) + bytes(data), 0, 10, follow_part_loop=False)
+        first = next(event for event in trace["events"] if event["type"] == "note")
+        glide = next(event for event in trace["events"] if event["type"] == "portamento")
+
+        self.assertIsNone(first["payload"]["key_off_clock"])
+        self.assertTrue(first["payload"]["tie_to_next"])
+        self.assertEqual(glide["payload"]["key_action"], "tie_continue")
+        self.assertEqual(glide["payload"]["portamento_target_midi"], 63)
+        self.assertEqual(glide["payload"]["portamento_duration"], 6)
+
+    def test_bad_apple_gate_requires_stable_semantic_identity_not_counts_alone(self) -> None:
+        events = []
+        sequence = 0
+
+        def add(event_type: str, family: str, payload: dict | None = None) -> None:
+            nonlocal sequence
+            events.append({
+                "clock": sequence,
+                "sequence": sequence,
+                "part": "A",
+                "family": family,
+                "type": event_type,
+                "payload": payload or {},
+            })
+            sequence += 1
+
+        for value in range(28):
+            add("volume", "volume", {"effective_value": value})
+        for value in range(29):
+            add("gate_q", "gate", {"effective_value": value})
+        for value in range(17):
+            add("detune", "detune", {"signed_value": value - 8})
+        for _ in range(4):
+            add("note", "note", {"key_off_clock": None, "tie_to_next": True})
+            add("tie", "note_lifecycle")
+            add("portamento", "note", {
+                "midi": 60,
+                "portamento_target_midi": 61,
+                "portamento_duration": 4,
+                "key_action": "tie_continue",
+            })
+        for _ in range(8):
+            add("software_envelope", "envelope", {"definition": {}})
+        for index in range(20):
+            add("software_lfo_1_clock_mode" if index < 10 else "software_lfo_2_clock_mode", "lfo")
+
+        gate = audit.summarize_bad_apple_semantics(events)
+
+        self.assertFalse(gate["passed"])
+        self.assertEqual(gate["counts"], audit.BAD_APPLE_EXPECTED_SEMANTIC_COUNTS)
+        self.assertIn("semantic_identity_sha256", gate["mismatches"])
+        with patch.object(
+            audit,
+            "BAD_APPLE_EXPECTED_SEMANTIC_IDENTITY_SHA256",
+            gate["semantic_identity_sha256"],
+        ):
+            self.assertTrue(audit.summarize_bad_apple_semantics(events)["passed"])
+            events[0]["payload"]["effective_value"] = 999
+            self.assertFalse(audit.summarize_bad_apple_semantics(events)["passed"])
+        events.append({
+            "clock": sequence,
+            "sequence": sequence,
+            "part": "A",
+            "family": "lfo",
+            "type": "software_lfo_1_switch",
+            "payload": {"parameters": [1]},
+        })
+        self.assertFalse(audit.summarize_bad_apple_semantics(events)["passed"])
 
     def test_fm_voice_decode_separates_am_enable_from_decay_rate(self) -> None:
         data = bytearray(52)
@@ -338,10 +417,11 @@ class PmdCorpusAuditTest(unittest.TestCase):
         self.assertFalse(assessment["catalog_eligible"])
         self.assertIn("global four-trace", assessment["admission_blockers"][0])
 
-    def test_product_candidate_requires_both_exact_capabilities_and_global_trace_gate(self) -> None:
+    def test_product_candidate_requires_a_matching_trace_not_only_a_global_gate(self) -> None:
         song = self._assessment_song()
         song["capability_usages"] = []
-        checkpoint_audit = audit.build_independent_checkpoint_audit(self._checkpoint_traces())
+        traces = self._checkpoint_traces()
+        checkpoint_audit = audit.build_independent_checkpoint_audit(traces)
 
         assessment = audit.build_import_assessments(
             [song], ["CANDIDATE.M86"], [], checkpoint_audit
@@ -349,6 +429,18 @@ class PmdCorpusAuditTest(unittest.TestCase):
 
         self.assertTrue(assessment["capabilities_exact"])
         self.assertTrue(assessment["global_checkpoint_ready"])
+        self.assertFalse(assessment["candidate_checkpoint_ready"])
+        self.assertFalse(assessment["passed"])
+        self.assertIn("matches the candidate", assessment["admission_blockers"][0])
+
+        traces[0]["song"] = "CANDIDATE.M86"
+        traces[0]["entry_sha256"] = song["sha256"]
+        checkpoint_audit = audit.build_independent_checkpoint_audit(traces)
+        assessment = audit.build_import_assessments(
+            [song], ["CANDIDATE.M86"], [], checkpoint_audit
+        )[0]
+
+        self.assertTrue(assessment["candidate_checkpoint_ready"])
         self.assertTrue(assessment["passed"])
         self.assertTrue(assessment["catalog_eligible"])
         self.assertEqual(assessment["admission_blockers"], [])
@@ -414,19 +506,79 @@ class PmdCorpusAuditTest(unittest.TestCase):
         self.assertEqual(audit.command_parameter_count(bytes((0x10,)), 0, 0xC0), 1)
         self.assertEqual(audit.command_parameter_count(bytes((0xF5,)), 0, 0xC0), 2)
 
-    def test_production_trace_ignores_authored_envelope_controls(self) -> None:
+    def test_production_trace_retains_authored_controls_and_tied_portamento(self) -> None:
+        semantics = []
         events, ticks = audit.parse_production_mml(
-            "@lls_square EX0 E2,-1,24,1 o4 c4 E31,20,10,5,7,3 d4"
+            "@lls_square EX0 E2,-1,24,1 MX1 D-17 o4 c4& {dg}4 E31,20,10,5,7,3",
+            semantics,
+            "G",
         )
 
         self.assertEqual(ticks, 960)
         self.assertEqual([(event[0], event[1], event[2]) for event in events], [(0, 480, 60), (480, 480, 62)])
+        self.assertEqual(
+            [event["type"] for event in semantics],
+            [
+                "instrument", "envelope_clock_mode", "software_envelope",
+                "software_lfo_1_clock_mode", "detune", "note", "tie",
+                "portamento", "software_envelope",
+            ],
+        )
+        glide = next(event for event in semantics if event["type"] == "portamento")
+        self.assertEqual(glide["payload"]["portamento_target_midi"], 67)
+        self.assertEqual(glide["payload"]["key_action"], "tie_continue")
+
+    def test_effective_note_normalization_ignores_redundant_inactive_declarations(self) -> None:
+        def event(sequence: int, event_type: str, family: str, payload: dict) -> dict:
+            return {
+                "clock": 0,
+                "sequence": sequence,
+                "part": "G",
+                "owner": "ssg_part",
+                "family": family,
+                "type": event_type,
+                "payload": payload,
+            }
+
+        envelope = {
+            "definition": {
+                "attack_level": 2, "decay_delta": -1,
+                "sustain_rate": 24, "release_rate": 1,
+            }
+        }
+        note = {
+            "midi": 72, "written_duration": 480, "patch": None,
+            "key_action": "key_on", "tie_to_next": False,
+        }
+        compact = [
+            event(0, "volume", "volume", {"effective_value": 13}),
+            event(1, "gate_q", "gate", {"effective_value": 2}),
+            event(2, "detune", "detune", {"signed_value": -3}),
+            event(3, "software_envelope", "envelope", envelope),
+            event(4, "note", "note", note),
+        ]
+        redundant = compact[:4] + [
+            event(4, "gate_q", "gate", {"effective_value": 2}),
+            event(5, "software_envelope", "envelope", envelope),
+            event(6, "software_lfo_1_clock_mode", "lfo", {"parameters": [1]}),
+            event(7, "note", "note", note),
+        ]
+
+        self.assertEqual(
+            audit.normalize_effective_note_semantics(compact),
+            audit.normalize_effective_note_semantics(redundant),
+        )
+        redundant[2] = event(2, "detune", "detune", {"signed_value": 4})
+        self.assertNotEqual(
+            audit.normalize_effective_note_semantics(compact),
+            audit.normalize_effective_note_semantics(redundant),
+        )
 
     @staticmethod
     def _assessment_song() -> dict:
         return {
             "name": "CANDIDATE.M86",
-            "sha256": "entry-hash",
+            "sha256": f"{101:064x}",
             "archive_id": "archive.dat",
             "archive_sha256": "archive-hash",
             "format": "M86",
