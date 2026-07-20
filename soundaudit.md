@@ -14,22 +14,34 @@ No production code or tests were changed. This report does not propose a framewo
 
 The boundary is not currently maintained consistently.
 
-The largest crossing is not the location of the three patch files. It is that `OpnaLikeSynthesizer` and the FM/SSG voices know about PMD performance state, software envelopes and LFOs, gates, portamento, logical parts, and compiled timeline events. Those are software-driver concepts. A YM2608-facing core should instead receive resolved, absolute hardware-domain controls.
+The largest crossing is not the location of the three patch files. It is that `OpnaLikeSynthesizer` and the FM/SSG voices know about PMD performance state, PMD SSG software envelopes and software LFOs, gates, portamento, logical parts, and compiled timeline events. Those are software-driver concepts. A YM2608-facing core should instead receive resolved, absolute hardware-domain controls.
 
 The three questioned files are **not duplicates**:
 
 - `LlsPatches.kt` is a small catalog decoded from the LLS/PMD source used by Bad Apple.
-- `Patches.kt` is a legacy generic catalog using the older float-ADSR representation.
+- `Patches.kt` is a generic catalog authored for the software-ADSR runtime path.
 - `OpnaPatchBank.kt` is an aggregate registry and source-name lookup that delegates to those catalogs and also defines additional FM and SSG presets.
 
-Deleting two of them as duplicates would therefore be incorrect. However, all three contain authored catalog or compiler-lookup policy, so they should not be treated as YM2608 hardware implementation. The eventual clean boundary is to keep authored catalogs and names on the MML/music side while passing a small immutable, register-shaped patch value into OPNA.
+Deleting two of them as duplicates would therefore be incorrect. However, all three contain authored catalog or compiler-lookup policy, so they should not be treated as YM2608 hardware implementation. The eventual clean boundary is to keep authored catalogs and names on the MML/music side while preserving an explicit choice between a software-ADSR operator program and a YM2608 operator-EG program at the synthesis seam.
+
+### Envelope non-conversion invariant
+
+Software ADSR and the YM2608 operator EG are distinct supported runtime paths. Neither should be converted into, replaced by, approximated through, or lowered into the other.
+
+The current implementation does not fully honor that intended distinction: `EgMode.LEGACY_ADSR` is routed through `OpnEnvelopeCompatibility`, which converts its seconds/level values to legal OPN rates, and `Fm4OpVoice` then runs `OpnRateEnvelope`. The standalone software `Envelope` implementation has no `commonMain` or `commonTest` call site in the current tree. This is an existing implementation mismatch to investigate, not the desired target and not a migration technique recommended by this audit.
+
+There are also three different concepts whose similar names should not be conflated:
+
+1. FM software ADSR, expressed in seconds and a linear sustain level;
+2. the YM2608 FM operator EG, expressed as AR/DR/SR/SL/RR/KS and optional SSG-EG state; and
+3. PMD's SSG software envelope, which is part of the PMD driver/performance model.
 
 ## Reference-derived ownership line
 
 | PMD/MML software owns | Narrow runtime seam | YM2608/OPNA owns | Output/board layer owns |
 |---|---|---|---|
 | Parsing and source names | Absolute chip-domain controls or preallocated neutral control frames | FM FNUM/block and key state | Bus gains and headroom |
-| Tone definitions and `@` selection | Register-shaped operator/channel patch values | DT/MUL, TL, AR/DR/SR/SL/RR/KS | SSG stereo placement |
+| Tone definitions and `@` selection | Explicit envelope-path tag and its native payload; no ADSR/EG conversion | DT/MUL, TL, and AR/DR/SR/SL/RR/KS for the OPN-EG path | SSG stereo placement |
 | Tempo, timing, gates, ties, portamento | Key-on/off and parameter updates | Algorithms, feedback, four-operator routing | EQ/resonator/soft clipping |
 | Logical parts and FM3 ownership | No source names, MIDI, tempo, or PMD event types | Hardware sine LFO and PMS/AMS/AM-enable | Song mastering |
 | Software envelopes and software LFOs | One-way dependency from driver to chip contract | SSG tone/noise/mixer/envelope registers | PC-9801-86 calibration hypotheses |
@@ -122,21 +134,23 @@ This need not require allocation in the audio callback. The seam can use fixed a
 
 `MmlCompiler` currently makes FM patch selection also emit the patch's PMS/AMS defaults. PMD's documented tone-definition fields do not include PMS/AMS; hardware-LFO commands own that behavior. Selecting a tone should not silently reset unrelated runtime modulation state unless TimeBox explicitly defines that as an extension.
 
-`OperatorSpec.kt` likewise contains both OPN rate fields and a legacy float-seconds ADSR mode. The compatibility conversion is useful, but it should finish on the software/lowering side so the hardware voice receives only a register-domain operator specification.
+`OperatorSpec.kt` contains two native envelope parameter sets: float seconds/level for software ADSR and OPN register rates for the YM2608 operator EG. `EgMode` should select which runtime engine evaluates its own native parameters.
+
+Today `OpnEnvelopeCompatibility.configure` converts the software-ADSR fields to nearest OPN rates and both modes are then rendered by `OpnRateEnvelope`. That collapses the two intended runtime paths and can change envelope timing and shape. The audit therefore rejects its earlier suggestion to move or finish this conversion during lowering. The boundary should instead preserve a discriminated software-ADSR specification or OPN-EG specification all the way to the appropriate runtime evaluator.
 
 `SsgPatch.kt` is mostly hardware-shaped, but per-voice pan is a TimeBox output extension: the chip exposes the SSG as a mono mixed output. PMD's historical SSG `@0..9` behavior is also a compiler macro for software envelopes, not a hardware patch bank. Named SSG presets can remain a deliberate TimeBox extension, but should be owned and documented as source/compiler policy.
 
 ### 6. Medium-high: authored catalogs and source lookup live under `opna`
 
-`OpnaPatchBank.kt` parses and resolves authored instrument names and controls lookup precedence. `LlsPatches.kt` preserves song/source provenance. `Patches.kt` is a legacy authored catalog. These are software/content concerns even though their final values target OPNA.
+`OpnaPatchBank.kt` parses and resolves authored instrument names and controls lookup precedence. `LlsPatches.kt` preserves song/source provenance. `Patches.kt` is an authored software-ADSR catalog. These are software/content concerns even though their oscillators ultimately target the FM synthesizer.
 
 Recommended split:
 
-- MML/music side: names, aliases, catalog membership, provenance, lookup precedence, and legacy/source representations;
-- OPNA side: immutable `FmRegisterPatch`/`OperatorRegisterSpec`-style values containing only chip-shaped data;
-- lowering step: resolve and convert once during compilation or initialization.
+- MML/music side: names, aliases, catalog membership, provenance, and lookup precedence;
+- synthesis seam: an explicit tagged choice between `SoftwareAdsrSpec` and `OpnEgRegisterSpec`-style payloads, with shared oscillator fields represented without changing either envelope model;
+- OPNA side: the YM2608 operator-EG evaluator consumes only OPN register fields, while the distinct software-ADSR evaluator consumes seconds/level fields.
 
-This preserves current values and lookup order without forcing hardware code to understand source names.
+This preserves current values and lookup order without forcing hardware code to understand source names or approximate one envelope model with the other.
 
 ### 7. Medium-high: PMD drum selection knows the concrete procedural generator
 
@@ -169,22 +183,23 @@ The `PC9801_86_REFERENCE` profile and the current SSG-to-FM ratio should remain 
 | File or group | Audit disposition | Reason |
 |---|---|---|
 | `LlsPatches.kt` | Move catalog ownership to MML/music; keep values | Active decoded PMD/source catalog, not a duplicate |
-| `Patches.kt` | Move legacy catalog ownership; retain until compatibility decision | Distinct legacy ADSR voices; not active in the current song catalog but still reachable through generic lookup |
-| `OpnaPatchBank.kt` | Split | Names/lookup/catalog are software; compiled register values can be OPNA inputs |
+| `Patches.kt` | Move catalog ownership; preserve the software-ADSR mode and values | Distinct software-ADSR voices; not active in the current song catalog but still reachable through generic lookup |
+| `OpnaPatchBank.kt` | Split | Names/lookup/catalog are software; compiled patches must retain their selected ADSR or OPN-EG runtime path |
 | Nine physical `audio/mml` files declaring `audio.opna` | Repackage in staged work | Compiler/player/PMD state is software-owned |
 | `PmdPerformanceState` and PMD modulation types | Move to driver side; remove reverse dependencies | Logical-part and software-modulation state |
 | `OpnaLikeSynthesizer` | Keep as optional facade, split internal ownership | Currently integrates driver, chip, and output responsibilities |
-| `Fm4OpVoice`, `OpnRateEnvelope`, `OpnPitch`, hardware `Lfo` | Keep OPNA core; remove PMD inputs from voice | Hardware/DSP behavior |
+| `Fm4OpVoice`, `OpnRateEnvelope`, `OpnPitch`, hardware `Lfo` | Keep OPNA core; remove PMD inputs and stop routing software ADSR through `OpnRateEnvelope` | Hardware/DSP behavior, with a separate software-ADSR evaluator at the synthesis boundary |
 | `SsgSharedState`/`SsgVoice` | Split software ramps from hardware counters/register behavior | Both layers currently coexist |
 | `PmdSsgEffectUnit` | Split PMD mapping from procedural generator | Driver policy is stored as chip state |
 | `Ym2608RhythmUnit` | Keep hardware-facing facade | Controls match the documented rhythm block |
 | mixer/mastering/output profile | Move conceptually to `audio/output` or a clearly named board/profile layer | Product/output policy, not PMD or chip state |
 | sequencer/pattern/scale/note-length legacy path | Move or retire only after a separate audit | Music logic, apparently unused, not hardware |
-| generic `Envelope.kt` | Treat as legacy pending a dedicated API/dead-code check | Not part of the OPN rate-envelope core |
+| software `Envelope.kt` | Preserve pending a dedicated software-ADSR runtime-path audit | The standalone evaluator is currently unreferenced; do not delete or convert it until the canonical software-ADSR evaluator is identified |
 
 ## What should not change merely to tidy the boundary
 
 - Do not delete two of the three patch files as duplicates.
+- Do not convert, replace, approximate, or lower software ADSR into YM2608 operator-EG rates, or vice versa.
 - Do not move oscillator, phase, algorithm, feedback, OPN rate-envelope, hardware-LFO, SSG counter/noise, or rhythm-register behavior into MML.
 - Do not classify PMD software LFO as chip state merely because it produces timed register changes.
 - Do not claim the clean-room procedural rhythm waveforms reproduce the original YM2608 rhythm ROM exactly.
@@ -197,12 +212,12 @@ Each stage should preserve the current audible result and be reviewed independen
 
 1. **Name the seam.** Introduce or document the minimal chip-control contract: absolute register-domain values, key actions, and reusable control frames. Do not change synthesis.
 2. **Correct pure PMD ownership.** Repackage the PMD clock, software envelope/LFO, logical performance state, compiled program, timeline, and player types. Resolve the dependency errors this exposes without adding adapter logic to the chip core.
-3. **Split instrument compilation from chip values.** Move source lookup, catalog names, aliases, provenance, and legacy conversion to MML/music. Preserve all current values and lookup precedence. Pass a pure compiled register patch across the seam.
+3. **Split instrument compilation from runtime envelope selection.** Move source lookup, catalog names, aliases, and provenance to MML/music. Preserve all current values, lookup precedence, and the selected envelope runtime. Pass a tagged software-ADSR or OPN-EG patch payload across the synthesis seam without conversion.
 4. **Move performance advancement out of voices.** Have the PMD driver resolve MIDI/note interpretation, gates, slides, relative controls, software envelopes/LFOs, and FM3 logical ownership into absolute OPNA controls. Keep frames fixed-size and allocation-free.
 5. **Separate the player from the renderer.** Make timeline dispatch one-way: player/driver emits controls; chip consumes controls. Retain `OpnaLikeSynthesizer` only as a thin integration facade if that remains convenient.
 6. **Split effect selection from generation.** Remove `ProceduralDrums.DrumKind` and PMD ordinals from the compiler/chip seam while preserving the current procedural audio implementation.
 7. **Extract output policy.** Move mixer/mastering/profile ownership into an output or board-profile layer. Treat gain changes as calibration work with rendered comparisons, not architecture cleanup.
-8. **Audit legacy paths separately.** Decide whether to retain, relocate, or remove `Patches`, the procedural sequencer/pattern types, and generic ADSR code only after full public/API and sound-baseline checks.
+8. **Audit unrelated legacy paths separately.** Decide whether to retain, relocate, or remove the procedural sequencer/pattern types only after full public/API and sound-baseline checks. Software ADSR is excluded from removal because it is a supported runtime path.
 
 ## Non-findings and limits
 
@@ -216,6 +231,6 @@ Your instinct that their current `opna` ownership is questionable is correct. Th
 
 The clean target is not simply “move all three files into `mml`.” It is:
 
-1. put authored catalogs, source names, lookup, and legacy conversion on the MML/music side;
-2. keep one small immutable register-shaped patch representation at the YM2608 seam; and
+1. put authored catalogs, source names, and lookup on the MML/music side;
+2. preserve two explicit compiled envelope variants—software ADSR and YM2608 operator EG—and execute each with its own runtime behavior without conversion; and
 3. keep mixer/headroom and runtime channel controls out of both the authored tone definition and the chip patch DTO.
