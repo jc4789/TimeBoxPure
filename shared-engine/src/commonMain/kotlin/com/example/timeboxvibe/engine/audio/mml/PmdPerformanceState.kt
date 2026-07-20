@@ -1,54 +1,11 @@
-package com.example.timeboxvibe.engine.audio.opna
+package com.example.timeboxvibe.engine.audio.mml
 
 import com.example.timeboxvibe.engine.audio.AudioLaws
-
-/** Primitive per-frame PMD modulation values passed to a physical voice for one render call. */
-internal class PmdModulationFrame {
-    val pitch1Q20 = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
-    val pitch2Q20 = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
-    val volume1 = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
-    val volume2 = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
-    var pitchTarget1 = false
-    var pitchTarget2 = false
-    var volumeTarget1 = false
-    var volumeTarget2 = false
-    var tlMask1 = 0
-    var tlMask2 = 0
-    var baseAttenuation = 0
-    var hardwarePms = 0
-    var hardwareAms = 0
-
-    fun clear() {
-        pitch1Q20.fill(0)
-        pitch2Q20.fill(0)
-        volume1.fill(0)
-        volume2.fill(0)
-        pitchTarget1 = false
-        pitchTarget2 = false
-        volumeTarget1 = false
-        volumeTarget2 = false
-        tlMask1 = 0
-        tlMask2 = 0
-        baseAttenuation = 0
-        hardwarePms = 0
-        hardwareAms = 0
-    }
-}
-
-/** Primitive SSG driver output; the physical voice owns no PMD clock or envelope lifetime. */
-internal class PmdSsgFrame {
-    val tonePeriodOffset = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
-    val volumeOffset = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
-    val softwareEnvelopeLevel = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
-    val releaseFinished = BooleanArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
-
-    fun clear(baseLevel: Int) {
-        tonePeriodOffset.fill(0)
-        volumeOffset.fill(0)
-        softwareEnvelopeLevel.fill(baseLevel.coerceIn(0, 15))
-        releaseFinished.fill(false)
-    }
-}
+import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaSong
+import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
+import com.example.timeboxvibe.engine.audio.opna.OpnRateEnvelope
+import com.example.timeboxvibe.engine.audio.opna.PmdModulationFrame
+import com.example.timeboxvibe.engine.audio.opna.PmdSsgFrame
 
 /** Allocation-free PMD logical-part state, independent of physical YM2608 voice assignment. */
 internal class PmdPerformanceState(sampleRate: Int) {

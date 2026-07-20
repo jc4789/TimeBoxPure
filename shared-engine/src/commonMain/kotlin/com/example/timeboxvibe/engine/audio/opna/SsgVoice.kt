@@ -75,7 +75,7 @@ class SsgVoice(
         startFrame: Int = 0,
         sharedPrepared: Boolean = false
     ) {
-        renderDriven(buffer, frames, sampleRate, gainScale, startFrame, sharedPrepared, null)
+        renderDriven(buffer, frames, sampleRate, gainScale, startFrame, sharedPrepared, null, STOP_FRAME_NONE)
     }
 
     internal fun renderDriven(
@@ -85,7 +85,8 @@ class SsgVoice(
         gainScale: Float,
         startFrame: Int,
         sharedPrepared: Boolean,
-        driverFrame: PmdSsgFrame?
+        driverFrame: PmdSsgFrame?,
+        stopAfterFrame: Int
     ) {
         if (configuredSampleRate != sampleRate) {
             configuredSampleRate = sampleRate
@@ -97,7 +98,12 @@ class SsgVoice(
                 val count = minOf(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK, frames - rendered)
                 prepareDriverFrame(driverFrame, count)
                 shared.prepare(count)
-                renderHardware(buffer, count, gainScale, startFrame + rendered, driverFrame)
+                val chunkStopFrame = if (stopAfterFrame >= rendered && stopAfterFrame < rendered + count) {
+                    stopAfterFrame - rendered
+                } else {
+                    STOP_FRAME_NONE
+                }
+                renderHardware(buffer, count, gainScale, startFrame + rendered, driverFrame, chunkStopFrame)
                 rendered += count
             }
             return
@@ -106,7 +112,7 @@ class SsgVoice(
             prepareDriverFrame(driverFrame, frames)
             shared.prepare(frames)
         }
-        renderHardware(buffer, frames, gainScale, startFrame, driverFrame)
+        renderHardware(buffer, frames, gainScale, startFrame, driverFrame, stopAfterFrame)
     }
 
     internal fun prepareDriverFrame(driverFrame: PmdSsgFrame?, frames: Int) {
@@ -129,7 +135,8 @@ class SsgVoice(
         frames: Int,
         gainScale: Float,
         startFrame: Int,
-        driverFrame: PmdSsgFrame?
+        driverFrame: PmdSsgFrame?,
+        stopAfterFrame: Int
     ) {
         if (!enabled) return
         val combinedGain = gainScale * noteGain
@@ -155,7 +162,7 @@ class SsgVoice(
                 SsgLevelLaw.fixedAmplitude(level)
             }
             buffer[startFrame + i] += signal * amplitude * combinedGain
-            if (driverFrame?.releaseFinished?.get(i) == true) {
+            if (i == stopAfterFrame) {
                 enabled = false
                 return
             }
@@ -168,6 +175,7 @@ class SsgVoice(
     internal fun mixerRegisterSnapshot(): Int = shared.mixerRegisterSnapshot()
 
     private companion object {
+        const val STOP_FRAME_NONE = -1
         val DEFAULT_PATCH = SsgPatch()
     }
 

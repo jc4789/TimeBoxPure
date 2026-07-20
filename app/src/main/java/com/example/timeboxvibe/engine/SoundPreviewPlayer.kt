@@ -180,7 +180,7 @@ object SoundPreviewPlayer {
                 i++
             }
 
-            val player = MmlArrangementScheduler.createPlayer(arrangement, synth, sampleRate)
+            val player = MmlArrangementScheduler.createPlayer(arrangement, sampleRate)
 
             val compiled = requireNotNull(arrangement.compiledOpnaSong) {
                 "Catalog playback requires the unified MML event program"
@@ -263,7 +263,7 @@ object SoundPreviewPlayer {
                             framesRemaining
                         }
 
-                        synth.render(floatBuffer, framesToRender, player, renderOffset)
+                        player.render(synth, floatBuffer, framesToRender, renderOffset)
 
                         var k = 0
                         while (k < framesToRender) {

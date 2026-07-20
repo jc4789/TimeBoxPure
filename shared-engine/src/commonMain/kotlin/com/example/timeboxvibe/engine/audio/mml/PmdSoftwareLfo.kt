@@ -1,4 +1,6 @@
-package com.example.timeboxvibe.engine.audio.opna
+package com.example.timeboxvibe.engine.audio.mml
+
+import com.example.timeboxvibe.engine.audio.opna.OpnaLfoLaws
 
 /** One allocation-free PMD software-LFO state. Parts preallocate two instances. */
 internal class PmdSoftwareLfo(

@@ -1,4 +1,4 @@
-package com.example.timeboxvibe.engine.audio.opna
+package com.example.timeboxvibe.engine.audio.mml
 
 /** Allocation-free PMD legacy/extended SSG software-envelope state. */
 internal class PmdSoftwareEnvelope(private var sampleRate: Int) {

@@ -1,7 +1,5 @@
 package com.example.timeboxvibe.engine.audio.mml
 
-import com.example.timeboxvibe.engine.audio.opna.PmdPerformanceLaws
-
 /** Part-local PMD Q/q state resolved during compilation into primitive ticks. */
 internal class PmdGateState(channelOrdinal: Int, private val ticksPerClock: Int) {
     var proportionalValue: Int = 0

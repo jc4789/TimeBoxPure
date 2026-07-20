@@ -1,5 +1,7 @@
 package com.example.timeboxvibe.engine.audio.opna
 
+import com.example.timeboxvibe.engine.audio.mml.PmdSampleClock
+
 /**
  * Renderer-facing, allocation-free song program.
  *

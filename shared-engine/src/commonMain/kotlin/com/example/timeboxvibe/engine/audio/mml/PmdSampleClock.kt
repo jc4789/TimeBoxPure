@@ -1,4 +1,6 @@
-package com.example.timeboxvibe.engine.audio.opna
+package com.example.timeboxvibe.engine.audio.mml
+
+import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaSong
 
 /** Exact rational tick-to-sample mapping with carried division error. */
 internal object PmdSampleClock {

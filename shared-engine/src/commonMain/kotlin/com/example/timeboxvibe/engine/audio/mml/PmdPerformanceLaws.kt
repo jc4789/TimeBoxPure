@@ -1,4 +1,4 @@
-package com.example.timeboxvibe.engine.audio.opna
+package com.example.timeboxvibe.engine.audio.mml
 
 /** Named PMD driver units shared by MML setup and allocation-free playback. */
 object PmdPerformanceLaws {
