@@ -93,9 +93,8 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     fun noteOnFm(channel: Int, midi: Int, patch: FmPatch) {
         if (channel in 0 until AudioLaws.FM_CHANNELS) {
             fm[channel].applyPatch(patch)
-            directFmPartFrames[channel].hardwarePms = patch.pms.coerceIn(0, 7)
-            directFmPartFrames[channel].hardwareAms = patch.ams.coerceIn(0, 3)
             directFmDriverFrameByVoice[channel] = directFmPartFrames[channel]
+            setDirectFmHardwareLfo(channel, patch.pms, patch.ams)
             fm[channel].noteOn(midi)
         }
     }
@@ -594,8 +593,8 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                     val selectedPatch = event.patch
                     if (selectedPatch != null) voice.applyPatch(selectedPatch)
                     if (ch < AudioLaws.FM_CHANNELS) {
-                        directFmPartFrames[ch].hardwarePms = event.pms.coerceIn(0, 7)
-                        directFmPartFrames[ch].hardwareAms = event.ams.coerceIn(0, 3)
+                        directFmDriverFrameByVoice[ch] = directFmPartFrames[ch]
+                        setDirectFmHardwareLfo(ch, event.pms, event.ams)
                     }
                     voice.setNoteControls(
                         event.pan,
@@ -604,9 +603,6 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                         event.targetMidi,
                         event.slideFrames
                     )
-                    if (ch < AudioLaws.FM_CHANNELS) {
-                        directFmDriverFrameByVoice[ch] = directFmPartFrames[ch]
-                    }
                     voice.noteOnScheduled(event.midi, event.attack, event.decay, event.sustain, event.release)
                     voice.noteGain = event.velocity
                     directFmActiveNoteId[ch] = event.noteId
@@ -625,9 +621,13 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                     val voice = fm[voiceIndex]
                     val selectedPatch = event.patch
                     if (selectedPatch != null) voice.applyPatch(selectedPatch)
+                    directFmDriverFrameByVoice[voiceIndex] =
+                        if (event.channel in directFmPartFrames.indices) directFmPartFrames[event.channel] else null
                     if (event.channel in directFmPartFrames.indices) {
-                        directFmPartFrames[event.channel].hardwarePms = event.pms.coerceIn(0, 7)
-                        directFmPartFrames[event.channel].hardwareAms = event.ams.coerceIn(0, 3)
+                        setDirectFmHardwareLfo(event.channel, event.pms, event.ams)
+                    } else {
+                        voice.setHardwareLfoPms(0)
+                        voice.setHardwareLfoAms(0)
                     }
                     voice.setNoteControls(
                         event.pan,
@@ -636,8 +636,6 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                         -1,
                         0
                     )
-                    directFmDriverFrameByVoice[voiceIndex] =
-                        if (event.channel in directFmPartFrames.indices) directFmPartFrames[event.channel] else null
                     voice.noteOnScheduled(event.midi, -1f, -1f, -1f, -1f)
                     voice.noteGain = event.velocity
                     directFmActiveNoteId[voiceIndex] = event.noteId
@@ -717,6 +715,14 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         if (channel in ssg.indices) ssgShared.writeEnvelopeShape(shape)
     }
 
+    internal fun setFmHardwareLfoPms(channel: Int, value: Int) {
+        if (channel in fm.indices) fm[channel].setHardwareLfoPms(value)
+    }
+
+    internal fun setFmHardwareLfoAms(channel: Int, value: Int) {
+        if (channel in fm.indices) fm[channel].setHardwareLfoAms(value)
+    }
+
     private fun writeSsgPatchState(channel: Int, patch: SsgPatch) {
         ssgShared.writeMixerChannel(channel, patch.toneEnabled, patch.noiseEnabled)
         if (patch.noiseEnabled) ssgShared.writeNoisePeriod(patch.noisePeriod)
@@ -732,6 +738,19 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     internal fun ssgEnvelopeShapeSnapshot(): Int = ssgShared.envelopeShapeSnapshot()
     internal fun ssgEnvelopeRestartCountSnapshot(): Int = ssgShared.envelopeRestartCountSnapshot()
 
+    private fun setDirectFmHardwareLfo(part: Int, pms: Int, ams: Int) {
+        if (part !in directFmPartFrames.indices) return
+        val frame = directFmPartFrames[part]
+        var voice = 0
+        while (voice < directFmDriverFrameByVoice.size) {
+            if (directFmDriverFrameByVoice[voice] === frame) {
+                fm[voice].setHardwareLfoPms(pms)
+                fm[voice].setHardwareLfoAms(ams)
+            }
+            voice++
+        }
+    }
+
     private fun resetDirectDriverState() {
         var part = 0
         while (part < directFmPartFrames.size) {
@@ -741,6 +760,8 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         var voice = 0
         while (voice < directFmDriverFrameByVoice.size) {
             directFmActiveNoteId[voice] = FM_VOICE_FREE
+            fm[voice].setHardwareLfoPms(0)
+            fm[voice].setHardwareLfoAms(0)
             directFmDriverFrameByVoice[voice] =
                 if (voice < directFmPartFrames.size) directFmPartFrames[voice] else null
             voice++

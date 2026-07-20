@@ -13,8 +13,6 @@ internal class PmdModulationFrame {
     var tlMask1 = 0
     var tlMask2 = 0
     var baseAttenuation = 0
-    var hardwarePms = 0
-    var hardwareAms = 0
 
     fun clear() {
         pitch1Q20.fill(0)
@@ -28,8 +26,6 @@ internal class PmdModulationFrame {
         tlMask1 = 0
         tlMask2 = 0
         baseAttenuation = 0
-        hardwarePms = 0
-        hardwareAms = 0
     }
 }
 

@@ -17,6 +17,8 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private var channelAlgorithm: Int = 0
     private var channelFeedback: Int = 0
     private var channelTotalLevel: Float = 1f
+    private var channelHardwarePms: Int = 0
+    private var channelHardwareAms: Int = 0
     private var hasPitch: Boolean = false
     private var keyDown: Boolean = false
     private var packedPitch: Int = 0
@@ -262,6 +264,14 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     internal fun setFeedback(value: Int, relative: Boolean) {
         channelFeedback = if (relative) (channelFeedback + value).coerceIn(0, 7) else value.coerceIn(0, 7)
+    }
+
+    internal fun setHardwareLfoPms(value: Int) {
+        channelHardwarePms = value.coerceIn(0, 7)
+    }
+
+    internal fun setHardwareLfoAms(value: Int) {
+        channelHardwareAms = value.coerceIn(0, 3)
     }
 
     internal fun setSlotKeyOnDelay(slotMask: Int, frames: Int) {
@@ -510,6 +520,8 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         channelAlgorithm = 0
         channelFeedback = 0
         channelTotalLevel = 1f
+        channelHardwarePms = 0
+        channelHardwareAms = 0
     }
 
     fun render(
@@ -713,9 +725,9 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             currentPmQ20 = 0
             currentAmAttenuation = 0
         } else {
-            val pmDepth = OpnaLfoLaws.pmsDepthQ20(driverFrame?.hardwarePms ?: 0)
+            val pmDepth = OpnaLfoLaws.pmsDepthQ20(channelHardwarePms)
             currentPmQ20 = (lfo.pmAt(frame) * pmDepth) shr 10
-            val amDepth = OpnaLfoLaws.amsDepthAttenuation(driverFrame?.hardwareAms ?: 0)
+            val amDepth = OpnaLfoLaws.amsDepthAttenuation(channelHardwareAms)
             currentAmAttenuation = (lfo.amAt(frame) * amDepth) shr 10
         }
         var operator = 0

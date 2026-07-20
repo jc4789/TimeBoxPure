@@ -321,9 +321,9 @@ class CompiledOpnaPlayer internal constructor(
             CompiledOpnaTimeline.HW_LFO_ENABLE -> synthesizer.lfo.enabled = timeline.controlValue(index) != 0
             CompiledOpnaTimeline.HW_LFO_RATE -> synthesizer.lfo.rate = timeline.controlValue(index)
             CompiledOpnaTimeline.HW_LFO_PMS ->
-                performance.setHardwareLfoPms(timeline.channel[index], timeline.controlValue(index))
+                setHardwareLfoPms(synthesizer, timeline.channel[index], timeline.controlValue(index))
             CompiledOpnaTimeline.HW_LFO_AMS ->
-                performance.setHardwareLfoAms(timeline.channel[index], timeline.controlValue(index))
+                setHardwareLfoAms(synthesizer, timeline.channel[index], timeline.controlValue(index))
             CompiledOpnaTimeline.HW_LFO_DELAY -> {
                 val base = index * CompiledOpnaTimeline.CONTROL_STRIDE
                 performance.setHardwareLfoDelay(
@@ -387,6 +387,8 @@ class CompiledOpnaPlayer internal constructor(
         val voice = synthesizer.fm[channel]
         val patch = timeline.instrumentBank.fmPatch(timeline.patchId[index])
         if (patch != null) voice.applyPatch(patch)
+        synthesizer.setFmHardwareLfoPms(channel, performance.hardwareLfoPms(channel))
+        synthesizer.setFmHardwareLfoAms(channel, performance.hardwareLfoAms(channel))
         voice.setNoteControls(
             timeline.pan[index],
             timeline.detuneCents[index],
@@ -418,6 +420,8 @@ class CompiledOpnaPlayer internal constructor(
         val voice = synthesizer.fm[voiceIndex]
         val patch = timeline.instrumentBank.fmPatch(timeline.patchId[index])
         if (patch != null) voice.applyPatch(patch)
+        synthesizer.setFmHardwareLfoPms(voiceIndex, performance.hardwareLfoPms(part))
+        synthesizer.setFmHardwareLfoAms(voiceIndex, performance.hardwareLfoAms(part))
         voice.setNoteControls(
             timeline.pan[index],
             timeline.detuneCents[index],
@@ -487,6 +491,14 @@ class CompiledOpnaPlayer internal constructor(
         bindFm3DriverFrames(part, mask)
         performance.noteOnFm3(part)
         val voice = synthesizer.fm[FM3_PHYSICAL_VOICE]
+        synthesizer.setFmHardwareLfoPms(
+            FM3_PHYSICAL_VOICE,
+            performance.hardwareLfoPms(FM3_PHYSICAL_VOICE)
+        )
+        synthesizer.setFmHardwareLfoAms(
+            FM3_PHYSICAL_VOICE,
+            performance.hardwareLfoAms(FM3_PHYSICAL_VOICE)
+        )
         voice.setNoteControls(
             timeline.pan[index],
             timeline.detuneCents[index],
@@ -521,6 +533,24 @@ class CompiledOpnaPlayer internal constructor(
             operator++
         }
         synthesizer.fm[FM3_PHYSICAL_VOICE].noteOffSlots(releaseMask)
+    }
+
+    private fun setHardwareLfoPms(synthesizer: OpnaLikeSynthesizer, part: Int, value: Int) {
+        performance.setHardwareLfoPms(part, value)
+        var voice = 0
+        while (voice < fmLogicalPartByVoice.size) {
+            if (fmLogicalPartByVoice[voice] == part) synthesizer.setFmHardwareLfoPms(voice, value)
+            voice++
+        }
+    }
+
+    private fun setHardwareLfoAms(synthesizer: OpnaLikeSynthesizer, part: Int, value: Int) {
+        performance.setHardwareLfoAms(part, value)
+        var voice = 0
+        while (voice < fmLogicalPartByVoice.size) {
+            if (fmLogicalPartByVoice[voice] == part) synthesizer.setFmHardwareLfoAms(voice, value)
+            voice++
+        }
     }
 
     private fun handleSoftwareLfoControl(eventIndex: Int) {

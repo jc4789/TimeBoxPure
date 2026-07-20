@@ -195,10 +195,10 @@ internal class PmdPerformanceState(sampleRate: Int) {
     internal fun volumeSnapshot(part: Int): Int =
         if (part in fm3Parts.indices) fm3Parts[part].volume else 0
 
-    internal fun hardwareLfoPmsSnapshot(part: Int): Int =
+    internal fun hardwareLfoPms(part: Int): Int =
         selectedPart(fmParts, part)?.hardwarePms ?: 0
 
-    internal fun hardwareLfoAmsSnapshot(part: Int): Int =
+    internal fun hardwareLfoAms(part: Int): Int =
         selectedPart(fmParts, part)?.hardwareAms ?: 0
 
     internal fun hardwareLfoDelayKindSnapshot(part: Int): Int =
@@ -297,8 +297,6 @@ internal class PmdPerformanceState(sampleRate: Int) {
             output.tlMask1 = lfo1.tlMask()
             output.tlMask2 = lfo2.tlMask()
             output.baseAttenuation = (127 - volume) * OpnRateEnvelope.MAX_ATTENUATION / 127
-            output.hardwarePms = hardwarePms
-            output.hardwareAms = hardwareAms
             val selectedSsg = ssgFrame
             var frame = 0
             while (frame < frames) {
