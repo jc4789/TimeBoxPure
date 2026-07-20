@@ -647,6 +647,7 @@ This includes renamed equivalents such as:
 - debug render stages
 - validation harnesses
 - snapshots, hashes, fixtures,  and self-checks
+- 「観測可能な中間表現」「明示的contract」「control frame」
 
 Renaming a test does not make it production code.
 
@@ -664,7 +665,7 @@ explicitly requests that exact artifact.
 
 Production code must exist only to provide the requested runtime behavior.
 
-STRICT IMPLEMENTATION SCOPE
+##  STRICT IMPLEMENTATION SCOPE
 
 Implement only the runtime defects explicitly requested by the user.
 
