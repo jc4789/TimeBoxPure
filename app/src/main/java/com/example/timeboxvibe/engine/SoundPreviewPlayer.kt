@@ -9,6 +9,7 @@ import android.os.PowerManager
 import android.util.Log
 import com.example.timeboxvibe.engine.SongCatalog
 import com.example.timeboxvibe.engine.SongPlayback
+import com.example.timeboxvibe.engine.audio.mml.CompiledOpnaPlayer
 import com.example.timeboxvibe.engine.audio.mml.MmlArrangementScheduler
 import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
 import kotlin.math.exp
@@ -16,6 +17,7 @@ import kotlin.math.sin
 
 object SoundPreviewPlayer {
     private const val TAG = "SoundPreviewPlayer"
+    private const val MIN_STREAM_START_THRESHOLD_FRAMES = 1
 
     val availableSongs get() = SongCatalog.all
 
@@ -224,17 +226,6 @@ object SoundPreviewPlayer {
                 activeTrack = audioTrack
             }
 
-            try {
-                audioTrack.play()
-            } catch (e: Exception) {
-                e.printStackTrace()
-                try { audioTrack.release() } catch (ex: Exception) {}
-                synchronized(this@SoundPreviewPlayer) {
-                    if (activeTrack == audioTrack) activeTrack = null
-                }
-                return@Runnable
-            }
-
             val floatBuffer = FloatArray(chunkSize)
             val shortBuffer = ShortArray(chunkSize)
             var currentSampleOffset = 0L
@@ -242,6 +233,51 @@ object SoundPreviewPlayer {
             var lastUnderrunCount = 0
 
             try {
+                val streamStartThresholdFrames = (
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        audioTrack.startThresholdInFrames
+                    } else {
+                        audioTrack.bufferSizeInFrames
+                    }
+                    ).coerceAtLeast(MIN_STREAM_START_THRESHOLD_FRAMES)
+                var primedFrames = 0
+                while (primedFrames < streamStartThresholdFrames &&
+                    Thread.currentThread() == streamThread &&
+                    !Thread.currentThread().isInterrupted
+                ) {
+                    val framesToPrime = minOf(chunkSize, streamStartThresholdFrames - primedFrames)
+                    renderPcm16(
+                        player,
+                        synth,
+                        floatBuffer,
+                        shortBuffer,
+                        framesToPrime,
+                        currentSampleOffset,
+                        songLenSamples,
+                        shouldLoop
+                    )
+                    var writeOffset = 0
+                    while (writeOffset < framesToPrime &&
+                        Thread.currentThread() == streamThread &&
+                        !Thread.currentThread().isInterrupted
+                    ) {
+                        val written = audioTrack.write(
+                            shortBuffer,
+                            writeOffset,
+                            framesToPrime - writeOffset,
+                            AudioTrack.WRITE_BLOCKING
+                        )
+                        if (written <= 0) return@Runnable
+                        writeOffset += written
+                        primedFrames += written
+                        currentSampleOffset += written.toLong()
+                    }
+                    if (writeOffset < framesToPrime) return@Runnable
+                }
+                if (primedFrames < streamStartThresholdFrames) return@Runnable
+
+                audioTrack.play()
+
                 while (Thread.currentThread() == streamThread && !Thread.currentThread().isInterrupted) {
                     val elapsedGlobalMs = (currentSampleOffset * 1000L) / sampleRate
                     if (stopAfterMs > 0L && elapsedGlobalMs >= stopAfterMs) {
@@ -251,40 +287,33 @@ object SoundPreviewPlayer {
                         break
                     }
 
-                    val looping = shouldLoop && songLenSamples > 0L
-                    var renderOffset = if (looping) currentSampleOffset % songLenSamples else currentSampleOffset
-                    var framesFilled = 0
                     val totalSamples = chunkSize
-                    while (framesFilled < totalSamples) {
-                        val framesRemaining = totalSamples - framesFilled
-                        val framesToRender = if (looping) {
-                            minOf(framesRemaining.toLong(), songLenSamples - renderOffset).toInt()
-                        } else {
-                            framesRemaining
-                        }
-
-                        player.render(synth, floatBuffer, framesToRender, renderOffset)
-
-                        var k = 0
-                        while (k < framesToRender) {
-                            val sample = floatBuffer[k]
-                            shortBuffer[framesFilled + k] =
-                                (sample * 32767f).coerceIn(-32768f, 32767f).toInt().toShort()
-                            k++
-                        }
-
-                        framesFilled += framesToRender
-                        renderOffset += framesToRender
-                        if (looping && renderOffset == songLenSamples) {
-                            player.reset(synth)
-                            renderOffset = 0L
-                        }
+                    renderPcm16(
+                        player,
+                        synth,
+                        floatBuffer,
+                        shortBuffer,
+                        totalSamples,
+                        currentSampleOffset,
+                        songLenSamples,
+                        shouldLoop
+                    )
+                    var writeOffset = 0
+                    while (writeOffset < totalSamples &&
+                        Thread.currentThread() == streamThread &&
+                        !Thread.currentThread().isInterrupted
+                    ) {
+                        val written = audioTrack.write(
+                            shortBuffer,
+                            writeOffset,
+                            totalSamples - writeOffset,
+                            AudioTrack.WRITE_BLOCKING
+                        )
+                        if (written <= 0) return@Runnable
+                        writeOffset += written
+                        currentSampleOffset += written.toLong()
                     }
-
-                    val written = audioTrack.write(shortBuffer, 0, totalSamples, AudioTrack.WRITE_BLOCKING)
-                    if (written < 0) {
-                        break
-                    }
+                    if (writeOffset < totalSamples) return@Runnable
 
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                         val underrunCount = audioTrack.underrunCount
@@ -293,8 +322,6 @@ object SoundPreviewPlayer {
                             lastUnderrunCount = underrunCount
                         }
                     }
-
-                    currentSampleOffset += chunkSize
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -311,6 +338,46 @@ object SoundPreviewPlayer {
 
         streamThread = thread
         thread.start()
+    }
+
+    private fun renderPcm16(
+        player: CompiledOpnaPlayer,
+        synth: OpnaLikeSynthesizer,
+        floatBuffer: FloatArray,
+        shortBuffer: ShortArray,
+        frames: Int,
+        currentSampleOffset: Long,
+        songLenSamples: Long,
+        shouldLoop: Boolean
+    ) {
+        val looping = shouldLoop && songLenSamples > 0L
+        var renderOffset = if (looping) currentSampleOffset % songLenSamples else currentSampleOffset
+        var framesFilled = 0
+        while (framesFilled < frames) {
+            val framesRemaining = frames - framesFilled
+            val framesToRender = if (looping) {
+                minOf(framesRemaining.toLong(), songLenSamples - renderOffset).toInt()
+            } else {
+                framesRemaining
+            }
+
+            player.render(synth, floatBuffer, framesToRender, renderOffset)
+
+            var frame = 0
+            while (frame < framesToRender) {
+                val sample = floatBuffer[frame]
+                shortBuffer[framesFilled + frame] =
+                    (sample * 32767f).coerceIn(-32768f, 32767f).toInt().toShort()
+                frame++
+            }
+
+            framesFilled += framesToRender
+            renderOffset += framesToRender
+            if (looping && renderOffset == songLenSamples) {
+                player.reset(synth)
+                renderOffset = 0L
+            }
+        }
     }
 
 }
