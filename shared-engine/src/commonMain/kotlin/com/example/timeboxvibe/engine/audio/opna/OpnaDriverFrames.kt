@@ -9,9 +9,14 @@ internal class FmRenderBinding {
     val pitchMasks = IntArray(MAX_STREAMS)
     val attenuationStreams = arrayOfNulls<IntArray>(MAX_STREAMS)
     val attenuationMasks = IntArray(MAX_STREAMS)
+    val portamentoStreams = arrayOfNulls<IntArray>(MAX_PORTAMENTO_STREAMS)
+    val portamentoMasks = IntArray(MAX_PORTAMENTO_STREAMS)
+    val portamentoFrames = IntArray(MAX_PORTAMENTO_STREAMS)
     var pitchStreamCount = 0
         private set
     var attenuationStreamCount = 0
+        private set
+    var portamentoStreamCount = 0
         private set
     var mode = MODE_IDENTITY
         private set
@@ -30,8 +35,16 @@ internal class FmRenderBinding {
             attenuationMasks[stream] = 0
             stream++
         }
+        stream = 0
+        while (stream < portamentoStreamCount) {
+            portamentoStreams[stream] = null
+            portamentoMasks[stream] = 0
+            portamentoFrames[stream] = 0
+            stream++
+        }
         pitchStreamCount = 0
         attenuationStreamCount = 0
+        portamentoStreamCount = 0
         mode = MODE_IDENTITY
     }
 
@@ -57,8 +70,16 @@ internal class FmRenderBinding {
         attenuationStreamCount++
     }
 
+    fun addPortamentoStream(stream: IntArray, operatorMask: Int, frames: Int) {
+        if (operatorMask == 0 || frames <= 0 || portamentoStreamCount >= MAX_PORTAMENTO_STREAMS) return
+        portamentoStreams[portamentoStreamCount] = stream
+        portamentoMasks[portamentoStreamCount] = operatorMask
+        portamentoFrames[portamentoStreamCount] = frames
+        portamentoStreamCount++
+    }
+
     fun finish(): Boolean {
-        if (pitchStreamCount > 0 || attenuationStreamCount > 0) {
+        if (pitchStreamCount > 0 || attenuationStreamCount > 0 || portamentoStreamCount > 0) {
             mode = MODE_STREAMED
             return true
         }
@@ -80,6 +101,7 @@ internal class FmRenderBinding {
         const val MODE_STREAMED = 2
         private const val SOFTWARE_STREAMS_PER_SOURCE = 2
         private const val MAX_STREAMS = AudioLaws.FM_OPERATORS * SOFTWARE_STREAMS_PER_SOURCE
+        private const val MAX_PORTAMENTO_STREAMS = AudioLaws.FM_OPERATORS
     }
 }
 

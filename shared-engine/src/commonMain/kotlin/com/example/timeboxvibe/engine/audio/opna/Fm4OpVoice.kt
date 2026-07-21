@@ -33,6 +33,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private var lfoDelayRemaining: Int = 0
     private var currentPmQ20: Int = 0
     private var currentAmAttenuation: Int = 0
+    private var driverPortamentoManaged: Boolean = false
     private var activeRenderBindingMode: Int = FmRenderBinding.MODE_IDENTITY
     private val currentDriverPitchQ20 = IntArray(AudioLaws.FM_OPERATORS)
     private val currentDriverVolumeOffset = IntArray(AudioLaws.FM_OPERATORS)
@@ -231,6 +232,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         slideTargetMidi: Int,
         slideFrames: Int
     ) {
+        driverPortamentoManaged = false
         panOverride = pan.coerceIn(0, 3)
         detuneCents = cents.coerceIn(-1_200, 1_200)
         lfoDelayRemaining = delayFrames.coerceAtLeast(0)
@@ -238,33 +240,46 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         requestedSlideFrames = slideFrames.coerceAtLeast(0)
     }
 
-    internal fun setSlotDetune(slotMask: Int, value: Int, relative: Boolean) {
+    internal fun setDrivenNoteControls(
+        pan: Int,
+        cents: Int,
+        delayFrames: Int,
+        slideTargetMidi: Int,
+        slideFrames: Int
+    ) {
+        driverPortamentoManaged = true
+        panOverride = pan.coerceIn(0, 3)
+        detuneCents = cents.coerceIn(-1_200, 1_200)
+        lfoDelayRemaining = delayFrames.coerceAtLeast(0)
+        targetMidi = slideTargetMidi
+        requestedSlideFrames = slideFrames.coerceAtLeast(0)
+    }
+
+    internal fun setSlotDetuneAbsolute(slotMask: Int, value: Int, preserveRampTargetMask: Int) {
         var index = 0
         while (index < AudioLaws.FM_OPERATORS) {
             if ((slotMask and (1 shl index)) != 0) {
-                slotFnumDetune[index] = if (relative) {
-                    (slotFnumDetune[index] + value).coerceIn(-32_768, 32_767)
-                } else value.coerceIn(-32_768, 32_767)
-                if (specialMode && hasPitch) recalcSpecialOperator(index)
+                slotFnumDetune[index] = value.coerceIn(-32_768, 32_767)
+                if (specialMode && hasPitch) {
+                    recalcSpecialOperator(index, (preserveRampTargetMask and (1 shl index)) != 0)
+                }
             }
             index++
         }
     }
 
-    internal fun setOperatorTl(slotMask: Int, value: Int, relative: Boolean) {
+    internal fun setOperatorTlAbsolute(slotMask: Int, value: Int) {
         var index = 0
         while (index < AudioLaws.FM_OPERATORS) {
             if ((slotMask and (1 shl index)) != 0) {
-                opState[index].tl = if (relative) {
-                    (opState[index].tl + value).coerceIn(0, 127)
-                } else value.coerceIn(0, 127)
+                opState[index].tl = value.coerceIn(0, 127)
             }
             index++
         }
     }
 
-    internal fun setFeedback(value: Int, relative: Boolean) {
-        channelFeedback = if (relative) (channelFeedback + value).coerceIn(0, 7) else value.coerceIn(0, 7)
+    internal fun setFeedbackAbsolute(value: Int) {
+        channelFeedback = value.coerceIn(0, 7)
     }
 
     internal fun setHardwareLfoPms(value: Int) {
@@ -288,6 +303,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     }
 
     fun noteOn(midi: Int) {
+        driverPortamentoManaged = false
         lfoDelayRemaining = 0
         noteOnInternal(midi, NO_ADSR_OVERRIDE, NO_ADSR_OVERRIDE, NO_ADSR_OVERRIDE, NO_ADSR_OVERRIDE)
     }
@@ -299,6 +315,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         sustain: Float?,
         release: Float?
     ) {
+        driverPortamentoManaged = false
         lfoDelayRemaining = 0
         noteOnInternal(
             midi,
@@ -353,6 +370,10 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             setupOperatorForNote(2, p.op2, alg, attack, decay, sustain, release)
             setupOperatorForNote(3, p.op3, alg, attack, decay, sustain, release)
             configurePitchRamp(p)
+            if (driverPortamentoManaged) {
+                rampFrames = 0
+                rampPosition = 0
+            }
             targetMidi = -1
             requestedSlideFrames = 0
         }
@@ -404,7 +425,29 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         slideFrames: Int = 0,
         cents: Int = 0
     ) {
+        noteOnSlotsInternal(slotMask, midi, slideTargetMidi, slideFrames, cents, drivenPortamento = false)
+    }
+
+    internal fun noteOnDrivenSlots(
+        slotMask: Int,
+        midi: Int,
+        slideTargetMidi: Int,
+        slideFrames: Int,
+        cents: Int
+    ) {
+        noteOnSlotsInternal(slotMask, midi, slideTargetMidi, slideFrames, cents, drivenPortamento = true)
+    }
+
+    private fun noteOnSlotsInternal(
+        slotMask: Int,
+        midi: Int,
+        slideTargetMidi: Int,
+        slideFrames: Int,
+        cents: Int,
+        drivenPortamento: Boolean
+    ) {
         val pitch = OpnPitch.nearestBlockFnumForMidi(midi)
+        driverPortamentoManaged = drivenPortamento
         specialMode = true
         hasPitch = true
         packedPitch = pitch
@@ -429,7 +472,8 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                             specialBaseCents[index], slotFnumDetune[index]
                         ).toLong()
                     } else op.phaseStep.toLong()
-                    specialRampFrames[index] = if (slideTargetMidi in 0..127) slideFrames.coerceAtLeast(0) else 0
+                    val selectedRampFrames = if (slideTargetMidi in 0..127) slideFrames.coerceAtLeast(0) else 0
+                    specialRampFrames[index] = if (drivenPortamento) 0 else selectedRampFrames
                     specialRampPosition[index] = 0
                     val delay = slotKeyOnDelayFrames[index]
                     pendingKeyOnFrames[index] = delay
@@ -465,6 +509,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         op0Feedback2 = 0
         lowPassPrev = 0f
         specialMode = false
+        driverPortamentoManaged = false
         activeRenderBindingMode = FmRenderBinding.MODE_IDENTITY
         currentDriverPitchQ20.fill(0)
         currentDriverVolumeOffset.fill(0)
@@ -500,6 +545,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         rampFrames = 0
         rampPosition = 0
         specialMode = false
+        driverPortamentoManaged = false
         activeRenderBindingMode = FmRenderBinding.MODE_IDENTITY
         currentDriverPitchQ20.fill(0)
         currentDriverVolumeOffset.fill(0)
@@ -663,7 +709,9 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
         if (clockEnvelope) {
             clockPendingKeyOns()
-            if (specialMode) clockSpecialPitchRamps() else clockPitchRamp()
+            if (!driverPortamentoManaged) {
+                if (specialMode) clockSpecialPitchRamps() else clockPitchRamp()
+            }
         }
 
         val sum = when (channelAlgorithm) {
@@ -838,6 +886,31 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             }
             stream++
         }
+        applyDriverPortamento(binding, frameIndex)
+    }
+
+    private fun applyDriverPortamento(binding: FmRenderBinding, frameIndex: Int) {
+        var stream = 0
+        while (stream < binding.portamentoStreamCount) {
+            val positions = binding.portamentoStreams[stream]
+            val frames = binding.portamentoFrames[stream]
+            if (positions != null && frames > 0) {
+                val position = positions[frameIndex]
+                val mask = binding.portamentoMasks[stream]
+                var operator = 0
+                while (operator < AudioLaws.FM_OPERATORS) {
+                    if ((mask and (1 shl operator)) != 0) {
+                        val start = if (specialMode) specialRampStart[operator] else rampStartStep[operator]
+                        val target = if (specialMode) specialRampTarget[operator] else rampTargetStep[operator]
+                        opState[operator].phaseStep = (
+                            start + (target - start) * position.toLong() / frames.toLong()
+                            ).toUInt()
+                    }
+                    operator++
+                }
+            }
+            stream++
+        }
     }
 
     private fun addStreamValue(destination: IntArray, operatorMask: Int, value: Int) {
@@ -876,7 +949,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         else -> p.op3
     }
 
-    private fun recalcSpecialOperator(index: Int) {
+    private fun recalcSpecialOperator(index: Int, preserveRampTarget: Boolean = false) {
         val spec = opSpec[index] ?: return
         val rate = if (enableOversampling) oversampleRate else sampleRate
         val step = OpnPitch.phaseStep29(
@@ -884,7 +957,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         )
         opState[index].phaseStep = step
         specialRampStart[index] = step.toLong()
-        if (specialRampFrames[index] <= 0) specialRampTarget[index] = step.toLong()
+        if (!preserveRampTarget && specialRampFrames[index] <= 0) specialRampTarget[index] = step.toLong()
     }
 
     private fun keyOnSpecialOperator(index: Int) {

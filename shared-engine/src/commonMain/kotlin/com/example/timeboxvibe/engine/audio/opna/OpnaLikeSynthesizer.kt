@@ -147,12 +147,12 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         ym2608Rhythm.dump(mask)
     }
 
-    internal fun setRhythmMasterLevel(value: Int, relative: Boolean) {
-        ym2608Rhythm.setMasterLevel(value, relative)
+    internal fun setRhythmMasterLevel(value: Int) {
+        ym2608Rhythm.setMasterLevel(value)
     }
 
-    internal fun setRhythmVoiceLevel(voice: Int, value: Int, relative: Boolean) {
-        ym2608Rhythm.setVoiceLevel(voice, value, relative)
+    internal fun setRhythmVoiceLevel(voice: Int, value: Int) {
+        ym2608Rhythm.setVoiceLevel(voice, value)
     }
 
     internal fun setRhythmVoicePan(voice: Int, pan: Int) {

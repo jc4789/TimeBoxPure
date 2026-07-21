@@ -11,6 +11,7 @@ internal class PmdFmFrame {
     val pitch2Q20 = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
     val attenuation1 = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
     val attenuation2 = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
+    val portamentoPosition = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
     var pitchTarget1 = false
     var pitchTarget2 = false
     var volumeTarget1 = false
@@ -18,12 +19,14 @@ internal class PmdFmFrame {
     var tlMask1 = 0
     var tlMask2 = 0
     var baseAttenuation = 0
+    var portamentoFrames = 0
 
     fun clear() {
         pitch1Q20.fill(0)
         pitch2Q20.fill(0)
         attenuation1.fill(0)
         attenuation2.fill(0)
+        portamentoPosition.fill(0)
         pitchTarget1 = false
         pitchTarget2 = false
         volumeTarget1 = false
@@ -31,6 +34,7 @@ internal class PmdFmFrame {
         tlMask1 = 0
         tlMask2 = 0
         baseAttenuation = 0
+        portamentoFrames = 0
     }
 }
 
@@ -137,16 +141,16 @@ internal class PmdPerformanceState(sampleRate: Int) {
     fun hardwareLfoDelayFrames(part: Int): Int =
         selectedPart(fmParts, part)?.hardwareLfoDelayFrames() ?: 0
 
-    fun noteOnFm(part: Int) {
-        selectedPart(fmParts, part)?.noteOn()
+    fun noteOnFm(part: Int, portamentoFrames: Int) {
+        selectedPart(fmParts, part)?.noteOn(portamentoFrames)
     }
 
-    fun noteOnSsg(part: Int) {
-        selectedPart(ssgParts, part)?.noteOn()
+    fun noteOnSsg(part: Int, startPeriod: Int, targetPeriod: Int, portamentoFrames: Int) {
+        selectedPart(ssgParts, part)?.noteOn(portamentoFrames, startPeriod, targetPeriod)
     }
 
-    fun noteOnFm3(part: Int) {
-        selectedPart(fm3Parts, part)?.noteOn()
+    fun noteOnFm3(part: Int, portamentoFrames: Int) {
+        selectedPart(fm3Parts, part)?.noteOn(portamentoFrames)
     }
 
     /** Returns true while a configured software-envelope release must keep the chip voice alive. */
@@ -315,6 +319,10 @@ internal class PmdPerformanceState(sampleRate: Int) {
         var hardwareDelayDotted = false
         private var tempoMilliBpm = 120_000
         private var clocksPerQuarter = PmdPerformanceLaws.DEFAULT_CLOCKS_PER_QUARTER
+        private var portamentoFrames = 0
+        private var portamentoPosition = 0
+        private var ssgPortamentoStartPeriod = 0
+        private var ssgPortamentoTargetPeriod = 0
 
         fun setTempo(bpmMilli: Int, clocksPerQuarter: Int) {
             tempoMilliBpm = bpmMilli.coerceAtLeast(1)
@@ -324,10 +332,18 @@ internal class PmdPerformanceState(sampleRate: Int) {
             envelope?.setTempo(tempoMilliBpm, this.clocksPerQuarter)
         }
 
-        fun noteOn() {
+        fun noteOn(
+            selectedPortamentoFrames: Int,
+            startPeriod: Int = 0,
+            targetPeriod: Int = 0
+        ) {
             lfo1.noteOn()
             lfo2.noteOn()
             envelope?.noteOn()
+            portamentoFrames = selectedPortamentoFrames.coerceAtLeast(0)
+            portamentoPosition = 0
+            ssgPortamentoStartPeriod = startPeriod
+            ssgPortamentoTargetPeriod = targetPeriod
         }
 
         fun prepare(frames: Int) {
@@ -339,9 +355,14 @@ internal class PmdPerformanceState(sampleRate: Int) {
             output.tlMask1 = lfo1.tlMask()
             output.tlMask2 = lfo2.tlMask()
             output.baseAttenuation = (127 - volume) * OpnRateEnvelope.MAX_ATTENUATION / 127
+            output.portamentoFrames = portamentoFrames
             val selectedSsg = ssgFrame
             var frame = 0
             while (frame < frames) {
+                if (portamentoFrames > 0 && portamentoPosition < portamentoFrames) {
+                    portamentoPosition++
+                }
+                output.portamentoPosition[frame] = portamentoPosition
                 val pitch1 = lfo1.pitchValue()
                 val pitch2 = lfo2.pitchValue()
                 val volume1 = lfo1.volumeValue()
@@ -352,7 +373,15 @@ internal class PmdPerformanceState(sampleRate: Int) {
                 output.attenuation2[frame] = -volume2 * SOFTWARE_VOLUME_ATTENUATION_STEP
                 if (selectedSsg != null) {
                     val selectedEnvelope = envelope
-                    selectedSsg.tonePeriodOffset[frame] = pitch1 + pitch2
+                    val portamentoOffset = if (portamentoFrames > 0) {
+                        val interpolated = ssgPortamentoStartPeriod.toLong() +
+                            (ssgPortamentoTargetPeriod - ssgPortamentoStartPeriod).toLong() *
+                            portamentoPosition.toLong() / portamentoFrames.toLong()
+                        interpolated.toInt() - ssgPortamentoStartPeriod
+                    } else {
+                        ssgPortamentoTargetPeriod - ssgPortamentoStartPeriod
+                    }
+                    selectedSsg.tonePeriodOffset[frame] = pitch1 + pitch2 + portamentoOffset
                     selectedSsg.volumeOffset[frame] = volume1 + volume2
                     selectedSsg.softwareEnvelopeLevel[frame] =
                         selectedEnvelope?.levelFor(ssgBaseLevel) ?: ssgBaseLevel
@@ -377,6 +406,10 @@ internal class PmdPerformanceState(sampleRate: Int) {
             hardwareDelayKind = CompiledOpnaSong.HW_LFO_DELAY_NONE
             hardwareDelayValue = 0
             hardwareDelayDotted = false
+            portamentoFrames = 0
+            portamentoPosition = 0
+            ssgPortamentoStartPeriod = 0
+            ssgPortamentoTargetPeriod = 0
             tempoMilliBpm = 120_000
             clocksPerQuarter = PmdPerformanceLaws.DEFAULT_CLOCKS_PER_QUARTER
             modulation.clear()

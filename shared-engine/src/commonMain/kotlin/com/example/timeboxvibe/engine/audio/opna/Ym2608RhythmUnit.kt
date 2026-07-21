@@ -30,22 +30,14 @@ internal class Ym2608RhythmUnit(sampleRate: Int) {
         }
     }
 
-    fun setMasterLevel(value: Int, relative: Boolean) {
-        masterLevel = if (relative) {
-            (masterLevel + value).coerceIn(0, MASTER_LEVEL_MAX)
-        } else {
-            value.coerceIn(0, MASTER_LEVEL_MAX)
-        }
+    fun setMasterLevel(value: Int) {
+        masterLevel = value.coerceIn(0, MASTER_LEVEL_MAX)
         refreshAllVoices()
     }
 
-    fun setVoiceLevel(voice: Int, value: Int, relative: Boolean) {
+    fun setVoiceLevel(voice: Int, value: Int) {
         if (voice < 0 || voice >= VOICE_COUNT) return
-        voiceLevel[voice] = if (relative) {
-            (voiceLevel[voice] + value).coerceIn(0, VOICE_LEVEL_MAX)
-        } else {
-            value.coerceIn(0, VOICE_LEVEL_MAX)
-        }
+        voiceLevel[voice] = value.coerceIn(0, VOICE_LEVEL_MAX)
         refreshVoice(voice)
     }
 
