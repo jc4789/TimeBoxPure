@@ -1,4 +1,7 @@
-package com.example.timeboxvibe.engine.audio.opna
+package com.example.timeboxvibe.engine.audio.mml
+
+import com.example.timeboxvibe.engine.audio.opna.FmPatch
+import com.example.timeboxvibe.engine.audio.opna.SsgPatch
 
 /** Setup-time lookup for authored or song-local source instrument identifiers. */
 internal interface SourceInstrumentLookup {

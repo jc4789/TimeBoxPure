@@ -1,6 +1,4 @@
-package com.example.timeboxvibe.engine.audio.opna
-
-import com.example.timeboxvibe.engine.audio.mml.PmdSampleClock
+package com.example.timeboxvibe.engine.audio.mml
 
 /** Exact-size, canonically ordered primitive program consumed without allocation. */
 class CompiledOpnaTimeline internal constructor(

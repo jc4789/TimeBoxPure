@@ -1,5 +1,7 @@
 package com.example.timeboxvibe.engine.audio.opna
 
+import com.example.timeboxvibe.engine.audio.mml.SourceInstrumentLookup
+
 /** Curated, named instruments for authored OPNA music. */
 object OpnaPatchBank : SourceInstrumentLookup {
     const val FM_AT54 = 0

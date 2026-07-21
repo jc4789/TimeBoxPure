@@ -24,13 +24,14 @@
 ## Repaired Runtime Ownership
 
 - The physical source boundary is explicit: `audio/opna` contains synthesis, chip/register-equivalent state, mixing, mastering, and procedural audio generators; `audio/mml` contains the MML front end, compiled program/timeline/player, instrument interning, and PMD logical-performance state.
-- The first two surgical sound-boundary repairs are complete. `PmdPerformanceLaws`, `PmdSampleClock`, `PmdSoftwareEnvelope`, `PmdSoftwareLfo`, and `PmdPerformanceState` now belong to the MML/PMD side without changing their constants, initial values, or algorithm bodies.
+- The surgical R0-R5 sound-boundary repairs and the follow-up compiled-program package splice are complete. `PmdPerformanceLaws`, `PmdSampleClock`, `PmdSoftwareEnvelope`, `PmdSoftwareLfo`, and `PmdPerformanceState` belong to the MML/PMD side without changing their constants, initial values, or algorithm bodies.
 - `CompiledOpnaPlayer` now owns `PmdPerformanceState`, logical FM/FM3 part-to-voice mappings, compiled PMD event interpretation, FM/SSG/FM3 active-note IDs, pooled-voice reclamation, and SSG software-release lifetime.
+- The follow-up ownership repair removed physical-state readback through `algorithmSnapshot()` and `fixedLevelSnapshot()`. The player owns carrier masks, SSG base levels, relative FM/FM3/rhythm resolution, and the preserved sample-position portamento trajectory; the physical layer receives resolved absolute controls.
 - Live execution is one-way: Android/scheduler -> `CompiledOpnaPlayer` -> narrow physical operations plus resolved driver frames -> `OpnaLikeSynthesizer`. The synthesizer no longer accepts a compiled player, owns PMD performance state, interprets compiled event IDs, or calls back into player execution.
 - `OpnaDriverFrames.kt` holds the preallocated chip-facing FM/SSG frame buffers. The player prepares them immediately before the same render segments as before; the OPNA renderer consumes them without advancing PMD clocks or deciding logical ownership.
 - SSG release completion is detected on the player side and passed as a resolved stop-after-frame index. `SsgVoice` still renders the completion sample before disabling, preserving the previous release timing.
 - Event cursor order, same-sample event precedence, milli-BPM/PMD-clock tempo resolution, software-LFO/envelope advancement, hardware-LFO delay resolution, and key-release timing were not intentionally changed by this ownership splice.
-- `CompiledOpnaSong` and `CompiledOpnaTimeline` still declare the OPNA package during the staged repair. They are immutable driver-program data, not chip-render execution; package correction remains a separate later operation and must not be folded into behavioral work.
+- `CompiledInstrumentBank`, `CompiledOpnaSong`, and `CompiledOpnaTimeline` now declare `audio.mml`. They are compiled driver-program/instrument/timeline data, not physical YM2608 execution. `FmPatch` and `SsgPatch` remain immutable physical handoff types under `audio.opna`.
 - `PmdSsgEffectUnit` remains under `audio/opna` because it owns and renders a procedural audio generator through `OpnaChipState`; its PMD name does not make it parser/compiler state.
 - Catalog MML has one runtime path: `CompiledOpnaSong` -> exact `CompiledOpnaTimeline` -> `CompiledOpnaPlayer`. The compiled-song-to-`OpnaSequencer` compatibility translator was removed; `OpnaSequencer` remains only for direct procedural motifs/tests.
 - `OpnaChipState` owns only physical chip voices/register-equivalent state. `PmdPerformanceState` owns six FM, three SSG, and four FM3 logical-part driver states; `OpnaMixer` owns selected output-profile bus gains; `SongMastering` owns EQ/filter/resonator/clipping state and accumulated measurements.
@@ -177,9 +178,10 @@
 
 ## Verification
 
-- Latest structural check after the first two surgical sound-boundary repairs: common metadata, Android shared-engine code, and app Kotlin compilation succeeded. The existing OPNA hot-path audit also passed as a build dependency.
+- Latest structural check after the R0-R5 repairs and compiled-program package splice: common metadata, Android shared-engine code, and app Kotlin compilation succeeded. The existing OPNA hot-path audit also passed as a build dependency.
 - Static review found no physical `audio/opna` source dependency on `CompiledOpnaPlayer`, `CompiledOpnaTimeline`, or `PmdPerformanceState`, and no compiled-event interpretation in `OpnaLikeSynthesizer`.
-- No tests, debug APK assembly, or Windows-native build were run for these repairs.
+- The package splice changed only package declarations and required imports across 12 production files; event arrays, visibility, algorithms, timing, and sound-affecting values were unchanged.
+- No tests, debug APK assembly, Windows-native build, or human listening pass were run for these repairs.
 - Structural compilation and automated audits do not prove acoustic equivalence. Human product-path listening remains required before musical acceptance.
 - Compilation-only local build command:
 
@@ -191,6 +193,7 @@ $env:JAVA_HOME="D:\Programes\Android Studio\jbr"; .\gradlew :shared-engine:compi
 ## Current Task Focus
 
 - Preserve the completed one-way live sound boundary: PMD/player state and interpretation stay in `CompiledOpnaPlayer`; the chip renderer receives resolved controls and must not regain a player/timeline dependency.
+- Keep `CompiledInstrumentBank`, `CompiledOpnaSong`, and `CompiledOpnaTimeline` under `audio.mml`; do not move compiled driver-program data back into the physical OPNA package.
 - Treat `soundaudit.md` as diagnostic guidance, not blanket authorization. Continue only with explicitly scoped surgical ownership repairs; do not bundle recalibration, semantic rewrites, new playback paths, or broad package cleanup.
 - The architectural repair R0-R5 is implemented and locally verified. Do not restore note-attached hardware-LFO truth, scheduler-side song-state mutation, shared-register writes from `SsgVoice.applyPatch()`, the retired compiled-song sequencer path, or mixed chip/driver/output ownership.
 - Keep the parser/compiler v2-only. Do not restore headerless/v1 parsing, the removed v1 compiler branch, obsolete dialect metadata, or the deleted Bad Apple migration fixture.
