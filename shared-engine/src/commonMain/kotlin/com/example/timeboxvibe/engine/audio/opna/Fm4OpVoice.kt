@@ -33,6 +33,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private var lfoDelayRemaining: Int = 0
     private var currentPmQ20: Int = 0
     private var currentAmAttenuation: Int = 0
+    private var activeRenderBindingMode: Int = FmRenderBinding.MODE_IDENTITY
     private val currentDriverPitchQ20 = IntArray(AudioLaws.FM_OPERATORS)
     private val currentDriverVolumeOffset = IntArray(AudioLaws.FM_OPERATORS)
     private val rampStartStep = LongArray(AudioLaws.FM_OPERATORS)
@@ -464,6 +465,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         op0Feedback2 = 0
         lowPassPrev = 0f
         specialMode = false
+        activeRenderBindingMode = FmRenderBinding.MODE_IDENTITY
         currentDriverPitchQ20.fill(0)
         currentDriverVolumeOffset.fill(0)
         var i = 0
@@ -498,6 +500,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         rampFrames = 0
         rampPosition = 0
         specialMode = false
+        activeRenderBindingMode = FmRenderBinding.MODE_IDENTITY
         currentDriverPitchQ20.fill(0)
         currentDriverVolumeOffset.fill(0)
         var i = 0
@@ -532,7 +535,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         startFrame: Int = 0,
         lfo: Lfo? = null
     ) {
-        renderDriven(buffer, frames, sampleRate, gainScale, startFrame, lfo, null, null)
+        renderDriven(buffer, frames, sampleRate, gainScale, startFrame, lfo, null)
     }
 
     internal fun renderDriven(
@@ -542,15 +545,35 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         gainScale: Float,
         startFrame: Int,
         lfo: Lfo?,
-        driverFrame: PmdModulationFrame?,
-        fm3DriverFrames: Array<PmdModulationFrame?>?
+        renderBinding: FmRenderBinding?
     ) {
         if (configuredOperatorMask == 0) {
             return
         }
 
         val combinedGain = gainScale * noteGain
+        val bindingMode = renderBinding?.mode ?: FmRenderBinding.MODE_IDENTITY
+        activeRenderBindingMode = bindingMode
+        if (bindingMode == FmRenderBinding.MODE_IDENTITY) {
+            renderUnstreamed(buffer, frames, startFrame, lfo, combinedGain)
+            return
+        }
+        val binding = renderBinding ?: return
+        copyBaseAttenuation(binding)
+        if (bindingMode == FmRenderBinding.MODE_SCALAR) {
+            renderUnstreamed(buffer, frames, startFrame, lfo, combinedGain)
+            return
+        }
+        renderStreamed(buffer, frames, startFrame, lfo, combinedGain, binding)
+    }
 
+    private fun renderUnstreamed(
+        buffer: FloatArray,
+        frames: Int,
+        startFrame: Int,
+        lfo: Lfo?,
+        combinedGain: Float
+    ) {
         if (enableOversampling) {
             val osFrames = frames * 2
             if (oversampleBuffer.size < osFrames) return
@@ -558,9 +581,9 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             var frame = 0
             while (frame < frames) {
                 val first = frame * 2
-                setLfoFrame(lfo, frame, clockFrame = true, driverFrame, fm3DriverFrames)
+                setLfoFrame(lfo, frame, clockFrame = true)
                 oversampleBuffer[first] = renderOne(clockEnvelope = true) * combinedGain
-                setLfoFrame(lfo, frame, clockFrame = false, driverFrame, fm3DriverFrames)
+                setLfoFrame(lfo, frame, clockFrame = false)
                 oversampleBuffer[first + 1] = renderOne(clockEnvelope = false) * combinedGain
                 frame++
             }
@@ -568,10 +591,45 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         } else {
             var i = 0
             while (i < frames) {
-                setLfoFrame(lfo, i, clockFrame = true, driverFrame, fm3DriverFrames)
+                setLfoFrame(lfo, i, clockFrame = true)
                 val sample = renderOne(clockEnvelope = true)
                 buffer[startFrame + i] += sample * combinedGain
                 i++
+            }
+        }
+    }
+
+    private fun renderStreamed(
+        buffer: FloatArray,
+        frames: Int,
+        startFrame: Int,
+        lfo: Lfo?,
+        combinedGain: Float,
+        renderBinding: FmRenderBinding
+    ) {
+        if (enableOversampling) {
+            val osFrames = frames * 2
+            if (oversampleBuffer.size < osFrames) return
+            oversampleBuffer.fill(0f, 0, osFrames)
+            var frame = 0
+            while (frame < frames) {
+                val first = frame * 2
+                setLfoFrame(lfo, frame, clockFrame = true)
+                readRenderStreams(renderBinding, frame)
+                oversampleBuffer[first] = renderOne(clockEnvelope = true) * combinedGain
+                setLfoFrame(lfo, frame, clockFrame = false)
+                oversampleBuffer[first + 1] = renderOne(clockEnvelope = false) * combinedGain
+                frame++
+            }
+            applyLowPassAndDownsample(oversampleBuffer, osFrames, buffer, startFrame, frames)
+        } else {
+            var frame = 0
+            while (frame < frames) {
+                setLfoFrame(lfo, frame, clockFrame = true)
+                readRenderStreams(renderBinding, frame)
+                val sample = renderOne(clockEnvelope = true)
+                buffer[startFrame + frame] += sample * combinedGain
+                frame++
             }
         }
     }
@@ -715,9 +773,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private fun setLfoFrame(
         lfo: Lfo?,
         frame: Int,
-        clockFrame: Boolean,
-        driverFrame: PmdModulationFrame?,
-        fm3DriverFrames: Array<PmdModulationFrame?>?
+        clockFrame: Boolean
     ) {
         val delayed = lfoDelayRemaining > 0
         if (clockFrame && delayed) lfoDelayRemaining--
@@ -730,12 +786,6 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             val amDepth = OpnaLfoLaws.amsDepthAttenuation(channelHardwareAms)
             currentAmAttenuation = (lfo.amAt(frame) * amDepth) shr 10
         }
-        var operator = 0
-        while (operator < AudioLaws.FM_OPERATORS) {
-            val selected = if (specialMode) fm3DriverFrames?.get(operator) else driverFrame
-            copyDriverFrame(selected, frame, operator)
-            operator++
-        }
     }
 
     private fun operatorAttenuation(op: OperatorState, opIndex: Int, clockEnvelope: Boolean): Int {
@@ -746,41 +796,55 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             op.opnEnvelope.currentAttenuation()
         }
         var result = envelope + if (op.amEnabled) currentAmAttenuation else 0
-        result += currentDriverVolumeOffset[opIndex]
+        if (activeRenderBindingMode != FmRenderBinding.MODE_IDENTITY) {
+            result += currentDriverVolumeOffset[opIndex]
+        }
         return result
     }
 
     private fun advancePhase(op: OperatorState, opIndex: Int) {
         val base = op.phaseStep.toLong()
-        val softwarePitch = currentDriverPitchQ20[opIndex]
-        val delta = (base * (currentPmQ20 + softwarePitch).toLong()) shr 20
+        val modulation = if (activeRenderBindingMode == FmRenderBinding.MODE_STREAMED) {
+            currentPmQ20 + currentDriverPitchQ20[opIndex]
+        } else {
+            currentPmQ20
+        }
+        val delta = (base * modulation.toLong()) shr 20
         op.phase += (base + delta).coerceAtLeast(0L).toUInt()
     }
 
-    private fun copyDriverFrame(frame: PmdModulationFrame?, frameIndex: Int, operator: Int) {
-        if (frame == null) {
-            currentDriverPitchQ20[operator] = 0
-            currentDriverVolumeOffset[operator] = 0
-            return
+    private fun copyBaseAttenuation(binding: FmRenderBinding) {
+        var operator = 0
+        while (operator < AudioLaws.FM_OPERATORS) {
+            currentDriverVolumeOffset[operator] = binding.baseAttenuation[operator]
+            operator++
         }
-        val bit = 1 shl operator
-        var pitch = 0
-        if (frame.pitchTarget1 && (frame.tlMask1 == 0 || (frame.tlMask1 and bit) != 0)) {
-            pitch += frame.pitch1Q20[frameIndex]
+    }
+
+    private fun readRenderStreams(binding: FmRenderBinding, frameIndex: Int) {
+        currentDriverPitchQ20.fill(0)
+        copyBaseAttenuation(binding)
+        var stream = 0
+        while (stream < binding.pitchStreamCount) {
+            val values = binding.pitchStreams[stream]
+            if (values != null) addStreamValue(currentDriverPitchQ20, binding.pitchMasks[stream], values[frameIndex])
+            stream++
         }
-        if (frame.pitchTarget2 && (frame.tlMask2 == 0 || (frame.tlMask2 and bit) != 0)) {
-            pitch += frame.pitch2Q20[frameIndex]
+        stream = 0
+        while (stream < binding.attenuationStreamCount) {
+            val values = binding.attenuationStreams[stream]
+            if (values != null) {
+                addStreamValue(currentDriverVolumeOffset, binding.attenuationMasks[stream], values[frameIndex])
+            }
+            stream++
         }
-        var attenuation = frame.baseAttenuation
-        val carrier = isCarrier(operator, channelAlgorithm)
-        if (frame.volumeTarget1 && (if (frame.tlMask1 == 0) carrier else (frame.tlMask1 and bit) != 0)) {
-            attenuation -= frame.volume1[frameIndex] * 8
-        }
-        if (frame.volumeTarget2 && (if (frame.tlMask2 == 0) carrier else (frame.tlMask2 and bit) != 0)) {
-            attenuation -= frame.volume2[frameIndex] * 8
-        }
-        currentDriverPitchQ20[operator] = pitch
-        currentDriverVolumeOffset[operator] = attenuation
+    }
+
+    private fun addStreamValue(destination: IntArray, operatorMask: Int, value: Int) {
+        if ((operatorMask and 1) != 0) destination[0] += value
+        if ((operatorMask and 2) != 0) destination[1] += value
+        if ((operatorMask and 4) != 0) destination[2] += value
+        if ((operatorMask and 8) != 0) destination[3] += value
     }
 
     private fun configurePitchRamp(p: FmPatch) {

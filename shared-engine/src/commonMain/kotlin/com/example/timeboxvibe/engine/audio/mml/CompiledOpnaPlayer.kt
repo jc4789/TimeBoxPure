@@ -4,10 +4,10 @@ import com.example.timeboxvibe.engine.audio.AudioLaws
 import com.example.timeboxvibe.engine.audio.midiToFreq
 import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaSong
 import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaTimeline
+import com.example.timeboxvibe.engine.audio.opna.FmRenderBinding
 import com.example.timeboxvibe.engine.audio.opna.OpnPitch
 import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
-import com.example.timeboxvibe.engine.audio.opna.PmdModulationFrame
-import com.example.timeboxvibe.engine.audio.opna.PmdSsgFrame
+import com.example.timeboxvibe.engine.audio.opna.SsgRenderBinding
 
 /** Allocation-free PMD owner and cursor over one immutable [CompiledOpnaTimeline]. */
 class CompiledOpnaPlayer internal constructor(
@@ -19,13 +19,19 @@ class CompiledOpnaPlayer internal constructor(
     private val seekStereoBuffer = FloatArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK * CHANNELS_STEREO)
     private val fmActiveNoteId = IntArray(AudioLaws.FM_RENDER_VOICES) { FM_VOICE_FREE }
     private val fmLogicalPartByVoice = IntArray(AudioLaws.FM_RENDER_VOICES)
-    private val fmDriverFrameByVoice = arrayOfNulls<PmdModulationFrame>(AudioLaws.FM_RENDER_VOICES)
+    private val fmRenderBindingStorage = Array(AudioLaws.FM_RENDER_VOICES) { FmRenderBinding() }
+    private val fmRenderBindingByVoice = arrayOfNulls<FmRenderBinding>(AudioLaws.FM_RENDER_VOICES)
     private val ssgActiveNoteId = IntArray(AudioLaws.SSG_CHANNELS) { NOTE_ID_NONE }
-    private val ssgDriverFrameByChannel = arrayOfNulls<PmdSsgFrame>(AudioLaws.SSG_CHANNELS)
+    private val ssgPerformanceFrameByChannel = arrayOfNulls<PmdSsgFrame>(AudioLaws.SSG_CHANNELS)
+    private val ssgRenderBindingStorage = Array(AudioLaws.SSG_CHANNELS) { SsgRenderBinding() }
+    private val ssgRenderBindingByChannel = arrayOfNulls<SsgRenderBinding>(AudioLaws.SSG_CHANNELS)
     private val ssgReleasePending = BooleanArray(AudioLaws.SSG_CHANNELS)
-    private val ssgStopAfterFrame = IntArray(AudioLaws.SSG_CHANNELS) { STOP_FRAME_NONE }
+    private val ssgDisableAfterFrame = IntArray(AudioLaws.SSG_CHANNELS) { DISABLE_FRAME_NONE }
     private val fm3ActiveNoteId = IntArray(AudioLaws.FM_OPERATORS) { NOTE_ID_NONE }
-    private val fm3DriverFrameByOperator = arrayOfNulls<PmdModulationFrame>(AudioLaws.FM_OPERATORS)
+    private val fm3PerformanceFrameByOperator = arrayOfNulls<PmdFmFrame>(AudioLaws.FM_OPERATORS)
+    private val fm3GroupedSource = arrayOfNulls<PmdFmFrame>(AudioLaws.FM_OPERATORS)
+    private val fm3GroupedOperatorMask = IntArray(AudioLaws.FM_OPERATORS)
+    private var fm3UsesLogicalParts = false
     private var renderedSampleOffset: Long = 0L
     private var activeChannelCount: Int = CHANNELS_MONO
     private var activeOutputStage: Int = STAGE_PROFILED_PRE_MASTER
@@ -250,10 +256,9 @@ class CompiledOpnaPlayer internal constructor(
             frames,
             stereo = channelCount == CHANNELS_STEREO,
             rawCore = outputStage == STAGE_RAW_CORE,
-            fmDriverFrames = fmDriverFrameByVoice,
-            ssgDriverFrames = ssgDriverFrameByChannel,
-            fm3DriverFrames = fm3DriverFrameByOperator,
-            ssgStopAfterFrame = ssgStopAfterFrame
+            fmRenderBindings = fmRenderBindingByVoice,
+            ssgRenderBindings = ssgRenderBindingByChannel,
+            ssgDisableAfterFrame = ssgDisableAfterFrame
         )
     }
 
@@ -261,23 +266,24 @@ class CompiledOpnaPlayer internal constructor(
         var channel = 0
         while (channel < AudioLaws.SSG_CHANNELS) {
             performance.setSsgBaseLevel(channel, synthesizer.ssg[channel].fixedLevelSnapshot())
-            ssgStopAfterFrame[channel] = STOP_FRAME_NONE
+            ssgDisableAfterFrame[channel] = DISABLE_FRAME_NONE
             channel++
         }
         performance.prepare(frames)
         channel = 0
         while (channel < AudioLaws.SSG_CHANNELS) {
             if (ssgReleasePending[channel]) {
-                val frame = ssgDriverFrameByChannel[channel]
+                val frame = ssgPerformanceFrameByChannel[channel]
                 var sample = 0
                 while (frame != null && sample < frames && !frame.releaseFinished[sample]) sample++
                 if (sample < frames) {
-                    ssgStopAfterFrame[channel] = sample
+                    ssgDisableAfterFrame[channel] = sample
                     ssgReleasePending[channel] = false
                 }
             }
             channel++
         }
+        resolveRenderBindings(synthesizer)
     }
 
     private fun handleTimelineEvent(synthesizer: OpnaLikeSynthesizer, index: Int) {
@@ -355,7 +361,7 @@ class CompiledOpnaPlayer internal constructor(
                 val part = fm3PartIndex(timeline.logicalPart[index])
                 val mask = timeline.controlValue(index)
                 performance.setSlotMask(part, mask)
-                bindFm3DriverFrames(part, mask)
+                bindFm3PerformanceFrames(part, mask)
             }
             in CompiledOpnaTimeline.RHYTHM_CONTROL_SHOT..CompiledOpnaTimeline.RHYTHM_VOICE_PAN ->
                 handleRhythmControl(
@@ -400,6 +406,7 @@ class CompiledOpnaPlayer internal constructor(
             bindFmVoiceToPart(channel, channel)
             performance.noteOnFm(channel)
         }
+        if (channel == FM3_PHYSICAL_VOICE) fm3UsesLogicalParts = false
         voice.noteOnScheduled(timeline.midi[index], -1f, -1f, -1f, -1f)
         voice.noteGain = timeline.velocity[index]
         fmActiveNoteId[channel] = timeline.noteId[index]
@@ -431,6 +438,7 @@ class CompiledOpnaPlayer internal constructor(
         )
         bindFmVoiceToPart(voiceIndex, part)
         performance.noteOnFm(part)
+        if (voiceIndex == FM3_PHYSICAL_VOICE) fm3UsesLogicalParts = false
         voice.noteOnScheduled(timeline.midi[index], -1f, -1f, -1f, -1f)
         voice.noteGain = timeline.velocity[index]
         fmActiveNoteId[voiceIndex] = timeline.noteId[index]
@@ -488,8 +496,9 @@ class CompiledOpnaPlayer internal constructor(
         val mask = timeline.slotMask[index] and SLOT_MASK_ALL
         val part = fm3PartIndex(timeline.logicalPart[index])
         performance.setSlotMask(part, mask)
-        bindFm3DriverFrames(part, mask)
+        bindFm3PerformanceFrames(part, mask)
         performance.noteOnFm3(part)
+        fm3UsesLogicalParts = true
         val voice = synthesizer.fm[FM3_PHYSICAL_VOICE]
         synthesizer.setFmHardwareLfoPms(
             FM3_PHYSICAL_VOICE,
@@ -685,16 +694,109 @@ class CompiledOpnaPlayer internal constructor(
 
     private fun bindFmVoiceToPart(voice: Int, part: Int) {
         fmLogicalPartByVoice[voice] = part
-        fmDriverFrameByVoice[voice] = performance.fmFrame(part)
     }
 
-    private fun bindFm3DriverFrames(part: Int, mask: Int) {
+    private fun bindFm3PerformanceFrames(part: Int, mask: Int) {
         val frame = performance.fm3Frame(part) ?: return
         var operator = 0
-        while (operator < fm3DriverFrameByOperator.size) {
-            if ((mask and (1 shl operator)) != 0) fm3DriverFrameByOperator[operator] = frame
+        while (operator < fm3PerformanceFrameByOperator.size) {
+            if ((mask and (1 shl operator)) != 0) fm3PerformanceFrameByOperator[operator] = frame
             operator++
         }
+    }
+
+    private fun resolveRenderBindings(synthesizer: OpnaLikeSynthesizer) {
+        resolveFmRenderBindings(synthesizer)
+        var channel = 0
+        while (channel < ssgRenderBindingByChannel.size) {
+            val source = ssgPerformanceFrameByChannel[channel]
+            if (source == null) {
+                ssgRenderBindingByChannel[channel] = null
+            } else {
+                val binding = ssgRenderBindingStorage[channel]
+                binding.bind(source.tonePeriodOffset, source.volumeOffset, source.softwareEnvelopeLevel)
+                ssgRenderBindingByChannel[channel] = binding
+            }
+            channel++
+        }
+    }
+
+    private fun resolveFmRenderBindings(synthesizer: OpnaLikeSynthesizer) {
+        var voice = 0
+        while (voice < fmRenderBindingByVoice.size) {
+            val binding = fmRenderBindingStorage[voice]
+            binding.reset()
+            val algorithm = synthesizer.fm[voice].algorithmSnapshot()
+            if (voice == FM3_PHYSICAL_VOICE && fm3UsesLogicalParts) {
+                resolveFm3Sources(binding, algorithm)
+            } else {
+                bindFmSource(
+                    binding,
+                    performance.fmFrame(fmLogicalPartByVoice[voice]),
+                    SLOT_MASK_ALL,
+                    algorithm
+                )
+            }
+            fmRenderBindingByVoice[voice] = if (binding.finish()) binding else null
+            voice++
+        }
+    }
+
+    private fun resolveFm3Sources(binding: FmRenderBinding, algorithm: Int) {
+        var groupCount = 0
+        var operator = 0
+        while (operator < AudioLaws.FM_OPERATORS) {
+            val source = fm3PerformanceFrameByOperator[operator]
+            if (source != null) {
+                var group = 0
+                while (group < groupCount && fm3GroupedSource[group] !== source) group++
+                if (group == groupCount) {
+                    fm3GroupedSource[group] = source
+                    fm3GroupedOperatorMask[group] = 0
+                    groupCount++
+                }
+                fm3GroupedOperatorMask[group] = fm3GroupedOperatorMask[group] or (1 shl operator)
+            }
+            operator++
+        }
+        var group = 0
+        while (group < groupCount) {
+            bindFmSource(binding, fm3GroupedSource[group], fm3GroupedOperatorMask[group], algorithm)
+            fm3GroupedSource[group] = null
+            fm3GroupedOperatorMask[group] = 0
+            group++
+        }
+    }
+
+    private fun bindFmSource(
+        binding: FmRenderBinding,
+        source: PmdFmFrame?,
+        physicalOperatorMask: Int,
+        algorithm: Int
+    ) {
+        if (source == null || physicalOperatorMask == 0) return
+        binding.setBaseAttenuation(physicalOperatorMask, source.baseAttenuation)
+        val carrierMask = fmCarrierMask(algorithm)
+        val pitchMask1 = physicalOperatorMask and
+            (if (source.tlMask1 == 0) SLOT_MASK_ALL else source.tlMask1)
+        val pitchMask2 = physicalOperatorMask and
+            (if (source.tlMask2 == 0) SLOT_MASK_ALL else source.tlMask2)
+        if (source.pitchTarget1) binding.addPitchStream(source.pitch1Q20, pitchMask1)
+        if (source.pitchTarget2) binding.addPitchStream(source.pitch2Q20, pitchMask2)
+        val attenuationMask1 = physicalOperatorMask and
+            (if (source.tlMask1 == 0) carrierMask else source.tlMask1)
+        val attenuationMask2 = physicalOperatorMask and
+            (if (source.tlMask2 == 0) carrierMask else source.tlMask2)
+        if (source.volumeTarget1) binding.addAttenuationStream(source.attenuation1, attenuationMask1)
+        if (source.volumeTarget2) binding.addAttenuationStream(source.attenuation2, attenuationMask2)
+    }
+
+    private fun fmCarrierMask(algorithm: Int): Int = when (algorithm) {
+        0, 1, 2, 3 -> 1 shl 3
+        4 -> (1 shl 1) or (1 shl 3)
+        5, 6 -> (1 shl 1) or (1 shl 2) or (1 shl 3)
+        7 -> SLOT_MASK_ALL
+        else -> 0
     }
 
     private fun resetDriverOwnership() {
@@ -702,6 +804,8 @@ class CompiledOpnaPlayer internal constructor(
         var voice = 0
         while (voice < fmActiveNoteId.size) {
             fmActiveNoteId[voice] = FM_VOICE_FREE
+            fmRenderBindingStorage[voice].reset()
+            fmRenderBindingByVoice[voice] = null
             bindFmVoiceToPart(
                 voice,
                 if (voice < AudioLaws.FM_CHANNELS) voice else CompiledOpnaSong.LOGICAL_PART_NONE
@@ -711,17 +815,21 @@ class CompiledOpnaPlayer internal constructor(
         var channel = 0
         while (channel < ssgActiveNoteId.size) {
             ssgActiveNoteId[channel] = NOTE_ID_NONE
-            ssgDriverFrameByChannel[channel] = performance.ssgFrame(channel)
+            ssgPerformanceFrameByChannel[channel] = performance.ssgFrame(channel)
+            ssgRenderBindingByChannel[channel] = null
             ssgReleasePending[channel] = false
-            ssgStopAfterFrame[channel] = STOP_FRAME_NONE
+            ssgDisableAfterFrame[channel] = DISABLE_FRAME_NONE
             channel++
         }
         var operator = 0
         while (operator < fm3ActiveNoteId.size) {
             fm3ActiveNoteId[operator] = NOTE_ID_NONE
-            fm3DriverFrameByOperator[operator] = performance.fm3Frame(operator)
+            fm3PerformanceFrameByOperator[operator] = performance.fm3Frame(operator)
+            fm3GroupedSource[operator] = null
+            fm3GroupedOperatorMask[operator] = 0
             operator++
         }
+        fm3UsesLogicalParts = false
     }
 
     private fun fm3PartIndex(logicalPart: Int): Int {
@@ -740,7 +848,7 @@ class CompiledOpnaPlayer internal constructor(
         private const val FM_VOICE_FREE = -1
         private const val FM_VOICE_RELEASING = -2
         private const val NOTE_ID_NONE = -1
-        private const val STOP_FRAME_NONE = -1
+        private const val DISABLE_FRAME_NONE = -1
         private const val FM3_PHYSICAL_VOICE = 2
         private const val SLOT_MASK_ALL = 15
     }

@@ -4,8 +4,50 @@ import com.example.timeboxvibe.engine.audio.AudioLaws
 import com.example.timeboxvibe.engine.audio.opna.CompiledOpnaSong
 import com.example.timeboxvibe.engine.audio.opna.OpnaLikeSynthesizer
 import com.example.timeboxvibe.engine.audio.opna.OpnRateEnvelope
-import com.example.timeboxvibe.engine.audio.opna.PmdModulationFrame
-import com.example.timeboxvibe.engine.audio.opna.PmdSsgFrame
+
+/** PMD-owned per-part software modulation, targets, and TL policy. */
+internal class PmdFmFrame {
+    val pitch1Q20 = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
+    val pitch2Q20 = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
+    val attenuation1 = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
+    val attenuation2 = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
+    var pitchTarget1 = false
+    var pitchTarget2 = false
+    var volumeTarget1 = false
+    var volumeTarget2 = false
+    var tlMask1 = 0
+    var tlMask2 = 0
+    var baseAttenuation = 0
+
+    fun clear() {
+        pitch1Q20.fill(0)
+        pitch2Q20.fill(0)
+        attenuation1.fill(0)
+        attenuation2.fill(0)
+        pitchTarget1 = false
+        pitchTarget2 = false
+        volumeTarget1 = false
+        volumeTarget2 = false
+        tlMask1 = 0
+        tlMask2 = 0
+        baseAttenuation = 0
+    }
+}
+
+/** PMD-owned SSG software modulation and release output. */
+internal class PmdSsgFrame {
+    val tonePeriodOffset = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
+    val volumeOffset = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
+    val softwareEnvelopeLevel = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
+    val releaseFinished = BooleanArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
+
+    fun clear(baseLevel: Int) {
+        tonePeriodOffset.fill(0)
+        volumeOffset.fill(0)
+        softwareEnvelopeLevel.fill(baseLevel.coerceIn(0, 15))
+        releaseFinished.fill(false)
+    }
+}
 
 /** Allocation-free PMD logical-part state, independent of physical YM2608 voice assignment. */
 internal class PmdPerformanceState(sampleRate: Int) {
@@ -42,13 +84,13 @@ internal class PmdPerformanceState(sampleRate: Int) {
         prepareParts(fm3Parts, count)
     }
 
-    fun fmFrame(part: Int): PmdModulationFrame? =
+    fun fmFrame(part: Int): PmdFmFrame? =
         if (part in fmParts.indices) fmParts[part].modulation else null
 
     fun ssgFrame(part: Int): PmdSsgFrame? =
         if (part in ssgParts.indices) ssgParts[part].ssgFrame else null
 
-    fun fm3Frame(part: Int): PmdModulationFrame? =
+    fun fm3Frame(part: Int): PmdFmFrame? =
         if (part in fm3Parts.indices) fm3Parts[part].modulation else null
 
     fun setSsgBaseLevel(part: Int, level: Int) {
@@ -261,7 +303,7 @@ internal class PmdPerformanceState(sampleRate: Int) {
         val lfo1 = PmdSoftwareLfo(sampleRate, randomSeed)
         val lfo2 = PmdSoftwareLfo(sampleRate, randomSeed xor SECOND_LFO_SEED_XOR)
         val envelope = if (withEnvelope) PmdSoftwareEnvelope(sampleRate) else null
-        val modulation = PmdModulationFrame()
+        val modulation = PmdFmFrame()
         val ssgFrame = if (withEnvelope) PmdSsgFrame() else null
         var volume = 127
         var slotMask = 0
@@ -306,8 +348,8 @@ internal class PmdPerformanceState(sampleRate: Int) {
                 val volume2 = lfo2.volumeValue()
                 output.pitch1Q20[frame] = pitch1 shl 9
                 output.pitch2Q20[frame] = pitch2 shl 9
-                output.volume1[frame] = volume1
-                output.volume2[frame] = volume2
+                output.attenuation1[frame] = -volume1 * SOFTWARE_VOLUME_ATTENUATION_STEP
+                output.attenuation2[frame] = -volume2 * SOFTWARE_VOLUME_ATTENUATION_STEP
                 if (selectedSsg != null) {
                     val selectedEnvelope = envelope
                     selectedSsg.tonePeriodOffset[frame] = pitch1 + pitch2
@@ -372,6 +414,7 @@ internal class PmdPerformanceState(sampleRate: Int) {
         const val SECOND_LFO_SEED_XOR = 0x2468ACE0
         const val PART_SEED_STEP = 0x10203
         const val DEFAULT_SSG_LEVEL = 12
+        const val SOFTWARE_VOLUME_ATTENUATION_STEP = 8
 
         fun seedFor(family: Int, part: Int): Int =
             PmdPerformanceLaws.SOFTWARE_LFO_RANDOM_SEED xor family xor (part * PART_SEED_STEP)

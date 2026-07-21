@@ -26,9 +26,8 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     val preClampPeak: Float get() = mastering.preClampPeak
     val preClampKneeCrossings: Int get() = mastering.preClampKneeCrossings
 
-    private val directFmPartFrames = Array(AudioLaws.FM_CHANNELS) { PmdModulationFrame() }
-    private val directFmDriverFrameByVoice = arrayOfNulls<PmdModulationFrame>(AudioLaws.FM_RENDER_VOICES)
     private val directFmActiveNoteId = IntArray(AudioLaws.FM_RENDER_VOICES) { FM_VOICE_FREE }
+    private val directFmLogicalPartByVoice = IntArray(AudioLaws.FM_RENDER_VOICES)
     private val directSsgActiveNoteId = IntArray(AudioLaws.SSG_CHANNELS) { -1 }
     private val ssgHardwareStateConfigured = BooleanArray(AudioLaws.SSG_CHANNELS)
     var filterAlpha: Float
@@ -85,7 +84,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         release: Float?
     ) {
         if (channel in 0 until AudioLaws.FM_CHANNELS) {
-            directFmDriverFrameByVoice[channel] = directFmPartFrames[channel]
+            directFmLogicalPartByVoice[channel] = channel
             fm[channel].noteOn(midi, attack, decay, sustain, release)
         }
     }
@@ -93,7 +92,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     fun noteOnFm(channel: Int, midi: Int, patch: FmPatch) {
         if (channel in 0 until AudioLaws.FM_CHANNELS) {
             fm[channel].applyPatch(patch)
-            directFmDriverFrameByVoice[channel] = directFmPartFrames[channel]
+            directFmLogicalPartByVoice[channel] = channel
             setDirectFmHardwareLfo(channel, patch.pms, patch.ams)
             fm[channel].noteOn(midi)
         }
@@ -323,10 +322,9 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     private fun renderChipAndDriverCoreMonoToBuses(
         frames: Int,
-        fmDriverFrames: Array<PmdModulationFrame?>? = directFmDriverFrameByVoice,
-        ssgDriverFrames: Array<PmdSsgFrame?>? = null,
-        fm3DriverFrames: Array<PmdModulationFrame?>? = null,
-        ssgStopAfterFrame: IntArray? = null
+        fmRenderBindings: Array<FmRenderBinding?>? = null,
+        ssgRenderBindings: Array<SsgRenderBinding?>? = null,
+        ssgDisableAfterFrame: IntArray? = null
     ) {
         if (frames <= 0) return
         fmMonoBus.fill(0f, 0, frames)
@@ -335,7 +333,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         lfo.prepare(frames)
         var i = 0
         while (i < ssg.size) {
-            ssg[i].prepareDriverFrame(ssgDriverFrames?.get(i), frames)
+            ssg[i].prepareRenderBinding(ssgRenderBindings?.get(i), frames)
             i++
         }
         ssgShared.prepare(frames)
@@ -344,8 +342,8 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             ssg[i].renderDriven(
                 ssgMonoBus, frames, sampleRate, 1f, 0,
                 sharedPrepared = true,
-                driverFrame = ssgDriverFrames?.get(i),
-                stopAfterFrame = ssgStopAfterFrame?.get(i) ?: STOP_FRAME_NONE
+                renderBinding = ssgRenderBindings?.get(i),
+                disableAfterFrame = ssgDisableAfterFrame?.get(i) ?: DISABLE_FRAME_NONE
             )
             i++
         }
@@ -357,8 +355,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             } else fmMonoBus
             fm[i].renderDriven(
                 destination, frames, sampleRate, 1f, 0, lfo,
-                fmDriverFrames?.get(i),
-                if (i == FM3_PHYSICAL_VOICE) fm3DriverFrames else null
+                fmRenderBindings?.get(i)
             )
             i++
         }
@@ -381,10 +378,9 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
 
     private fun renderChipAndDriverCoreStereoToBuses(
         frames: Int,
-        fmDriverFrames: Array<PmdModulationFrame?>? = directFmDriverFrameByVoice,
-        ssgDriverFrames: Array<PmdSsgFrame?>? = null,
-        fm3DriverFrames: Array<PmdModulationFrame?>? = null,
-        ssgStopAfterFrame: IntArray? = null
+        fmRenderBindings: Array<FmRenderBinding?>? = null,
+        ssgRenderBindings: Array<SsgRenderBinding?>? = null,
+        ssgDisableAfterFrame: IntArray? = null
     ) {
         if (frames <= 0) return
         val stereoSamples = frames * STEREO_CHANNELS
@@ -394,7 +390,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         lfo.prepare(frames)
         var i = 0
         while (i < ssg.size) {
-            ssg[i].prepareDriverFrame(ssgDriverFrames?.get(i), frames)
+            ssg[i].prepareRenderBinding(ssgRenderBindings?.get(i), frames)
             i++
         }
         ssgShared.prepare(frames)
@@ -406,8 +402,8 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                 tempMonoBuffer, frames, sampleRate, 1f,
                 startFrame = 0,
                 sharedPrepared = true,
-                driverFrame = ssgDriverFrames?.get(i),
-                stopAfterFrame = ssgStopAfterFrame?.get(i) ?: STOP_FRAME_NONE
+                renderBinding = ssgRenderBindings?.get(i),
+                disableAfterFrame = ssgDisableAfterFrame?.get(i) ?: DISABLE_FRAME_NONE
             )
             panMonoToStereo(tempMonoBuffer, ssgStereoBus, frames, 0, ssg[i].getPan())
             i++
@@ -418,8 +414,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             tempMonoBuffer.fill(0f, 0, frames)
             fm[i].renderDriven(
                 tempMonoBuffer, frames, sampleRate, 1f, startFrame = 0, lfo = lfo,
-                driverFrame = fmDriverFrames?.get(i),
-                fm3DriverFrames = if (i == FM3_PHYSICAL_VOICE) fm3DriverFrames else null
+                renderBinding = fmRenderBindings?.get(i)
             )
             val pan = fm[i].getPan()
             panMonoToStereo(tempMonoBuffer, fmStereoBus, frames, 0, pan)
@@ -437,14 +432,13 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         frames: Int,
         stereo: Boolean,
         rawCore: Boolean,
-        fmDriverFrames: Array<PmdModulationFrame?>,
-        ssgDriverFrames: Array<PmdSsgFrame?>,
-        fm3DriverFrames: Array<PmdModulationFrame?>,
-        ssgStopAfterFrame: IntArray
+        fmRenderBindings: Array<FmRenderBinding?>,
+        ssgRenderBindings: Array<SsgRenderBinding?>,
+        ssgDisableAfterFrame: IntArray
     ) {
         if (stereo) {
             renderChipAndDriverCoreStereoToBuses(
-                frames, fmDriverFrames, ssgDriverFrames, fm3DriverFrames, ssgStopAfterFrame
+                frames, fmRenderBindings, ssgRenderBindings, ssgDisableAfterFrame
             )
             if (rawCore) {
                 mixer.mixRawCoreStereo(fmStereoBus, ssgStereoBus, rhythmStereoBus, buffer, startFrame, frames)
@@ -455,7 +449,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             }
         } else {
             renderChipAndDriverCoreMonoToBuses(
-                frames, fmDriverFrames, ssgDriverFrames, fm3DriverFrames, ssgStopAfterFrame
+                frames, fmRenderBindings, ssgRenderBindings, ssgDisableAfterFrame
             )
             if (rawCore) {
                 mixer.mixRawCoreMono(fmMonoBus, ssgMonoBus, rhythmMonoBus, buffer, startFrame, frames)
@@ -593,7 +587,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                     val selectedPatch = event.patch
                     if (selectedPatch != null) voice.applyPatch(selectedPatch)
                     if (ch < AudioLaws.FM_CHANNELS) {
-                        directFmDriverFrameByVoice[ch] = directFmPartFrames[ch]
+                        directFmLogicalPartByVoice[ch] = ch
                         setDirectFmHardwareLfo(ch, event.pms, event.ams)
                     }
                     voice.setNoteControls(
@@ -621,9 +615,9 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
                     val voice = fm[voiceIndex]
                     val selectedPatch = event.patch
                     if (selectedPatch != null) voice.applyPatch(selectedPatch)
-                    directFmDriverFrameByVoice[voiceIndex] =
-                        if (event.channel in directFmPartFrames.indices) directFmPartFrames[event.channel] else null
-                    if (event.channel in directFmPartFrames.indices) {
+                    directFmLogicalPartByVoice[voiceIndex] =
+                        if (event.channel in 0 until AudioLaws.FM_CHANNELS) event.channel else LOGICAL_PART_NONE
+                    if (event.channel in 0 until AudioLaws.FM_CHANNELS) {
                         setDirectFmHardwareLfo(event.channel, event.pms, event.ams)
                     } else {
                         voice.setHardwareLfoPms(0)
@@ -739,11 +733,10 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     internal fun ssgEnvelopeRestartCountSnapshot(): Int = ssgShared.envelopeRestartCountSnapshot()
 
     private fun setDirectFmHardwareLfo(part: Int, pms: Int, ams: Int) {
-        if (part !in directFmPartFrames.indices) return
-        val frame = directFmPartFrames[part]
+        if (part !in 0 until AudioLaws.FM_CHANNELS) return
         var voice = 0
-        while (voice < directFmDriverFrameByVoice.size) {
-            if (directFmDriverFrameByVoice[voice] === frame) {
+        while (voice < directFmLogicalPartByVoice.size) {
+            if (directFmLogicalPartByVoice[voice] == part) {
                 fm[voice].setHardwareLfoPms(pms)
                 fm[voice].setHardwareLfoAms(ams)
             }
@@ -752,18 +745,13 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     }
 
     private fun resetDirectDriverState() {
-        var part = 0
-        while (part < directFmPartFrames.size) {
-            directFmPartFrames[part].clear()
-            part++
-        }
         var voice = 0
-        while (voice < directFmDriverFrameByVoice.size) {
+        while (voice < directFmLogicalPartByVoice.size) {
             directFmActiveNoteId[voice] = FM_VOICE_FREE
             fm[voice].setHardwareLfoPms(0)
             fm[voice].setHardwareLfoAms(0)
-            directFmDriverFrameByVoice[voice] =
-                if (voice < directFmPartFrames.size) directFmPartFrames[voice] else null
+            directFmLogicalPartByVoice[voice] =
+                if (voice < AudioLaws.FM_CHANNELS) voice else LOGICAL_PART_NONE
             voice++
         }
         var channel = 0
@@ -806,8 +794,8 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         while (voiceIndex < directFmActiveNoteId.size) {
             if (directFmActiveNoteId[voiceIndex] == FM_VOICE_RELEASING && fm[voiceIndex].releaseFinished()) {
                 directFmActiveNoteId[voiceIndex] = FM_VOICE_FREE
-                directFmDriverFrameByVoice[voiceIndex] =
-                    if (voiceIndex < directFmPartFrames.size) directFmPartFrames[voiceIndex] else null
+                directFmLogicalPartByVoice[voiceIndex] =
+                    if (voiceIndex < AudioLaws.FM_CHANNELS) voiceIndex else LOGICAL_PART_NONE
             }
             voiceIndex++
         }
@@ -836,8 +824,8 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     companion object {
         private const val FM_VOICE_FREE = -1
         private const val FM_VOICE_RELEASING = -2
-        private const val FM3_PHYSICAL_VOICE = 2
-        private const val STOP_FRAME_NONE = -1
+        private const val LOGICAL_PART_NONE = -1
+        private const val DISABLE_FRAME_NONE = -1
         private const val STEREO_CHANNELS = 2
         const val MAX_FRAMES_PER_CHUNK = 1024
         const val SOFT_CLIP_KNEE = SongMastering.SOFT_CLIP_KNEE
