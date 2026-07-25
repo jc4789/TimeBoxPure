@@ -88,3 +88,96 @@ class Lfo(private val sampleRate: Int = 48_000) {
         phaseRemainder = 0L
     }
 }
+
+/**
+ * Physical YM2608 Timer B clock.
+ *
+ * The preset is the reload latch. [loadAndStart] loads it into the active
+ * period, and each overflow automatically reloads the latest preset while
+ * carrying the sub-sample master-clock remainder forward.
+ */
+internal class OpnaTimerB(private val sampleRate: Int) {
+    companion object {
+        private const val PRESET_MIN = 0
+        private const val PRESET_MAX = 255
+        private const val COUNTER_MODULUS = 256
+        private const val MASTER_CLOCKS_PER_STEP = 1152
+    }
+
+    private val overflowCount = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
+    private var preset = PRESET_MIN
+    private var activePeriodThreshold = thresholdFor(preset)
+    private var masterClockAccumulator = 0L
+    private var running = false
+    private var notificationsEnabled = false
+    private var preparedFrames = 0
+
+    init {
+        require(sampleRate > 0) { "Timer B sample rate must be positive" }
+    }
+
+    fun setPreset(value: Int) {
+        require(value >= PRESET_MIN && value <= PRESET_MAX) { "Timer B preset must be in 0..255" }
+        preset = value
+    }
+
+    fun loadAndStart() {
+        activePeriodThreshold = thresholdFor(preset)
+        masterClockAccumulator = 0L
+        running = true
+    }
+
+    fun stop() {
+        running = false
+    }
+
+    fun setNotificationsEnabled(enabled: Boolean) {
+        notificationsEnabled = enabled
+    }
+
+    fun prepare(frames: Int) {
+        require(frames >= 0 && frames <= overflowCount.size) {
+            "Timer B frame count exceeds the prepared interval"
+        }
+        overflowCount.fill(0, 0, frames)
+        preparedFrames = frames
+        if (!running || frames == 0) return
+
+        var frame = 0
+        while (frame < frames) {
+            masterClockAccumulator += OpnPitch.MASTER_CLOCK_HZ.toLong()
+            var overflows = 0
+            while (masterClockAccumulator >= activePeriodThreshold) {
+                masterClockAccumulator -= activePeriodThreshold
+                activePeriodThreshold = thresholdFor(preset)
+                overflows++
+            }
+            if (notificationsEnabled) overflowCount[frame] = overflows
+            frame++
+        }
+    }
+
+    fun consumeOverflowCount(frame: Int): Int {
+        require(frame >= 0 && frame < preparedFrames) {
+            "Timer B notification frame is outside the prepared interval"
+        }
+        val count = overflowCount[frame]
+        overflowCount[frame] = 0
+        return count
+    }
+
+    fun reset() {
+        preset = PRESET_MIN
+        activePeriodThreshold = thresholdFor(preset)
+        masterClockAccumulator = 0L
+        running = false
+        notificationsEnabled = false
+        preparedFrames = 0
+        overflowCount.fill(0)
+    }
+
+    private fun thresholdFor(value: Int): Long {
+        val periodMasterClocks = MASTER_CLOCKS_PER_STEP.toLong() * (COUNTER_MODULUS - value).toLong()
+        return sampleRate.toLong() * periodMasterClocks
+    }
+}

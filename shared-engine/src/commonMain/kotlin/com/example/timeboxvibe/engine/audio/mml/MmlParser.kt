@@ -7,6 +7,15 @@ data class MmlDiagnostic(val line: Int, val column: Int, val reason: String)
 
 enum class MmlChannelId { A, B, C, D, E, F, G, H, I, C1, C2, C3, C4, K, R }
 
+enum class MmlTimingOperation { ABSOLUTE, RELATIVE }
+
+sealed class MmlDurationSpec {
+    abstract val value: Int
+
+    data class NoteDenominator(override val value: Int) : MmlDurationSpec()
+    data class DirectPmdClocks(override val value: Int) : MmlDurationSpec()
+}
+
 sealed class MmlCommand(open val line: Int, open val column: Int) {
     /** Canonical authored order assigned after all logical-part sources are parsed. */
     internal var sourceOrder: Int = -1
@@ -23,17 +32,18 @@ sealed class MmlCommand(open val line: Int, open val column: Int) {
     data class Note(
         val letter: Char,
         val accidental: Int,
-        val denominator: Int?,
+        val length: MmlDurationSpec?,
         override val line: Int,
         override val column: Int,
-        val dotted: Boolean = false,
+        val dotCount: Int = 0,
         val link: Int = LINK_NONE
     ) : MmlCommand(line, column)
-    data class Rest(val denominator: Int?, override val line: Int, override val column: Int, val dotted: Boolean = false) : MmlCommand(line, column)
-    data class Drum(val kind: Char, val denominator: Int?, override val line: Int, override val column: Int, val dotted: Boolean = false) : MmlCommand(line, column)
+    data class Rest(val length: MmlDurationSpec?, override val line: Int, override val column: Int, val dotCount: Int = 0) : MmlCommand(line, column)
+    data class Drum(val kind: Char, val length: MmlDurationSpec?, override val line: Int, override val column: Int, val dotCount: Int = 0) : MmlCommand(line, column)
     data class Gate(val value: Int, val scale: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
     data class GateTail(
-        val fromClocks: Int?,
+        val from: MmlDurationSpec?,
+        val fromDotCount: Int,
         val toClocks: Int?,
         val minimumClocks: Int?,
         override val line: Int,
@@ -99,7 +109,19 @@ sealed class MmlCommand(open val line: Int, open val column: Int) {
     ) : MmlCommand(line, column)
     data class RhythmVoicePan(val voice: Int, val pan: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
     data class RhythmPatternSelect(val pattern: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
-    data class Tempo(val bpm: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
+    data class MusicalTempo(
+        val value: Int,
+        val operation: MmlTimingOperation,
+        override val line: Int,
+        override val column: Int
+    ) : MmlCommand(line, column)
+    data class TimerB(
+        val value: Int,
+        val operation: MmlTimingOperation,
+        override val line: Int,
+        override val column: Int
+    ) : MmlCommand(line, column)
+    data class WholeNoteClocks(val value: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
     data class HardwareLfo(
         val pms: Int,
         val ams: Int,
@@ -146,15 +168,15 @@ sealed class MmlCommand(open val line: Int, open val column: Int) {
         val fromAccidental: Int,
         val toLetter: Char,
         val toAccidental: Int,
-        val denominator: Int?,
-        val dotted: Boolean,
+        val length: MmlDurationSpec?,
+        val dotCount: Int,
         override val line: Int,
         override val column: Int
     ) : MmlCommand(line, column)
     data class Chord(
         val pitches: List<Pair<Char, Int>>,
-        val denominator: Int?,
-        val dotted: Boolean,
+        val length: MmlDurationSpec?,
+        val dotCount: Int,
         override val line: Int,
         override val column: Int
     ) : MmlCommand(line, column)
@@ -186,7 +208,10 @@ data class MmlDocument(
     val bpmMilli: Int = (bpm * PmdPerformanceLaws.BPM_MILLI_SCALE + 0.5f).toInt(),
     val pmdClocksPerQuarter: Int = PmdPerformanceLaws.DEFAULT_CLOCKS_PER_QUARTER,
     val envelopeClockMode: Int = PmdPerformanceLaws.ENVELOPE_CLOCK_NORMAL,
-    val rhythmPatterns: List<MmlRhythmPattern> = emptyList()
+    val rhythmPatterns: List<MmlRhythmPattern> = emptyList(),
+    val initialMusicalTempo: Int? = null,
+    val initialTimerB: Int? = null,
+    val initialWholeNoteClocks: Int = PmdPerformanceLaws.DEFAULT_WHOLE_NOTE_CLOCKS
 )
 
 sealed class MmlParseResult {
@@ -250,6 +275,9 @@ object MmlParser {
         var bpmMilli: Int? = null
         var pmdClocksPerQuarter = PmdPerformanceLaws.DEFAULT_CLOCKS_PER_QUARTER
         var envelopeClockMode = PmdPerformanceLaws.ENVELOPE_CLOCK_NORMAL
+        var initialMusicalTempo: Int? = null
+        var initialTimerB: Int? = null
+        var initialWholeNoteClocks = PmdPerformanceLaws.DEFAULT_WHOLE_NOTE_CLOCKS
         val macroNames = mutableListOf<String>()
         val macroBodies = mutableListOf<String>()
         val eqBands = mutableListOf<MmlEqDirective>()
@@ -304,6 +332,31 @@ object MmlParser {
                         } else {
                             bpm = value
                             bpmMilli = exactMilli
+                        }
+                    } else if (directive.startsWith("#TEMPO", ignoreCase = true)) {
+                        val value = directive.substring(6).trim().toIntOrNull()
+                        if (value == null || value !in PmdPerformanceLaws.MUSICAL_TEMPO_MIN..PmdPerformanceLaws.MUSICAL_TEMPO_MAX) {
+                            diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#Tempo requires ${PmdPerformanceLaws.MUSICAL_TEMPO_MIN}..${PmdPerformanceLaws.MUSICAL_TEMPO_MAX}"))
+                        } else if (initialMusicalTempo != null) {
+                            diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#Tempo may only be declared once"))
+                        } else {
+                            initialMusicalTempo = value
+                        }
+                    } else if (directive.startsWith("#TIMER", ignoreCase = true)) {
+                        val value = directive.substring(6).trim().toIntOrNull()
+                        if (value == null || value !in PmdPerformanceLaws.TIMER_B_MIN..PmdPerformanceLaws.TIMER_B_MAX) {
+                            diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#Timer requires ${PmdPerformanceLaws.TIMER_B_MIN}..${PmdPerformanceLaws.TIMER_B_MAX}"))
+                        } else if (initialTimerB != null) {
+                            diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#Timer may only be declared once"))
+                        } else {
+                            initialTimerB = value
+                        }
+                    } else if (directive.startsWith("#ZENLEN", ignoreCase = true)) {
+                        val value = directive.substring(7).trim().toIntOrNull()
+                        if (value == null || value !in PmdPerformanceLaws.WHOLE_NOTE_CLOCKS_MIN..PmdPerformanceLaws.WHOLE_NOTE_CLOCKS_MAX) {
+                            diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#Zenlen requires ${PmdPerformanceLaws.WHOLE_NOTE_CLOCKS_MIN}..${PmdPerformanceLaws.WHOLE_NOTE_CLOCKS_MAX}"))
+                        } else {
+                            initialWholeNoteClocks = value
                         }
                     } else if (directive.startsWith("#PMDCLOCK", ignoreCase = true)) {
                         val value = directive.substring(9).trim().toIntOrNull()
@@ -382,7 +435,9 @@ object MmlParser {
             lineIndex++
         }
         if (!sawMmlV2Directive) diagnostics.add(MmlDiagnostic(1, 1, "Missing #MML 2 directive"))
-        if (bpm == null) diagnostics.add(MmlDiagnostic(1, 1, "Missing #BPM directive"))
+        if (bpm == null && initialMusicalTempo == null && initialTimerB == null) {
+            diagnostics.add(MmlDiagnostic(1, 1, "Missing #BPM, #Tempo, or #Timer directive"))
+        }
         if (barNumerator == null || barDenominator == null) diagnostics.add(MmlDiagnostic(1, 1, "Missing #BAR directive"))
         if (diagnostics.isNotEmpty()) return MmlParseResult.Failure(diagnostics)
         val resultTracks = mutableListOf<MmlTrack>()
@@ -417,17 +472,20 @@ object MmlParser {
         assignSourceOrder(resultTracks, rhythmPatterns)
         return MmlParseResult.Success(
             MmlDocument(
-                bpm!!,
+                bpm ?: initialMusicalTempo?.times(2)?.toFloat() ?: 0f,
                 barNumerator!!,
                 barDenominator!!,
                 resultTracks,
                 eqBands,
                 lfoRate,
                 fm3Extended,
-                bpmMilli!!,
+                bpmMilli ?: initialMusicalTempo?.times(2 * PmdPerformanceLaws.BPM_MILLI_SCALE) ?: 0,
                 pmdClocksPerQuarter,
                 envelopeClockMode,
-                rhythmPatterns
+                rhythmPatterns,
+                initialMusicalTempo,
+                initialTimerB,
+                initialWholeNoteClocks
             )
         )
     }
@@ -613,9 +671,20 @@ object MmlParser {
             } else if (raw == 'q') {
                 val tokenStart = i
                 i++
-                val fromStart = i
-                while (i < end && text[i].isDigit()) i++
-                val from = if (fromStart == i) null else text.substring(fromStart, i).toIntOrNull()
+                var from: MmlDurationSpec? = null
+                var fromDotCount = 0
+                if (i < end && text[i] == 'l') {
+                    i++
+                    val parsedLength = parseLength(text, i, end, allowDirectClocks = false)
+                    from = parsedLength.length
+                    fromDotCount = parsedLength.dotCount
+                    i = parsedLength.nextIndex
+                } else {
+                    val fromStart = i
+                    while (i < end && text[i].isDigit()) i++
+                    val clocks = if (fromStart == i) null else text.substring(fromStart, i).toIntOrNull()
+                    if (clocks != null) from = MmlDurationSpec.DirectPmdClocks(clocks)
+                }
                 var to: Int? = null
                 var missingRangeEnd = false
                 if (i < end && text[i] == '-') {
@@ -637,11 +706,22 @@ object MmlParser {
                 if (missingRangeEnd || missingMinimum) {
                     diagnostics.add(MmlDiagnostic(source.lineAt(tokenStart), source.columnAt(tokenStart), "q range and minimum separators require a following clock value"))
                 } else if (from == null && to == null && minimum == null) {
-                    diagnostics.add(MmlDiagnostic(source.lineAt(tokenStart), source.columnAt(tokenStart), "q requires a tail range and/or minimum clock value"))
+                    diagnostics.add(MmlDiagnostic(source.lineAt(tokenStart), source.columnAt(tokenStart), "q requires clocks, lLength, a random range, and/or a minimum clock value"))
+                } else if (from is MmlDurationSpec.NoteDenominator && to != null) {
+                    diagnostics.add(MmlDiagnostic(source.lineAt(tokenStart), source.columnAt(tokenStart), "ql note length cannot be combined with a raw-clock random range"))
                 } else if (to != null && from == null) {
                     diagnostics.add(MmlDiagnostic(source.lineAt(tokenStart), source.columnAt(tokenStart), "q random range requires its first value"))
                 } else {
-                    output.add(MmlCommand.GateTail(from, to, minimum, source.lineAt(tokenStart), source.columnAt(tokenStart)))
+                    output.add(
+                        MmlCommand.GateTail(
+                            from,
+                            fromDotCount,
+                            to,
+                            minimum,
+                            source.lineAt(tokenStart),
+                            source.columnAt(tokenStart)
+                        )
+                    )
                 }
             } else if (raw == 'R' && channel == MmlChannelId.K) {
                 val tokenStart = i
@@ -696,7 +776,9 @@ object MmlParser {
                     i++
                 }
                 var sign = 1
+                var relative = false
                 if (i < end && (text[i] == '+' || text[i] == '-')) {
+                    relative = true
                     if (text[i] == '-') sign = -1
                     i++
                 }
@@ -710,7 +792,14 @@ object MmlParser {
                 } else if (raw == 'D') {
                     output.add(MmlCommand.Detune(value * sign, source.lineAt(tokenStart), source.columnAt(tokenStart)))
                 } else if (raw == 'T') {
-                    output.add(MmlCommand.Tempo(value * sign, source.lineAt(tokenStart), source.columnAt(tokenStart)))
+                    output.add(
+                        MmlCommand.TimerB(
+                            value * sign,
+                            if (relative) MmlTimingOperation.RELATIVE else MmlTimingOperation.ABSOLUTE,
+                            source.lineAt(tokenStart),
+                            source.columnAt(tokenStart)
+                        )
+                    )
                 } else {
                     output.add(MmlCommand.Pan(value * sign, source.lineAt(tokenStart), source.columnAt(tokenStart)))
                 }
@@ -950,6 +1039,16 @@ object MmlParser {
             } else if (c == '|') {
                 output.add(MmlCommand.Bar(source.lineAt(i), source.columnAt(i)))
                 i++
+            } else if (raw == 'C') {
+                val tokenStart = i
+                i++
+                val value = parseUnsignedInteger(text, i, end)
+                i = value.second
+                if (value.first == null) {
+                    diagnostics.add(MmlDiagnostic(source.lineAt(tokenStart), source.columnAt(tokenStart), "C requires whole-note clocks"))
+                } else {
+                    output.add(MmlCommand.WholeNoteClocks(value.first!!, source.lineAt(tokenStart), source.columnAt(tokenStart)))
+                }
             } else if (c == '{') {
                 val tokenStart = i
                 val close = text.indexOf('}', i + 1)
@@ -959,11 +1058,8 @@ object MmlParser {
                 }
                 val content = text.substring(i + 1, close).filterNot { it.isWhitespace() }
                 i = close + 1
-                val lengthStart = i
-                while (i < end && text[i].isDigit()) i++
-                val denominator = if (lengthStart == i) null else text.substring(lengthStart, i).toIntOrNull()
-                var dotted = false
-                if (i < end && text[i] == '.') { dotted = true; i++ }
+                val parsedLength = parseLength(text, i, end, allowDirectClocks = true)
+                i = parsedLength.nextIndex
                 if (content.indexOf(',') >= 0) {
                     val tokens = content.split(',')
                     val pitches = ArrayList<Pair<Char, Int>>(tokens.size)
@@ -978,7 +1074,15 @@ object MmlParser {
                     if (!valid) {
                         diagnostics.add(MmlDiagnostic(source.lineAt(tokenStart), source.columnAt(tokenStart), "Chord requires 2..$MAX_CHORD_NOTES comma-separated notes, such as {c,e,g}4"))
                     } else {
-                        output.add(MmlCommand.Chord(pitches, denominator, dotted, source.lineAt(tokenStart), source.columnAt(tokenStart)))
+                        output.add(
+                            MmlCommand.Chord(
+                                pitches,
+                                parsedLength.length,
+                                parsedLength.dotCount,
+                                source.lineAt(tokenStart),
+                                source.columnAt(tokenStart)
+                            )
+                        )
                     }
                 } else {
                     val firstNote = parseInlineNote(content, 0)
@@ -992,8 +1096,8 @@ object MmlParser {
                                 firstNote.first.second,
                                 secondNote.first.first,
                                 secondNote.first.second,
-                                denominator,
-                                dotted,
+                                parsedLength.length,
+                                parsedLength.dotCount,
                                 source.lineAt(tokenStart),
                                 source.columnAt(tokenStart)
                             )
@@ -1006,11 +1110,8 @@ object MmlParser {
                 var accidental = 0
                 if (i < end && (text[i] == '+' || text[i] == '#')) { accidental = 1; i++ }
                 else if (i < end && text[i] == '-') { accidental = -1; i++ }
-                val lengthStart = i
-                while (i < end && text[i].isDigit()) i++
-                val denominator = if (lengthStart == i) null else text.substring(lengthStart, i).toIntOrNull()
-                var dotted = false
-                if (i < end && text[i] == '.') { dotted = true; i++ }
+                val parsedLength = parseLength(text, i, end, allowDirectClocks = true)
+                i = parsedLength.nextIndex
                 var link = MmlCommand.LINK_NONE
                 if (i < end && text[i] == '&') {
                     i++
@@ -1021,7 +1122,17 @@ object MmlParser {
                         MmlCommand.LINK_TIE
                     }
                 }
-                output.add(MmlCommand.Note(c, accidental, denominator, source.lineAt(tokenStart), source.columnAt(tokenStart), dotted, link))
+                output.add(
+                    MmlCommand.Note(
+                        c,
+                        accidental,
+                        parsedLength.length,
+                        source.lineAt(tokenStart),
+                        source.columnAt(tokenStart),
+                        parsedLength.dotCount,
+                        link
+                    )
+                )
             } else if (c == 's' && channel != MmlChannelId.R) {
                 val tokenStart = i
                 i++
@@ -1087,16 +1198,55 @@ object MmlParser {
                         output.add(MmlCommand.FmSlotMask(mask.first!!, source.lineAt(tokenStart), source.columnAt(tokenStart)))
                     }
                 }
+            } else if (c == 't' && channel != MmlChannelId.R) {
+                val tokenStart = i
+                i++
+                var sign = 1
+                var operation = MmlTimingOperation.ABSOLUTE
+                if (i < end && (text[i] == '+' || text[i] == '-')) {
+                    operation = MmlTimingOperation.RELATIVE
+                    if (text[i] == '-') sign = -1
+                    i++
+                }
+                val value = parseUnsignedInteger(text, i, end)
+                i = value.second
+                if (value.first == null) {
+                    diagnostics.add(MmlDiagnostic(source.lineAt(tokenStart), source.columnAt(tokenStart), "t requires a musical tempo value"))
+                } else {
+                    output.add(
+                        MmlCommand.MusicalTempo(
+                            value.first!! * sign,
+                            operation,
+                            source.lineAt(tokenStart),
+                            source.columnAt(tokenStart)
+                        )
+                    )
+                }
             } else if (c == 'r' || c == 'k' || c == 's' || c == 'h' || c == 't' || c == 'y' || c == 'i') {
                 val tokenStart = i
                 i++
-                val lengthStart = i
-                while (i < end && text[i].isDigit()) i++
-                val denominator = if (lengthStart == i) null else text.substring(lengthStart, i).toIntOrNull()
-                var dotted = false
-                if (i < end && text[i] == '.') { dotted = true; i++ }
-                if (c == 'r') output.add(MmlCommand.Rest(denominator, source.lineAt(tokenStart), source.columnAt(tokenStart), dotted))
-                else output.add(MmlCommand.Drum(c, denominator, source.lineAt(tokenStart), source.columnAt(tokenStart), dotted))
+                val parsedLength = parseLength(text, i, end, allowDirectClocks = true)
+                i = parsedLength.nextIndex
+                if (c == 'r') {
+                    output.add(
+                        MmlCommand.Rest(
+                            parsedLength.length,
+                            source.lineAt(tokenStart),
+                            source.columnAt(tokenStart),
+                            parsedLength.dotCount
+                        )
+                    )
+                } else {
+                    output.add(
+                        MmlCommand.Drum(
+                            c,
+                            parsedLength.length,
+                            source.lineAt(tokenStart),
+                            source.columnAt(tokenStart),
+                            parsedLength.dotCount
+                        )
+                    )
+                }
             } else {
                 diagnostics.add(MmlDiagnostic(source.lineAt(i), source.columnAt(i), "Unknown token '${text[i]}'"))
                 i++
@@ -1121,6 +1271,28 @@ object MmlParser {
     }
 
     private data class ParsedIntegerList(val values: List<Int>, val nextIndex: Int)
+
+    private data class ParsedLength(val length: MmlDurationSpec?, val dotCount: Int, val nextIndex: Int)
+
+    private fun parseLength(text: String, start: Int, end: Int, allowDirectClocks: Boolean): ParsedLength {
+        var index = start
+        val direct = allowDirectClocks && index < end && text[index] == '%'
+        if (direct) index++
+        val valueStart = index
+        while (index < end && text[index].isDigit()) index++
+        val value = if (valueStart == index) null else text.substring(valueStart, index).toIntOrNull()
+        var dotCount = 0
+        while (index < end && text[index] == '.') {
+            dotCount++
+            index++
+        }
+        val length = when {
+            direct -> MmlDurationSpec.DirectPmdClocks(value ?: -1)
+            value == null -> null
+            else -> MmlDurationSpec.NoteDenominator(value)
+        }
+        return ParsedLength(length, dotCount, index)
+    }
 
     private fun parseUnsignedInteger(text: String, start: Int, end: Int): Pair<Int?, Int> {
         var index = start

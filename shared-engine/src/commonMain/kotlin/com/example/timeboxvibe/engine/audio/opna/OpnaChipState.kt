@@ -11,4 +11,5 @@ internal class OpnaChipState(sampleRate: Int) {
     val ym2608Rhythm = Ym2608RhythmUnit(sampleRate)
     val pmdSsgEffects = PmdSsgEffectUnit(sampleRate)
     val lfo = Lfo(sampleRate)
+    val timerB = OpnaTimerB(sampleRate)
 }

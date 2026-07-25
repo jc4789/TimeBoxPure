@@ -11,6 +11,9 @@ class CompiledOpnaSong internal constructor(
     internal val bpmMilli: Int,
     val beatsPerBar: Int,
     internal val pmdClocksPerQuarter: Int,
+    internal val initialMusicalTempo: Int,
+    internal val initialTimerB: Int,
+    internal val initialWholeNoteClocks: Int,
     val lfoRate: Int,
     val fm3Extended: Boolean,
     internal val instrumentBank: CompiledInstrumentBank,
@@ -18,6 +21,15 @@ class CompiledOpnaSong internal constructor(
     internal val tempoTick: LongArray,
     internal val tempoBpm: FloatArray,
     internal val tempoBpmMilli: IntArray,
+    internal val timingCommandCount: Int,
+    internal val timingCommandTick: LongArray,
+    internal val timingCommandKind: IntArray,
+    internal val timingCommandOperation: IntArray,
+    internal val timingCommandValue: IntArray,
+    internal val timingCommandResolvedValue: IntArray,
+    internal val timingCommandSourceOrder: IntArray,
+    internal val timingCommandSourceLine: IntArray,
+    internal val timingCommandSourceColumn: IntArray,
     val durationTicks: Long,
     internal val eventCount: Int,
     internal val eventType: IntArray,
@@ -62,6 +74,9 @@ class CompiledOpnaSong internal constructor(
             bpmMilli = bpmMilli,
             beatsPerBar = beatsPerBar,
             pmdClocksPerQuarter = pmdClocksPerQuarter,
+            initialMusicalTempo = initialMusicalTempo,
+            initialTimerB = initialTimerB,
+            initialWholeNoteClocks = initialWholeNoteClocks,
             lfoRate = lfoRate,
             fm3Extended = fm3Extended,
             instrumentBank = instrumentBank,
@@ -69,6 +84,15 @@ class CompiledOpnaSong internal constructor(
             tempoTick = tempoTick,
             tempoBpm = tempoBpm,
             tempoBpmMilli = tempoBpmMilli,
+            timingCommandCount = timingCommandCount,
+            timingCommandTick = timingCommandTick,
+            timingCommandKind = timingCommandKind,
+            timingCommandOperation = timingCommandOperation,
+            timingCommandValue = timingCommandValue,
+            timingCommandResolvedValue = timingCommandResolvedValue,
+            timingCommandSourceOrder = timingCommandSourceOrder,
+            timingCommandSourceLine = timingCommandSourceLine,
+            timingCommandSourceColumn = timingCommandSourceColumn,
             durationTicks = durationTicks,
             eventCount = eventCount,
             eventType = eventType,
@@ -176,6 +200,9 @@ internal class CompiledOpnaSongBuilder(
     private val bpmMilli: Int,
     private val beatsPerBar: Int,
     private val pmdClocksPerQuarter: Int,
+    private val initialMusicalTempo: Int,
+    private val initialTimerB: Int,
+    private val initialWholeNoteClocks: Int,
     private val lfoRate: Int,
     private val fm3Extended: Boolean,
     sourceInstruments: SourceInstrumentLookup
@@ -189,6 +216,15 @@ internal class CompiledOpnaSongBuilder(
     private var tempoBpm = FloatArray(INITIAL_TEMPO_CAPACITY)
     private var tempoBpmMilli = IntArray(INITIAL_TEMPO_CAPACITY)
     private var tempoChangeCount = 0
+    private var timingCommandTick = LongArray(INITIAL_TIMING_CAPACITY)
+    private var timingCommandKind = IntArray(INITIAL_TIMING_CAPACITY)
+    private var timingCommandOperation = IntArray(INITIAL_TIMING_CAPACITY)
+    private var timingCommandValue = IntArray(INITIAL_TIMING_CAPACITY)
+    private var timingCommandResolvedValue = IntArray(INITIAL_TIMING_CAPACITY)
+    private var timingCommandSourceOrder = IntArray(INITIAL_TIMING_CAPACITY)
+    private var timingCommandSourceLine = IntArray(INITIAL_TIMING_CAPACITY)
+    private var timingCommandSourceColumn = IntArray(INITIAL_TIMING_CAPACITY)
+    private var timingCommandCount = 0
     private var eventType = IntArray(INITIAL_EVENT_CAPACITY)
     private var startTick = LongArray(INITIAL_EVENT_CAPACITY)
     private var durationTick = IntArray(INITIAL_EVENT_CAPACITY)
@@ -262,6 +298,93 @@ internal class CompiledOpnaSongBuilder(
         tempoBpm[position] = bpm
         tempoBpmMilli[position] = milliBpm
         tempoChangeCount++
+        return true
+    }
+
+    fun addTimingCommand(atTick: Long, kind: Int, operation: Int, value: Int): Boolean {
+        if (timingCommandCount >= MAX_TIMING_COMMANDS) return false
+        ensureTimingCapacity(timingCommandCount + 1)
+        var position = 0
+        while (position < timingCommandCount &&
+            (timingCommandTick[position] < atTick ||
+                timingCommandTick[position] == atTick && timingCommandSourceOrder[position] <= currentSourceOrder)
+        ) {
+            position++
+        }
+        var move = timingCommandCount
+        while (move > position) {
+            timingCommandTick[move] = timingCommandTick[move - 1]
+            timingCommandKind[move] = timingCommandKind[move - 1]
+            timingCommandOperation[move] = timingCommandOperation[move - 1]
+            timingCommandValue[move] = timingCommandValue[move - 1]
+            timingCommandResolvedValue[move] = timingCommandResolvedValue[move - 1]
+            timingCommandSourceOrder[move] = timingCommandSourceOrder[move - 1]
+            timingCommandSourceLine[move] = timingCommandSourceLine[move - 1]
+            timingCommandSourceColumn[move] = timingCommandSourceColumn[move - 1]
+            move--
+        }
+        timingCommandTick[position] = atTick
+        timingCommandKind[position] = kind
+        timingCommandOperation[position] = operation
+        timingCommandValue[position] = value
+        timingCommandResolvedValue[position] = value
+        timingCommandSourceOrder[position] = currentSourceOrder
+        timingCommandSourceLine[position] = currentSourceLine
+        timingCommandSourceColumn[position] = currentSourceColumn
+        timingCommandCount++
+        return true
+    }
+
+    fun resolveTimingCommands(): Boolean {
+        var currentTempo = initialMusicalTempo
+        var currentTimerB = initialTimerB
+        var index = 0
+        while (index < timingCommandCount) {
+            val rawValue = timingCommandValue[index]
+            val relative = timingCommandOperation[index] == PmdPerformanceLaws.TIMING_RELATIVE
+            when (timingCommandKind[index]) {
+                PmdPerformanceLaws.TIMING_MUSICAL_TEMPO -> {
+                    currentTempo = if (relative) {
+                        if (currentTempo < 0) return false
+                        currentTempo + rawValue
+                    } else {
+                        rawValue
+                    }
+                    if (currentTempo !in PmdPerformanceLaws.MUSICAL_TEMPO_MIN..PmdPerformanceLaws.MUSICAL_TEMPO_MAX) {
+                        return false
+                    }
+                    timingCommandResolvedValue[index] = currentTempo
+                    val quarterBpm = currentTempo * 2
+                    if (!addTempo(
+                            timingCommandTick[index],
+                            quarterBpm.toFloat(),
+                            quarterBpm * PmdPerformanceLaws.BPM_MILLI_SCALE
+                        )
+                    ) return false
+                }
+                PmdPerformanceLaws.TIMING_TIMER_B -> {
+                    currentTimerB = if (relative) {
+                        if (currentTimerB < 0) return false
+                        currentTimerB + rawValue
+                    } else {
+                        rawValue
+                    }
+                    if (currentTimerB !in PmdPerformanceLaws.TIMER_B_MIN..PmdPerformanceLaws.TIMER_B_MAX) {
+                        return false
+                    }
+                    timingCommandResolvedValue[index] = currentTimerB
+                }
+                PmdPerformanceLaws.TIMING_WHOLE_NOTE_CLOCKS -> {
+                    if (relative) return false
+                    if (rawValue !in
+                        PmdPerformanceLaws.WHOLE_NOTE_CLOCKS_MIN..PmdPerformanceLaws.WHOLE_NOTE_CLOCKS_MAX
+                    ) return false
+                    timingCommandResolvedValue[index] = rawValue
+                }
+                else -> return false
+            }
+            index++
+        }
         return true
     }
 
@@ -496,6 +619,9 @@ internal class CompiledOpnaSongBuilder(
         bpmMilli = bpmMilli,
         beatsPerBar = beatsPerBar,
         pmdClocksPerQuarter = pmdClocksPerQuarter,
+        initialMusicalTempo = initialMusicalTempo,
+        initialTimerB = initialTimerB,
+        initialWholeNoteClocks = initialWholeNoteClocks,
         lfoRate = lfoRate,
         fm3Extended = fm3Extended,
         instrumentBank = instrumentBankBuilder.build(),
@@ -503,6 +629,15 @@ internal class CompiledOpnaSongBuilder(
         tempoTick = tempoTick.copyOf(tempoChangeCount),
         tempoBpm = tempoBpm.copyOf(tempoChangeCount),
         tempoBpmMilli = tempoBpmMilli.copyOf(tempoChangeCount),
+        timingCommandCount = timingCommandCount,
+        timingCommandTick = timingCommandTick.copyOf(timingCommandCount),
+        timingCommandKind = timingCommandKind.copyOf(timingCommandCount),
+        timingCommandOperation = timingCommandOperation.copyOf(timingCommandCount),
+        timingCommandValue = timingCommandValue.copyOf(timingCommandCount),
+        timingCommandResolvedValue = timingCommandResolvedValue.copyOf(timingCommandCount),
+        timingCommandSourceOrder = timingCommandSourceOrder.copyOf(timingCommandCount),
+        timingCommandSourceLine = timingCommandSourceLine.copyOf(timingCommandCount),
+        timingCommandSourceColumn = timingCommandSourceColumn.copyOf(timingCommandCount),
         durationTicks = durationTicks,
         eventCount = size,
         eventType = eventType.copyOf(size),
@@ -549,6 +684,19 @@ internal class CompiledOpnaSongBuilder(
         tempoBpmMilli = tempoBpmMilli.copyOf(next)
     }
 
+    private fun ensureTimingCapacity(required: Int) {
+        if (required <= timingCommandTick.size) return
+        val next = minOf(MAX_TIMING_COMMANDS, timingCommandTick.size * 2)
+        timingCommandTick = timingCommandTick.copyOf(next)
+        timingCommandKind = timingCommandKind.copyOf(next)
+        timingCommandOperation = timingCommandOperation.copyOf(next)
+        timingCommandValue = timingCommandValue.copyOf(next)
+        timingCommandResolvedValue = timingCommandResolvedValue.copyOf(next)
+        timingCommandSourceOrder = timingCommandSourceOrder.copyOf(next)
+        timingCommandSourceLine = timingCommandSourceLine.copyOf(next)
+        timingCommandSourceColumn = timingCommandSourceColumn.copyOf(next)
+    }
+
     private fun ensureEventCapacity(required: Int) {
         if (required <= eventType.size) return
         val next = minOf(CompiledOpnaSong.MAX_AUTHORED_EVENTS, eventType.size * 2)
@@ -592,7 +740,9 @@ internal class CompiledOpnaSongBuilder(
     private companion object {
         const val INITIAL_EVENT_CAPACITY = 256
         const val INITIAL_TEMPO_CAPACITY = 8
+        const val INITIAL_TIMING_CAPACITY = 8
         const val MAX_TEMPO_CHANGES = 4_096
+        const val MAX_TIMING_COMMANDS = 4_096
         // PMD instrument selectors are one-byte domains; final banks are trimmed
         // to the exact used counts, while these setup arrays bound malformed input.
         const val MAX_COMPILED_FM_PATCHES = 256

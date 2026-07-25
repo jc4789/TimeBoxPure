@@ -22,6 +22,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private val ym2608Rhythm: Ym2608RhythmUnit get() = chip.ym2608Rhythm
     private val pmdSsgEffects: PmdSsgEffectUnit get() = chip.pmdSsgEffects
     val lfo: Lfo get() = chip.lfo
+    internal val timerB: OpnaTimerB get() = chip.timerB
 
     val preClampPeak: Float get() = mastering.preClampPeak
     val preClampKneeCrossings: Int get() = mastering.preClampKneeCrossings
@@ -219,6 +220,7 @@ class OpnaLikeSynthesizer(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         ym2608Rhythm.reset()
         pmdSsgEffects.reset()
         lfo.reset()
+        timerB.reset()
         resetDirectDriverState()
     }
 

@@ -4,6 +4,19 @@ package com.example.timeboxvibe.engine.audio.mml
 object PmdPerformanceLaws {
     const val BPM_MILLI_SCALE = 1_000
     const val DEFAULT_CLOCKS_PER_QUARTER = 24
+    const val DEFAULT_WHOLE_NOTE_CLOCKS = 96
+    const val WHOLE_NOTE_CLOCKS_MIN = 1
+    const val WHOLE_NOTE_CLOCKS_MAX = 255
+    const val MUSICAL_TEMPO_MIN = 18
+    const val MUSICAL_TEMPO_MAX = 255
+    const val TIMER_B_MIN = 0
+    const val TIMER_B_MAX = 255
+    const val PORTAMENTO_MAX_CLOCKS = 255
+    const val TIMING_ABSOLUTE = 0
+    const val TIMING_RELATIVE = 1
+    const val TIMING_MUSICAL_TEMPO = 0
+    const val TIMING_TIMER_B = 1
+    const val TIMING_WHOLE_NOTE_CLOCKS = 2
     const val ENVELOPE_CLOCK_NORMAL = 0
     const val ENVELOPE_CLOCK_EXTENDED = 1
     const val ENVELOPE_DISABLED = 0

@@ -19,7 +19,7 @@ object MmlCompiler {
     const val TICKS_PER_QUARTER = 480
     private const val WHOLE_NOTE_TICKS = TICKS_PER_QUARTER * 4
     private const val DEFAULT_OCTAVE = 4
-    private const val DEFAULT_LENGTH = 4
+    private const val DEFAULT_LENGTH = 2
     private const val DEFAULT_KEY_ROOT_MIDI = 60
     private const val SSG_SOURCE_ORDER_STRIDE = 8
 
@@ -47,6 +47,17 @@ object MmlCompiler {
 
     private fun compileV2(document: MmlDocument, instruments: SourceInstrumentLookup): MmlCompileResult {
         val diagnostics = mutableListOf<MmlDiagnostic>()
+        if (document.bpmMilli <= 0) {
+            return MmlCompileResult.Failure(
+                listOf(
+                    MmlDiagnostic(
+                        1,
+                        1,
+                        "#Timer is typed separately, but timer-B-to-sample conversion belongs to the later timing stage; provide #Tempo for this stage"
+                    )
+                )
+            )
+        }
         val scaledBarTicks = document.barNumerator.toLong() * WHOLE_NOTE_TICKS
         if (scaledBarTicks % document.barDenominator != 0L || scaledBarTicks > Int.MAX_VALUE) {
             return MmlCompileResult.Failure(listOf(MmlDiagnostic(1, 1, "#BAR cannot be represented by the compiler tick grid")))
@@ -66,6 +77,9 @@ object MmlCompiler {
             bpmMilli = document.bpmMilli,
             beatsPerBar = document.barNumerator,
             pmdClocksPerQuarter = document.pmdClocksPerQuarter,
+            initialMusicalTempo = document.initialMusicalTempo ?: -1,
+            initialTimerB = document.initialTimerB ?: -1,
+            initialWholeNoteClocks = document.initialWholeNoteClocks,
             lfoRate = document.lfoRate,
             fm3Extended = document.fm3Extended,
             sourceInstruments = instruments
@@ -108,6 +122,16 @@ object MmlCompiler {
         }
         if (diagnostics.isNotEmpty()) return MmlCompileResult.Failure(diagnostics)
 
+        if (!builder.resolveTimingCommands()) {
+            diagnostics.add(
+                MmlDiagnostic(
+                    1,
+                    1,
+                    "Global t/T/C timing commands could not be resolved in normalized authored order"
+                )
+            )
+        }
+        if (diagnostics.isNotEmpty()) return MmlCompileResult.Failure(diagnostics)
         val program = builder.build()
         if (document.fm3Extended) validateFm3SlotOwnership(program, diagnostics)
         if (diagnostics.isNotEmpty()) return MmlCompileResult.Failure(diagnostics)
@@ -258,9 +282,9 @@ object MmlCompiler {
         val fmChannelIndex = if (isFm3Operator) 2 else track.channel.ordinal
         var octave = DEFAULT_OCTAVE
         var defaultLength = DEFAULT_LENGTH
+        var wholeNoteClocks = document.initialWholeNoteClocks
         var fineVolume = 127
-        val ticksPerPmdClock = TICKS_PER_QUARTER / document.pmdClocksPerQuarter
-        val gateState = PmdGateState(track.channel.ordinal, ticksPerPmdClock)
+        val gateState = PmdGateState(track.channel.ordinal, 1)
         var patchId = if (isFm3Operator) channelCPatch else -1
         var fmSlotMask = if (isFm3Operator) 1 shl (track.channel.ordinal - MmlChannelId.C1.ordinal) else 15
         var pan = 0
@@ -379,8 +403,33 @@ object MmlCompiler {
                     else octave = command.value
                 }
                 is MmlCommand.DefaultLength -> {
-                    if (!isValidV2Length(command.denominator)) diagnostics.add(MmlDiagnostic(command.line, command.column, "Length must divide the 1/480-quarter tick grid"))
+                    if (!isValidDenominator(command.denominator, wholeNoteClocks)) {
+                        diagnostics.add(MmlDiagnostic(command.line, command.column, "Default length must divide the current C whole-note clocks"))
+                    }
                     else defaultLength = command.denominator
+                }
+                is MmlCommand.WholeNoteClocks -> {
+                    if (!isRepresentableWholeNoteClocks(command.value)) {
+                        diagnostics.add(
+                            MmlDiagnostic(
+                                command.line,
+                                command.column,
+                                "C must be 1..255 and divide the current setup tick grid; non-dividing values belong to the later PMD-clock timeline stage"
+                            )
+                        )
+                    } else {
+                        wholeNoteClocks = command.value
+                        defaultLength = DEFAULT_LENGTH
+                        if (!builder.addTimingCommand(
+                                tick,
+                                PmdPerformanceLaws.TIMING_WHOLE_NOTE_CLOCKS,
+                                PmdPerformanceLaws.TIMING_ABSOLUTE,
+                                command.value
+                            )
+                        ) {
+                            diagnostics.add(MmlDiagnostic(command.line, command.column, "Timing-command capacity exceeded"))
+                        }
+                    }
                 }
                 is MmlCommand.OctaveShift -> {
                     val shifted = octave + command.delta
@@ -397,7 +446,14 @@ object MmlCompiler {
                     }
                 }
                 is MmlCommand.GateTail -> {
-                    val from = command.fromClocks
+                    val from = if (command.from == null) null else resolveGateTailClocks(
+                            command.from,
+                            command.fromDotCount,
+                            defaultLength,
+                            wholeNoteClocks,
+                            command,
+                            diagnostics
+                        )
                     val to = command.toClocks
                     val minimum = command.minimumClocks
                     if ((from != null && from !in 0..255) ||
@@ -532,9 +588,16 @@ object MmlCompiler {
                 }
                 is MmlCommand.FmSlotKeyOnDelay -> {
                     val delayTicks = if (command.lengthDenominator != null) {
-                        durationTicksV2(command.lengthDenominator, command.dotted, defaultLength, command, diagnostics)
+                        durationTicksV2(
+                            MmlDurationSpec.NoteDenominator(command.lengthDenominator),
+                            if (command.dotted) 1 else 0,
+                            defaultLength,
+                            wholeNoteClocks,
+                            command,
+                            diagnostics
+                        )
                     } else {
-                        command.delay * ticksPerPmdClock
+                        command.delay * ticksPerPmdClock(wholeNoteClocks)
                     }
                     if (!isFmPart || command.mask !in 0..15 || command.delay !in 0..255) {
                         diagnostics.add(MmlDiagnostic(command.line, command.column, "sk requires an FM part, slot mask 0..15, and delay 0..255"))
@@ -579,13 +642,8 @@ object MmlCompiler {
                 is MmlCommand.RhythmPatternSelect -> {
                     diagnostics.add(MmlDiagnostic(command.line, command.column, "R pattern selection is only valid on K"))
                 }
-                is MmlCommand.Tempo -> {
-                    if (command.bpm !in 18..400) {
-                        diagnostics.add(MmlDiagnostic(command.line, command.column, "Tempo must be T18..T400"))
-                    } else if (!builder.addTempo(tick, command.bpm.toFloat(), command.bpm * 1_000)) {
-                        diagnostics.add(MmlDiagnostic(command.line, command.column, "Tempo-change capacity exceeded"))
-                    }
-                }
+                is MmlCommand.MusicalTempo -> addTypedTimingCommand(command, tick, builder, diagnostics)
+                is MmlCommand.TimerB -> addTypedTimingCommand(command, tick, builder, diagnostics)
                 is MmlCommand.HardwareLfoGlobal -> {
                     val selectedRate = command.rate
                     if (!isFm || isFm3Operator) {
@@ -767,7 +825,14 @@ object MmlCompiler {
                     if (isRhythm) {
                         diagnostics.add(MmlDiagnostic(command.line, command.column, "Pitched notes are not allowed on channel R"))
                     } else {
-                        var totalDuration = durationTicksV2(command.denominator, command.dotted, defaultLength, command, diagnostics)
+                        var totalDuration = durationTicksV2(
+                            command.length,
+                            command.dotCount,
+                            defaultLength,
+                            wholeNoteClocks,
+                            command,
+                            diagnostics
+                        )
                         val midi = midiFor(command.letter, command.accidental, octave)
                         var link = command.link
                         var finalIndex = i
@@ -777,14 +842,25 @@ object MmlCompiler {
                                 diagnostics.add(MmlDiagnostic(command.line, command.column, "A tie must immediately join the same pitch"))
                                 break
                             }
-                            totalDuration += durationTicksV2(next.denominator, next.dotted, defaultLength, next, diagnostics)
+                            totalDuration += durationTicksV2(
+                                next.length,
+                                next.dotCount,
+                                defaultLength,
+                                wholeNoteClocks,
+                                next,
+                                diagnostics
+                            )
                             link = next.link
                             finalIndex++
                         }
                         if (midi !in 0..127) diagnostics.add(MmlDiagnostic(command.line, command.column, "Note is outside MIDI range 0..127"))
                         else if (patchId < 0) diagnostics.add(MmlDiagnostic(command.line, command.column, "Channel ${track.channel} requires a named instrument before its first note"))
                         else if (totalDuration > 0) {
-                            val gate = gateState.resolve(totalDuration, link == MmlCommand.LINK_SLUR)
+                            val ticksPerClock = ticksPerPmdClock(wholeNoteClocks)
+                            val gate = gateState.resolve(
+                                totalDuration / ticksPerClock,
+                                link == MmlCommand.LINK_SLUR
+                            ) * ticksPerClock
                             val type = when {
                                 isFm3Operator -> CompiledOpnaSong.FM3_OPERATOR_NOTE
                                 isSsg -> CompiledOpnaSong.SSG_NOTE
@@ -817,11 +893,19 @@ object MmlCompiler {
                     if (!isFm) {
                         diagnostics.add(MmlDiagnostic(command.line, command.column, "Polyphonic chords are only valid on FM channels A-F"))
                     } else {
-                        val duration = durationTicksV2(command.denominator, command.dotted, defaultLength, command, diagnostics)
+                        val duration = durationTicksV2(
+                            command.length,
+                            command.dotCount,
+                            defaultLength,
+                            wholeNoteClocks,
+                            command,
+                            diagnostics
+                        )
                         if (patchId < 0) {
                             diagnostics.add(MmlDiagnostic(command.line, command.column, "A chord requires a named FM instrument"))
                         } else if (duration > 0) {
-                            val gate = gateState.resolve(duration, false)
+                            val ticksPerClock = ticksPerPmdClock(wholeNoteClocks)
+                            val gate = gateState.resolve(duration / ticksPerClock, false) * ticksPerClock
                             var pitchIndex = 0
                             while (pitchIndex < command.pitches.size) {
                                 val pitch = command.pitches[pitchIndex]
@@ -860,14 +944,36 @@ object MmlCompiler {
                     if (isRhythm) {
                         diagnostics.add(MmlDiagnostic(command.line, command.column, "Portamento is not valid on channel R"))
                     } else {
-                        val duration = durationTicksV2(command.denominator, command.dotted, defaultLength, command, diagnostics)
+                        val duration = durationTicksV2(
+                            command.length,
+                            command.dotCount,
+                            defaultLength,
+                            wholeNoteClocks,
+                            command,
+                            diagnostics
+                        )
+                        val durationClocks = if (isRepresentableWholeNoteClocks(wholeNoteClocks)) {
+                            duration / (WHOLE_NOTE_TICKS / wholeNoteClocks)
+                        } else {
+                            0
+                        }
                         val fromMidi = midiFor(command.fromLetter, command.fromAccidental, octave)
                         val toMidi = midiFor(command.toLetter, command.toAccidental, octave)
                         if (patchId < 0) diagnostics.add(MmlDiagnostic(command.line, command.column, "Portamento requires a named instrument"))
+                        else if (durationClocks > PmdPerformanceLaws.PORTAMENTO_MAX_CLOCKS) {
+                            diagnostics.add(
+                                MmlDiagnostic(
+                                    command.line,
+                                    command.column,
+                                    "Portamento duration must not exceed ${PmdPerformanceLaws.PORTAMENTO_MAX_CLOCKS} PMD clocks"
+                                )
+                            )
+                        }
                         else if (duration > 0) {
                             val type = if (isSsg) CompiledOpnaSong.SSG_NOTE else if (isFm3Operator) CompiledOpnaSong.FM3_OPERATOR_NOTE else CompiledOpnaSong.FM_NOTE
                             val channelIndex = if (isSsg) track.channel.ordinal - MmlChannelId.G.ordinal else if (isFm3Operator) 2 else track.channel.ordinal
-                            val gate = gateState.resolve(duration, false)
+                            val ticksPerClock = ticksPerPmdClock(wholeNoteClocks)
+                            val gate = gateState.resolve(duration / ticksPerClock, false) * ticksPerClock
                             if (!builder.add(
                                     type, tick, duration, gate, channelIndex, if (isFm3Operator) 0 else -1, fromMidi, toMidi,
                                     fineVolume, patchId, pan, detuneCents,
@@ -885,14 +991,28 @@ object MmlCompiler {
                 }
                 is MmlCommand.Rest -> {
                     sawEvent = true
-                    tick += durationTicksV2(command.denominator, command.dotted, defaultLength, command, diagnostics)
+                    tick += durationTicksV2(
+                        command.length,
+                        command.dotCount,
+                        defaultLength,
+                        wholeNoteClocks,
+                        command,
+                        diagnostics
+                    )
                 }
                 is MmlCommand.Drum -> {
                     sawEvent = true
                     if (!isRhythm) {
                         diagnostics.add(MmlDiagnostic(command.line, command.column, "Drum tokens are only allowed on channel R"))
                     } else {
-                        val duration = durationTicksV2(command.denominator, command.dotted, defaultLength, command, diagnostics)
+                        val duration = durationTicksV2(
+                            command.length,
+                            command.dotCount,
+                            defaultLength,
+                            wholeNoteClocks,
+                            command,
+                            diagnostics
+                        )
                         val kind = drumKind(command.kind)
                         if (duration > 0 && kind != null) {
                             if (!builder.add(CompiledOpnaSong.RHYTHM_SHOT, tick, duration, 0, 0, -1, kind.ordinal, -1, fineVolume, -1, pan, 0)) {
@@ -1032,6 +1152,53 @@ object MmlCompiler {
         }
     }
 
+    private fun addTypedTimingCommand(
+        command: MmlCommand,
+        tick: Long,
+        builder: CompiledOpnaSongBuilder,
+        diagnostics: MutableList<MmlDiagnostic>
+    ) {
+        val kind: Int
+        val operation: Int
+        val value: Int
+        val valid: Boolean
+        when (command) {
+            is MmlCommand.MusicalTempo -> {
+                kind = PmdPerformanceLaws.TIMING_MUSICAL_TEMPO
+                operation = timingOperation(command.operation)
+                value = command.value
+                valid = if (command.operation == MmlTimingOperation.ABSOLUTE) {
+                    value in PmdPerformanceLaws.MUSICAL_TEMPO_MIN..PmdPerformanceLaws.MUSICAL_TEMPO_MAX
+                } else {
+                    value in -PmdPerformanceLaws.MUSICAL_TEMPO_MAX..PmdPerformanceLaws.MUSICAL_TEMPO_MAX
+                }
+            }
+            is MmlCommand.TimerB -> {
+                kind = PmdPerformanceLaws.TIMING_TIMER_B
+                operation = timingOperation(command.operation)
+                value = command.value
+                valid = if (command.operation == MmlTimingOperation.ABSOLUTE) {
+                    value in PmdPerformanceLaws.TIMER_B_MIN..PmdPerformanceLaws.TIMER_B_MAX
+                } else {
+                    value in -PmdPerformanceLaws.TIMER_B_MAX..PmdPerformanceLaws.TIMER_B_MAX
+                }
+            }
+            else -> return
+        }
+        if (!valid) {
+            diagnostics.add(MmlDiagnostic(command.line, command.column, "Typed timing command is outside its range"))
+        } else if (!builder.addTimingCommand(tick, kind, operation, value)) {
+            diagnostics.add(MmlDiagnostic(command.line, command.column, "Timing-command capacity exceeded"))
+        }
+    }
+
+    private fun timingOperation(operation: MmlTimingOperation): Int =
+        if (operation == MmlTimingOperation.RELATIVE) {
+            PmdPerformanceLaws.TIMING_RELATIVE
+        } else {
+            PmdPerformanceLaws.TIMING_ABSOLUTE
+        }
+
     private fun firstFmPatch(
         track: MmlTrack,
         instruments: SourceInstrumentLookup,
@@ -1131,6 +1298,7 @@ object MmlCompiler {
         if (track.commands.isEmpty()) return
         var tick = 0L
         var defaultLength = DEFAULT_LENGTH
+        var wholeNoteClocks = document.initialWholeNoteClocks
         var sawEvent = false
         var commandIndex = 0
         while (commandIndex < track.commands.size) {
@@ -1146,16 +1314,49 @@ object MmlCompiler {
                     if (pattern == null) {
                         diagnostics.add(MmlDiagnostic(command.line, command.column, "K part selects undefined rhythm pattern R${command.pattern}"))
                     } else {
-                        tick += compileRhythmPattern(pattern, tick, defaultLength, builder, diagnostics)
+                        tick += compileRhythmPattern(
+                            pattern,
+                            tick,
+                            defaultLength,
+                            wholeNoteClocks,
+                            builder,
+                            diagnostics
+                        )
                         sawEvent = true
                     }
                 }
                 is MmlCommand.DefaultLength -> {
-                    if (!isValidV2Length(command.denominator)) diagnostics.add(MmlDiagnostic(command.line, command.column, "Length must divide the 1/480-quarter tick grid"))
+                    if (!isValidDenominator(command.denominator, wholeNoteClocks)) {
+                        diagnostics.add(MmlDiagnostic(command.line, command.column, "Default length must divide the current C whole-note clocks"))
+                    }
                     else defaultLength = command.denominator
                 }
+                is MmlCommand.WholeNoteClocks -> {
+                    if (!isRepresentableWholeNoteClocks(command.value)) {
+                        diagnostics.add(MmlDiagnostic(command.line, command.column, "C cannot be represented by the current setup tick grid"))
+                    } else {
+                        wholeNoteClocks = command.value
+                        defaultLength = DEFAULT_LENGTH
+                        if (!builder.addTimingCommand(
+                                tick,
+                                PmdPerformanceLaws.TIMING_WHOLE_NOTE_CLOCKS,
+                                PmdPerformanceLaws.TIMING_ABSOLUTE,
+                                command.value
+                            )
+                        ) diagnostics.add(MmlDiagnostic(command.line, command.column, "Timing-command capacity exceeded"))
+                    }
+                }
+                is MmlCommand.MusicalTempo -> addTypedTimingCommand(command, tick, builder, diagnostics)
+                is MmlCommand.TimerB -> addTypedTimingCommand(command, tick, builder, diagnostics)
                 is MmlCommand.Rest -> {
-                    tick += durationTicksV2(command.denominator, command.dotted, defaultLength, command, diagnostics)
+                    tick += durationTicksV2(
+                        command.length,
+                        command.dotCount,
+                        defaultLength,
+                        wholeNoteClocks,
+                        command,
+                        diagnostics
+                    )
                     sawEvent = true
                 }
                 is MmlCommand.Bar -> if (tick == 0L || tick % barTicks != 0L) {
@@ -1181,11 +1382,13 @@ object MmlCompiler {
         pattern: MmlRhythmPattern,
         baseTick: Long,
         inheritedLength: Int,
+        inheritedWholeNoteClocks: Int,
         builder: CompiledOpnaSongBuilder,
         diagnostics: MutableList<MmlDiagnostic>
     ): Long {
         var tick = 0L
         var defaultLength = inheritedLength
+        var wholeNoteClocks = inheritedWholeNoteClocks
         var velocity = 127
         var instrument = -1
         var commandIndex = 0
@@ -1202,9 +1405,28 @@ object MmlCompiler {
                     if (ssgDrumKind(instrument) < 0) diagnostics.add(MmlDiagnostic(command.line, command.column, "R${pattern.id} uses unsupported SSG drum instrument @${command.value}"))
                 }
                 is MmlCommand.DefaultLength -> {
-                    if (!isValidV2Length(command.denominator)) diagnostics.add(MmlDiagnostic(command.line, command.column, "Length must divide the 1/480-quarter tick grid"))
+                    if (!isValidDenominator(command.denominator, wholeNoteClocks)) {
+                        diagnostics.add(MmlDiagnostic(command.line, command.column, "Default length must divide the current C whole-note clocks"))
+                    }
                     else defaultLength = command.denominator
                 }
+                is MmlCommand.WholeNoteClocks -> {
+                    if (!isRepresentableWholeNoteClocks(command.value)) {
+                        diagnostics.add(MmlDiagnostic(command.line, command.column, "C cannot be represented by the current setup tick grid"))
+                    } else {
+                        wholeNoteClocks = command.value
+                        defaultLength = DEFAULT_LENGTH
+                        if (!builder.addTimingCommand(
+                                baseTick + tick,
+                                PmdPerformanceLaws.TIMING_WHOLE_NOTE_CLOCKS,
+                                PmdPerformanceLaws.TIMING_ABSOLUTE,
+                                command.value
+                            )
+                        ) diagnostics.add(MmlDiagnostic(command.line, command.column, "Timing-command capacity exceeded"))
+                    }
+                }
+                is MmlCommand.MusicalTempo -> addTypedTimingCommand(command, baseTick + tick, builder, diagnostics)
+                is MmlCommand.TimerB -> addTypedTimingCommand(command, baseTick + tick, builder, diagnostics)
                 is MmlCommand.Volume -> {
                     if (command.value !in 0..15) diagnostics.add(MmlDiagnostic(command.line, command.column, "Volume must be v0..v15"))
                     else velocity = (command.value * 127 + 7) / 15
@@ -1215,7 +1437,14 @@ object MmlCompiler {
                 }
                 is MmlCommand.RelativeVolume -> velocity = (velocity + command.delta).coerceIn(0, 127)
                 is MmlCommand.Note -> {
-                    val duration = durationTicksV2(command.denominator, command.dotted, defaultLength, command, diagnostics)
+                    val duration = durationTicksV2(
+                        command.length,
+                        command.dotCount,
+                        defaultLength,
+                        wholeNoteClocks,
+                        command,
+                        diagnostics
+                    )
                     val kind = ssgDrumKind(instrument)
                     if (kind < 0) diagnostics.add(MmlDiagnostic(command.line, command.column, "R${pattern.id} requires a supported SSG drum @ instrument before a hit"))
                     else if (!builder.add(
@@ -1225,7 +1454,14 @@ object MmlCompiler {
                     ) diagnostics.add(MmlDiagnostic(command.line, command.column, "Compiled OPNA event capacity exceeded"))
                     tick += duration
                 }
-                is MmlCommand.Rest -> tick += durationTicksV2(command.denominator, command.dotted, defaultLength, command, diagnostics)
+                is MmlCommand.Rest -> tick += durationTicksV2(
+                    command.length,
+                    command.dotCount,
+                    defaultLength,
+                    wholeNoteClocks,
+                    command,
+                    diagnostics
+                )
                 is MmlCommand.RhythmShot,
                 is MmlCommand.RhythmMasterLevel,
                 is MmlCommand.RhythmVoiceLevel,
@@ -1251,22 +1487,85 @@ object MmlCompiler {
     }
 
     private fun durationTicksV2(
-        value: Int?,
-        dotted: Boolean,
+        length: MmlDurationSpec?,
+        dotCount: Int,
         defaultValue: Int,
+        wholeNoteClocks: Int,
         command: MmlCommand,
         diagnostics: MutableList<MmlDiagnostic>
     ): Int {
-        val denominator = value ?: defaultValue
-        if (!isValidV2Length(denominator)) {
-            diagnostics.add(MmlDiagnostic(command.line, command.column, "Length must divide the 1/480-quarter tick grid"))
+        val clocks = resolvePmdClocks(length, dotCount, defaultValue, wholeNoteClocks, command, diagnostics)
+            ?: return 0
+        if (!isRepresentableWholeNoteClocks(wholeNoteClocks)) {
+            diagnostics.add(MmlDiagnostic(command.line, command.column, "Current C cannot be represented by the setup tick grid"))
             return 0
         }
-        val base = WHOLE_NOTE_TICKS / denominator
-        return if (dotted) base + base / 2 else base
+        return clocks * (WHOLE_NOTE_TICKS / wholeNoteClocks)
     }
 
-    private fun isValidV2Length(value: Int): Boolean = value > 0 && WHOLE_NOTE_TICKS % value == 0
+    private fun resolvePmdClocks(
+        length: MmlDurationSpec?,
+        dotCount: Int,
+        defaultValue: Int,
+        wholeNoteClocks: Int,
+        command: MmlCommand,
+        diagnostics: MutableList<MmlDiagnostic>
+    ): Int? {
+        val selected = length ?: MmlDurationSpec.NoteDenominator(defaultValue)
+        val base = when (selected) {
+            is MmlDurationSpec.NoteDenominator -> {
+                if (!isValidDenominator(selected.value, wholeNoteClocks)) {
+                    diagnostics.add(MmlDiagnostic(command.line, command.column, "Normal length must divide the current C whole-note clocks"))
+                    return null
+                }
+                wholeNoteClocks / selected.value
+            }
+            is MmlDurationSpec.DirectPmdClocks -> {
+                if (selected.value !in 1..255) {
+                    diagnostics.add(MmlDiagnostic(command.line, command.column, "Direct % clock count must be 1..255 PMD clocks"))
+                    return null
+                }
+                selected.value
+            }
+        }
+        var clocks = base
+        var divisor = 2
+        var dot = 0
+        while (dot < dotCount) {
+            clocks += base / divisor
+            if (divisor <= 1 shl 29) divisor = divisor shl 1
+            dot++
+        }
+        return clocks
+    }
+
+    private fun resolveGateTailClocks(
+        length: MmlDurationSpec,
+        dotCount: Int,
+        defaultValue: Int,
+        wholeNoteClocks: Int,
+        command: MmlCommand,
+        diagnostics: MutableList<MmlDiagnostic>
+    ): Int? {
+        if (length is MmlDurationSpec.DirectPmdClocks) {
+            if (length.value !in 0..255 || dotCount != 0) {
+                diagnostics.add(MmlDiagnostic(command.line, command.column, "q raw tail must be 0..255 PMD clocks without dots"))
+                return null
+            }
+            return length.value
+        }
+        return resolvePmdClocks(length, dotCount, defaultValue, wholeNoteClocks, command, diagnostics)
+    }
+
+    private fun isValidDenominator(value: Int, wholeNoteClocks: Int): Boolean =
+        value > 0 && wholeNoteClocks % value == 0
+
+    private fun isRepresentableWholeNoteClocks(value: Int): Boolean =
+        value in PmdPerformanceLaws.WHOLE_NOTE_CLOCKS_MIN..PmdPerformanceLaws.WHOLE_NOTE_CLOCKS_MAX &&
+            WHOLE_NOTE_TICKS % value == 0
+
+    private fun ticksPerPmdClock(wholeNoteClocks: Int): Int =
+        WHOLE_NOTE_TICKS / wholeNoteClocks
 
     private fun drumKind(kind: Char): ProceduralDrums.DrumKind? = when (kind) {
         'k' -> ProceduralDrums.DrumKind.KICK
