@@ -89,6 +89,22 @@ class Lfo(private val sampleRate: Int = 48_000) {
     }
 }
 
+/** Shared physical constants for the YM2608 Timer B period. */
+internal object OpnaTimerBLaws {
+    const val PRESET_MIN = 0
+    const val PRESET_MAX = 255
+    const val COUNTER_MODULUS = 256
+    private const val MASTER_CLOCKS_PER_STEP = 1152
+
+    fun periodMasterClocks(preset: Int): Long {
+        require(preset in PRESET_MIN..PRESET_MAX) { "Timer B preset must be in 0..255" }
+        return MASTER_CLOCKS_PER_STEP.toLong() * (COUNTER_MODULUS - preset).toLong()
+    }
+
+    fun sampleThreshold(sampleRate: Int, preset: Int): Long =
+        sampleRate.toLong() * periodMasterClocks(preset)
+}
+
 /**
  * Physical YM2608 Timer B clock.
  *
@@ -97,15 +113,8 @@ class Lfo(private val sampleRate: Int = 48_000) {
  * carrying the sub-sample master-clock remainder forward.
  */
 internal class OpnaTimerB(private val sampleRate: Int) {
-    companion object {
-        private const val PRESET_MIN = 0
-        private const val PRESET_MAX = 255
-        private const val COUNTER_MODULUS = 256
-        private const val MASTER_CLOCKS_PER_STEP = 1152
-    }
-
     private val overflowCount = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
-    private var preset = PRESET_MIN
+    private var preset = OpnaTimerBLaws.PRESET_MIN
     private var activePeriodThreshold = thresholdFor(preset)
     private var masterClockAccumulator = 0L
     private var running = false
@@ -117,7 +126,9 @@ internal class OpnaTimerB(private val sampleRate: Int) {
     }
 
     fun setPreset(value: Int) {
-        require(value >= PRESET_MIN && value <= PRESET_MAX) { "Timer B preset must be in 0..255" }
+        require(value in OpnaTimerBLaws.PRESET_MIN..OpnaTimerBLaws.PRESET_MAX) {
+            "Timer B preset must be in 0..255"
+        }
         preset = value
     }
 
@@ -167,7 +178,7 @@ internal class OpnaTimerB(private val sampleRate: Int) {
     }
 
     fun reset() {
-        preset = PRESET_MIN
+        preset = OpnaTimerBLaws.PRESET_MIN
         activePeriodThreshold = thresholdFor(preset)
         masterClockAccumulator = 0L
         running = false
@@ -176,8 +187,5 @@ internal class OpnaTimerB(private val sampleRate: Int) {
         overflowCount.fill(0)
     }
 
-    private fun thresholdFor(value: Int): Long {
-        val periodMasterClocks = MASTER_CLOCKS_PER_STEP.toLong() * (COUNTER_MODULUS - value).toLong()
-        return sampleRate.toLong() * periodMasterClocks
-    }
+    private fun thresholdFor(value: Int): Long = OpnaTimerBLaws.sampleThreshold(sampleRate, value)
 }

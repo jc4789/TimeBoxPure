@@ -264,7 +264,6 @@ object MmlParser {
         val diagnostics = mutableListOf<MmlDiagnostic>()
         val sources = Array(MmlChannelId.entries.size) { ChannelSourceBuilder() }
         val rhythmPatternSources = arrayOfNulls<ChannelSourceBuilder>(256)
-        var bpm: Float? = null
         var barNumerator: Int? = null
         var barDenominator: Int? = null
         var currentChannel: MmlChannelId? = null
@@ -272,8 +271,6 @@ object MmlParser {
         var sawMmlV2Directive = false
         var lfoRate = -1
         var fm3Extended = false
-        var bpmMilli: Int? = null
-        var pmdClocksPerQuarter = PmdPerformanceLaws.DEFAULT_CLOCKS_PER_QUARTER
         var envelopeClockMode = PmdPerformanceLaws.ENVELOPE_CLOCK_NORMAL
         var initialMusicalTempo: Int? = null
         var initialTimerB: Int? = null
@@ -321,18 +318,6 @@ object MmlParser {
                         if (value.equals("ON", ignoreCase = true)) fm3Extended = true
                         else if (value.equals("OFF", ignoreCase = true)) fm3Extended = false
                         else diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#FM3EXTEND requires ON or OFF"))
-                    } else if (directive.startsWith("#BPM", ignoreCase = true)) {
-                        val sourceValue = directive.substring(4).trim()
-                        val exactMilli = parseBpmMilli(sourceValue)
-                        val value = sourceValue.toFloatOrNull()
-                        if (value == null || !value.isFinite() || value <= 0f || exactMilli == null) {
-                            diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#BPM requires a positive number with at most three decimals"))
-                        } else if (bpm != null) {
-                            diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#BPM may only be declared once"))
-                        } else {
-                            bpm = value
-                            bpmMilli = exactMilli
-                        }
                     } else if (directive.startsWith("#TEMPO", ignoreCase = true)) {
                         val value = directive.substring(6).trim().toIntOrNull()
                         if (value == null || value !in PmdPerformanceLaws.MUSICAL_TEMPO_MIN..PmdPerformanceLaws.MUSICAL_TEMPO_MAX) {
@@ -357,13 +342,6 @@ object MmlParser {
                             diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#Zenlen requires ${PmdPerformanceLaws.WHOLE_NOTE_CLOCKS_MIN}..${PmdPerformanceLaws.WHOLE_NOTE_CLOCKS_MAX}"))
                         } else {
                             initialWholeNoteClocks = value
-                        }
-                    } else if (directive.startsWith("#PMDCLOCK", ignoreCase = true)) {
-                        val value = directive.substring(9).trim().toIntOrNull()
-                        if (value == null || value <= 0 || CompiledOpnaSong.TICKS_PER_QUARTER % value != 0) {
-                            diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#PMDCLOCK must be a positive divisor of ${CompiledOpnaSong.TICKS_PER_QUARTER}"))
-                        } else {
-                            pmdClocksPerQuarter = value
                         }
                     } else if (directive.startsWith("#ENVELOPESPEED", ignoreCase = true)) {
                         val value = directive.substring(14).trim()
@@ -435,8 +413,8 @@ object MmlParser {
             lineIndex++
         }
         if (!sawMmlV2Directive) diagnostics.add(MmlDiagnostic(1, 1, "Missing #MML 2 directive"))
-        if (bpm == null && initialMusicalTempo == null && initialTimerB == null) {
-            diagnostics.add(MmlDiagnostic(1, 1, "Missing #BPM, #Tempo, or #Timer directive"))
+        if (initialMusicalTempo == null && initialTimerB == null) {
+            diagnostics.add(MmlDiagnostic(1, 1, "Missing #Tempo or #Timer directive"))
         }
         if (barNumerator == null || barDenominator == null) diagnostics.add(MmlDiagnostic(1, 1, "Missing #BAR directive"))
         if (diagnostics.isNotEmpty()) return MmlParseResult.Failure(diagnostics)
@@ -470,22 +448,23 @@ object MmlParser {
         }
         if (diagnostics.isNotEmpty()) return MmlParseResult.Failure(diagnostics)
         assignSourceOrder(resultTracks, rhythmPatterns)
+        val initialBpmMilli = initialMusicalTempo?.times(2 * PmdPerformanceLaws.BPM_MILLI_SCALE) ?: 0
         return MmlParseResult.Success(
             MmlDocument(
-                bpm ?: initialMusicalTempo?.times(2)?.toFloat() ?: 0f,
-                barNumerator!!,
-                barDenominator!!,
-                resultTracks,
-                eqBands,
-                lfoRate,
-                fm3Extended,
-                bpmMilli ?: initialMusicalTempo?.times(2 * PmdPerformanceLaws.BPM_MILLI_SCALE) ?: 0,
-                pmdClocksPerQuarter,
-                envelopeClockMode,
-                rhythmPatterns,
-                initialMusicalTempo,
-                initialTimerB,
-                initialWholeNoteClocks
+                bpm = initialBpmMilli.toFloat() / PmdPerformanceLaws.BPM_MILLI_SCALE,
+                barNumerator = barNumerator!!,
+                barDenominator = barDenominator!!,
+                tracks = resultTracks,
+                eqBands = eqBands,
+                lfoRate = lfoRate,
+                fm3Extended = fm3Extended,
+                bpmMilli = initialBpmMilli,
+                pmdClocksPerQuarter = (initialWholeNoteClocks / 4).coerceAtLeast(1),
+                envelopeClockMode = envelopeClockMode,
+                rhythmPatterns = rhythmPatterns,
+                initialMusicalTempo = initialMusicalTempo,
+                initialTimerB = initialTimerB,
+                initialWholeNoteClocks = initialWholeNoteClocks
             )
         )
     }
@@ -1379,22 +1358,6 @@ object MmlParser {
             i++
         }
         return -1
-    }
-
-    private fun parseBpmMilli(value: String): Int? {
-        if (value.isEmpty() || value[0] == '-') return null
-        val dot = value.indexOf('.')
-        if (dot >= 0 && value.indexOf('.', dot + 1) >= 0) return null
-        val wholeText = if (dot >= 0) value.substring(0, dot) else value
-        val fractionText = if (dot >= 0) value.substring(dot + 1) else ""
-        if (wholeText.isEmpty() || !wholeText.all { it.isDigit() }) return null
-        if (fractionText.length > 3 || !fractionText.all { it.isDigit() }) return null
-        val whole = wholeText.toLongOrNull() ?: return null
-        var fraction = if (fractionText.isEmpty()) 0 else fractionText.toInt()
-        if (fractionText.length == 1) fraction *= 100
-        else if (fractionText.length == 2) fraction *= 10
-        val scaled = whole * PmdPerformanceLaws.BPM_MILLI_SCALE + fraction
-        return if (scaled in 1..Int.MAX_VALUE.toLong()) scaled.toInt() else null
     }
 
     private fun expandMacros(

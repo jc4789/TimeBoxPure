@@ -1,5 +1,8 @@
 package com.example.timeboxvibe.engine.audio.mml
 
+import com.example.timeboxvibe.engine.audio.opna.OpnPitch
+import com.example.timeboxvibe.engine.audio.opna.OpnaTimerBLaws
+
 /** Named PMD driver units shared by MML setup and allocation-free playback. */
 object PmdPerformanceLaws {
     const val BPM_MILLI_SCALE = 1_000
@@ -33,4 +36,32 @@ object PmdPerformanceLaws {
     // Stable compile-time gate randomization seed; loop playback reuses the
     // resulting primitive gate clocks exactly.
     const val GATE_RANDOM_SEED = 0x6D2B79F5
+
+    /**
+     * PMD software conversion from a half-note tempo to the nearest legal
+     * physical Timer B preset. Returns -1 when the requested period cannot fit
+     * the eight-bit hardware counter.
+     */
+    internal fun timerBForMusicalTempo(wholeNoteClocks: Int, musicalTempo: Int): Int {
+        if (wholeNoteClocks !in WHOLE_NOTE_CLOCKS_MIN..WHOLE_NOTE_CLOCKS_MAX ||
+            musicalTempo !in MUSICAL_TEMPO_MIN..MUSICAL_TEMPO_MAX
+        ) return -1
+        val denominator = TEMPO_DIVISOR.toLong() * wholeNoteClocks.toLong() * musicalTempo.toLong()
+        val numerator = TEMPO_MASTER_CLOCK_MULTIPLIER.toLong() * OpnPitch.MASTER_CLOCK_HZ.toLong()
+        val timerSteps = (numerator + denominator / 2L) / denominator
+        if (timerSteps !in 1L..OpnaTimerBLaws.COUNTER_MODULUS.toLong()) return -1
+        return OpnaTimerBLaws.COUNTER_MODULUS - timerSteps.toInt()
+    }
+
+    /** Actual quarter-note tempo produced by a physical preset and PMD grid. */
+    internal fun quarterBpmMilliForTimerB(timerB: Int, clocksPerQuarter: Int): Int {
+        if (timerB !in TIMER_B_MIN..TIMER_B_MAX || clocksPerQuarter <= 0) return 0
+        val denominator = OpnaTimerBLaws.periodMasterClocks(timerB) * clocksPerQuarter.toLong()
+        val numerator = SECONDS_PER_MINUTE.toLong() * OpnPitch.MASTER_CLOCK_HZ.toLong() * BPM_MILLI_SCALE
+        return ((numerator + denominator / 2L) / denominator).toInt()
+    }
+
+    private const val TEMPO_MASTER_CLOCK_MULTIPLIER = 5
+    private const val TEMPO_DIVISOR = 48
+    private const val SECONDS_PER_MINUTE = 60
 }

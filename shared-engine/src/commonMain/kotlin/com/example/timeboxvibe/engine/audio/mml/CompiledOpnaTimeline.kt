@@ -72,6 +72,7 @@ class CompiledOpnaTimeline internal constructor(
         internal const val HW_LFO_PMS = 43
         internal const val HW_LFO_AMS = 44
         internal const val HW_LFO_DELAY = 45
+        internal const val TIMER_B = 46
 
         internal const val CONTROL_STRIDE = 8
     }
@@ -86,7 +87,7 @@ private const val ORDER_ZERO_GATE_OFF = 4
 internal object CompiledOpnaTimelineFactory {
     fun build(song: CompiledOpnaSong, sampleRate: Int, mixGain: Float): CompiledOpnaTimeline {
         require(sampleRate > 0) { "Timeline sample rate must be positive" }
-        var boundaryCount = 1 + song.tempoChangeCount
+        var boundaryCount = 2 + song.tempoChangeCount + song.timerBChangeCount
         var sourceIndex = 0
         while (sourceIndex < song.eventCount) {
             boundaryCount += when (song.eventType[sourceIndex]) {
@@ -115,6 +116,18 @@ internal object CompiledOpnaTimelineFactory {
                 song.tempoBpmMilli[tempoIndex]
             )
             tempoIndex++
+        }
+        draft.addControl(CompiledOpnaTimeline.TIMER_B, 0L, ORDER_GLOBAL, -1, song.initialTimerB)
+        var timerBIndex = 0
+        while (timerBIndex < song.timerBChangeCount) {
+            draft.addControl(
+                CompiledOpnaTimeline.TIMER_B,
+                song.timerBChangeClock[timerBIndex],
+                ORDER_GLOBAL,
+                -1,
+                song.timerBValue[timerBIndex]
+            )
+            timerBIndex++
         }
 
         sourceIndex = 0

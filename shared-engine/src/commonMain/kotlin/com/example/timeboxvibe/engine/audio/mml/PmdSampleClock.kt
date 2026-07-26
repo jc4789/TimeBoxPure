@@ -1,39 +1,52 @@
 package com.example.timeboxvibe.engine.audio.mml
 
-/** Exact rational tick-to-sample mapping with carried division error. */
+import com.example.timeboxvibe.engine.audio.opna.OpnPitch
+import com.example.timeboxvibe.engine.audio.opna.OpnaTimerBLaws
+
+/**
+ * Maps resolved PMD clocks to sample boundaries using the physical Timer B
+ * period. One hardware overflow advances the PMD sequence by one clock.
+ */
 internal object PmdSampleClock {
-    fun samplesAt(song: CompiledOpnaSong, targetTick: Long, sampleRate: Int): Long {
-        require(targetTick >= 0L) { "Target tick must not be negative" }
+    fun samplesAt(song: CompiledOpnaSong, targetClock: Long, sampleRate: Int): Long {
+        require(targetClock >= 0L) { "Target PMD clock must not be negative" }
+        require(sampleRate > 0) { "Sample rate must be positive" }
         var samples = 0L
         var remainder = 0L
-        var previousTick = 0L
-        var bpmMilli = song.bpmMilli
-        var tempoIndex = 0
-        while (tempoIndex < song.tempoChangeCount && song.tempoTick[tempoIndex] < targetTick) {
-            val changeTick = song.tempoTick[tempoIndex].coerceAtLeast(previousTick)
-            val result = advance(changeTick - previousTick, sampleRate, bpmMilli, remainder)
-            samples += result.first
-            remainder = result.second
-            previousTick = changeTick
-            val nextBpm = song.tempoBpmMilli[tempoIndex]
-            remainder = rescaleRemainder(remainder, bpmMilli, nextBpm)
-            bpmMilli = nextBpm
-            tempoIndex++
+        var previousClock = 0L
+        var timerB = song.initialTimerB
+        var changeIndex = 0
+        while (changeIndex < song.timerBChangeCount &&
+            song.timerBChangeClock[changeIndex] < targetClock
+        ) {
+            val changeClock = song.timerBChangeClock[changeIndex].coerceAtLeast(previousClock)
+            val numerator = sampleNumerator(
+                changeClock - previousClock,
+                sampleRate,
+                timerB,
+                remainder
+            )
+            samples += numerator / OpnPitch.MASTER_CLOCK_HZ
+            remainder = numerator % OpnPitch.MASTER_CLOCK_HZ
+            previousClock = changeClock
+            timerB = song.timerBValue[changeIndex]
+            changeIndex++
         }
-        val result = advance(targetTick - previousTick, sampleRate, bpmMilli, remainder)
-        return samples + result.first
+        val numerator = sampleNumerator(
+            targetClock - previousClock,
+            sampleRate,
+            timerB,
+            remainder
+        )
+        return samples + numerator / OpnPitch.MASTER_CLOCK_HZ
     }
 
-    private fun advance(ticks: Long, sampleRate: Int, bpmMilli: Int, remainder: Long): Pair<Long, Long> {
-        val denominator = bpmMilli.toLong() * CompiledOpnaSong.TICKS_PER_QUARTER
-        val numerator = ticks * sampleRate.toLong() * 60_000L + remainder
-        return Pair(numerator / denominator, numerator % denominator)
-    }
-
-    private fun rescaleRemainder(remainder: Long, oldBpmMilli: Int, newBpmMilli: Int): Long {
-        if (remainder == 0L || oldBpmMilli == newBpmMilli) return remainder
-        val oldDenominator = oldBpmMilli.toLong() * CompiledOpnaSong.TICKS_PER_QUARTER
-        val newDenominator = newBpmMilli.toLong() * CompiledOpnaSong.TICKS_PER_QUARTER
-        return remainder * newDenominator / oldDenominator
+    private fun sampleNumerator(
+        clocks: Long,
+        sampleRate: Int,
+        timerB: Int,
+        remainder: Long
+    ): Long {
+        return clocks * sampleRate.toLong() * OpnaTimerBLaws.periodMasterClocks(timerB) + remainder
     }
 }

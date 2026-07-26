@@ -21,6 +21,9 @@ class CompiledOpnaSong internal constructor(
     internal val tempoTick: LongArray,
     internal val tempoBpm: FloatArray,
     internal val tempoBpmMilli: IntArray,
+    internal val timerBChangeCount: Int,
+    internal val timerBChangeClock: LongArray,
+    internal val timerBValue: IntArray,
     internal val timingCommandCount: Int,
     internal val timingCommandTick: LongArray,
     internal val timingCommandKind: IntArray,
@@ -84,6 +87,9 @@ class CompiledOpnaSong internal constructor(
             tempoTick = tempoTick,
             tempoBpm = tempoBpm,
             tempoBpmMilli = tempoBpmMilli,
+            timerBChangeCount = timerBChangeCount,
+            timerBChangeClock = timerBChangeClock,
+            timerBValue = timerBValue,
             timingCommandCount = timingCommandCount,
             timingCommandTick = timingCommandTick,
             timingCommandKind = timingCommandKind,
@@ -137,8 +143,6 @@ class CompiledOpnaSong internal constructor(
     }
 
     companion object {
-        const val TICKS_PER_QUARTER: Int = 480
-
         // Abuse guard only. Storage grows during setup and is trimmed exactly
         // at build time; this is not a playback or normal-song capacity.
         const val MAX_AUTHORED_EVENTS: Int = 262_144
@@ -216,6 +220,9 @@ internal class CompiledOpnaSongBuilder(
     private var tempoBpm = FloatArray(INITIAL_TEMPO_CAPACITY)
     private var tempoBpmMilli = IntArray(INITIAL_TEMPO_CAPACITY)
     private var tempoChangeCount = 0
+    private var timerBChangeClock = LongArray(INITIAL_TIMING_CAPACITY)
+    private var timerBValue = IntArray(INITIAL_TIMING_CAPACITY)
+    private var timerBChangeCount = 0
     private var timingCommandTick = LongArray(INITIAL_TIMING_CAPACITY)
     private var timingCommandKind = IntArray(INITIAL_TIMING_CAPACITY)
     private var timingCommandOperation = IntArray(INITIAL_TIMING_CAPACITY)
@@ -301,6 +308,27 @@ internal class CompiledOpnaSongBuilder(
         return true
     }
 
+    private fun addTimerBChange(atClock: Long, value: Int): Boolean {
+        var position = 0
+        while (position < timerBChangeCount && timerBChangeClock[position] < atClock) position++
+        if (position < timerBChangeCount && timerBChangeClock[position] == atClock) {
+            timerBValue[position] = value
+            return true
+        }
+        if (timerBChangeCount >= MAX_TIMING_COMMANDS) return false
+        ensureTimerBChangeCapacity(timerBChangeCount + 1)
+        var move = timerBChangeCount
+        while (move > position) {
+            timerBChangeClock[move] = timerBChangeClock[move - 1]
+            timerBValue[move] = timerBValue[move - 1]
+            move--
+        }
+        timerBChangeClock[position] = atClock
+        timerBValue[position] = value
+        timerBChangeCount++
+        return true
+    }
+
     fun addTimingCommand(atTick: Long, kind: Int, operation: Int, value: Int): Boolean {
         if (timingCommandCount >= MAX_TIMING_COMMANDS) return false
         ensureTimingCapacity(timingCommandCount + 1)
@@ -338,6 +366,7 @@ internal class CompiledOpnaSongBuilder(
     fun resolveTimingCommands(): Boolean {
         var currentTempo = initialMusicalTempo
         var currentTimerB = initialTimerB
+        var currentWholeNoteClocks = initialWholeNoteClocks
         var index = 0
         while (index < timingCommandCount) {
             val rawValue = timingCommandValue[index]
@@ -354,13 +383,14 @@ internal class CompiledOpnaSongBuilder(
                         return false
                     }
                     timingCommandResolvedValue[index] = currentTempo
-                    val quarterBpm = currentTempo * 2
-                    if (!addTempo(
-                            timingCommandTick[index],
-                            quarterBpm.toFloat(),
-                            quarterBpm * PmdPerformanceLaws.BPM_MILLI_SCALE
-                        )
-                    ) return false
+                    currentTimerB = PmdPerformanceLaws.timerBForMusicalTempo(
+                        currentWholeNoteClocks,
+                        currentTempo
+                    )
+                    if (currentTimerB !in PmdPerformanceLaws.TIMER_B_MIN..PmdPerformanceLaws.TIMER_B_MAX) {
+                        return false
+                    }
+                    if (!addResolvedTimerState(timingCommandTick[index], currentTimerB)) return false
                 }
                 PmdPerformanceLaws.TIMING_TIMER_B -> {
                     currentTimerB = if (relative) {
@@ -373,12 +403,14 @@ internal class CompiledOpnaSongBuilder(
                         return false
                     }
                     timingCommandResolvedValue[index] = currentTimerB
+                    if (!addResolvedTimerState(timingCommandTick[index], currentTimerB)) return false
                 }
                 PmdPerformanceLaws.TIMING_WHOLE_NOTE_CLOCKS -> {
                     if (relative) return false
                     if (rawValue !in
                         PmdPerformanceLaws.WHOLE_NOTE_CLOCKS_MIN..PmdPerformanceLaws.WHOLE_NOTE_CLOCKS_MAX
                     ) return false
+                    currentWholeNoteClocks = rawValue
                     timingCommandResolvedValue[index] = rawValue
                 }
                 else -> return false
@@ -386,6 +418,16 @@ internal class CompiledOpnaSongBuilder(
             index++
         }
         return true
+    }
+
+    private fun addResolvedTimerState(atClock: Long, timerB: Int): Boolean {
+        if (!addTimerBChange(atClock, timerB)) return false
+        val bpmMilli = PmdPerformanceLaws.quarterBpmMilliForTimerB(timerB, pmdClocksPerQuarter)
+        return bpmMilli > 0 && addTempo(
+            atClock,
+            bpmMilli.toFloat() / PmdPerformanceLaws.BPM_MILLI_SCALE,
+            bpmMilli
+        )
     }
 
     fun add(
@@ -629,6 +671,9 @@ internal class CompiledOpnaSongBuilder(
         tempoTick = tempoTick.copyOf(tempoChangeCount),
         tempoBpm = tempoBpm.copyOf(tempoChangeCount),
         tempoBpmMilli = tempoBpmMilli.copyOf(tempoChangeCount),
+        timerBChangeCount = timerBChangeCount,
+        timerBChangeClock = timerBChangeClock.copyOf(timerBChangeCount),
+        timerBValue = timerBValue.copyOf(timerBChangeCount),
         timingCommandCount = timingCommandCount,
         timingCommandTick = timingCommandTick.copyOf(timingCommandCount),
         timingCommandKind = timingCommandKind.copyOf(timingCommandCount),
@@ -695,6 +740,13 @@ internal class CompiledOpnaSongBuilder(
         timingCommandSourceOrder = timingCommandSourceOrder.copyOf(next)
         timingCommandSourceLine = timingCommandSourceLine.copyOf(next)
         timingCommandSourceColumn = timingCommandSourceColumn.copyOf(next)
+    }
+
+    private fun ensureTimerBChangeCapacity(required: Int) {
+        if (required <= timerBChangeClock.size) return
+        val next = minOf(MAX_TIMING_COMMANDS, timerBChangeClock.size * 2)
+        timerBChangeClock = timerBChangeClock.copyOf(next)
+        timerBValue = timerBValue.copyOf(next)
     }
 
     private fun ensureEventCapacity(required: Int) {

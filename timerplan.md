@@ -453,7 +453,7 @@ User note T and t are 2 differnt things as well as C and c.  also C and %値  ar
 User note T and t are 2 differnt things as well as C and c.  also C and %値  are differnt things as well.
 
 - 通常長を `C ÷ 分母`、直接長を `%値` として整数PMDクロックへ解決し、累積PMDクロックを時系列の正準座標にする。
-- 現行の固定480刻みは `#BPM` / `#PMDCLOCK` 互換入力の変換境界に限定し、PMD正本の時間源として残さない。 **the logic here is wrong also we do not need or want backwards copatability with #BPM,  it should be removed imo**  
+- 現行の固定480刻みは `#BPM` / `#PMDCLOCK` 互換入力の変換境界に限定し、PMD正本の時間源として残さない。 **the logic here is wrong also we do not need or want backwards copatability with #BPM,  it should be removed imo, also 固定480刻み isnt relevent anymore i think**  
 - 各PMDクロック境界までの旧タイマーB周期を整数余り付きで積算する。
 - タイマーB変更境界を時系列の大域制御として出力する。
 - 境界直前は旧値、境界後は新値という決定済み規則を一箇所で実施する。
