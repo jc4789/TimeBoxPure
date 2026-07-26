@@ -22,6 +22,11 @@ class CompiledOpnaPlayer internal constructor(
     private val fmLogicalPartByVoice = IntArray(AudioLaws.FM_RENDER_VOICES)
     private val fmRenderBindingStorage = Array(AudioLaws.FM_RENDER_VOICES) { FmRenderBinding() }
     private val fmRenderBindingByVoice = arrayOfNulls<FmRenderBinding>(AudioLaws.FM_RENDER_VOICES)
+    private val fmHardwareLfoDelayClocksByVoice = IntArray(AudioLaws.FM_RENDER_VOICES)
+    private val fmHardwareLfoAppliesByVoice = Array(AudioLaws.FM_RENDER_VOICES) {
+        BooleanArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
+    }
+    private val fmHardwareLfoGateRequiredByVoice = BooleanArray(AudioLaws.FM_RENDER_VOICES)
     private val fmFullPatchIdByVoice = IntArray(AudioLaws.FM_RENDER_VOICES) { PATCH_ID_NONE }
     private val fmCarrierMaskByVoice = IntArray(AudioLaws.FM_RENDER_VOICES) { DEFAULT_FM_CARRIER_MASK }
     private val fmOperatorTlByVoice = IntArray(AudioLaws.FM_RENDER_VOICES * AudioLaws.FM_OPERATORS) {
@@ -296,6 +301,7 @@ class CompiledOpnaPlayer internal constructor(
             ssgDisableAfterFrame[channel] = DISABLE_FRAME_NONE
             channel++
         }
+        prepareHardwareLfoApplications(frames)
         performance.prepare(frames, timerBNotifications)
         channel = 0
         while (channel < AudioLaws.SSG_CHANNELS) {
@@ -311,6 +317,25 @@ class CompiledOpnaPlayer internal constructor(
             channel++
         }
         resolveRenderBindings()
+    }
+
+    private fun prepareHardwareLfoApplications(frames: Int) {
+        var voice = 0
+        while (voice < fmHardwareLfoDelayClocksByVoice.size) {
+            var remaining = fmHardwareLfoDelayClocksByVoice[voice]
+            fmHardwareLfoGateRequiredByVoice[voice] = remaining > 0
+            val applies = fmHardwareLfoAppliesByVoice[voice]
+            var frame = 0
+            while (frame < frames) {
+                applies[frame] = remaining <= 0
+                if (remaining > 0) {
+                    remaining = (remaining - timerBNotifications[frame]).coerceAtLeast(0)
+                }
+                frame++
+            }
+            fmHardwareLfoDelayClocksByVoice[voice] = remaining
+            voice++
+        }
     }
 
     private fun handleTimelineEvent(synthesizer: OpnaLikeSynthesizer, index: Int) {
@@ -433,10 +458,10 @@ class CompiledOpnaPlayer internal constructor(
         voice.setDrivenNoteControls(
             timeline.pan[index],
             timeline.detuneCents[index],
-            performance.hardwareLfoDelayFrames(channel),
             timeline.targetMidi[index],
             timeline.slideFrames[index]
         )
+        fmHardwareLfoDelayClocksByVoice[channel] = performance.hardwareLfoDelayClocks(channel)
         if (channel < AudioLaws.FM_CHANNELS) {
             bindFmVoiceToPart(channel, channel)
             performance.noteOnFm(
@@ -474,10 +499,10 @@ class CompiledOpnaPlayer internal constructor(
         voice.setDrivenNoteControls(
             timeline.pan[index],
             timeline.detuneCents[index],
-            performance.hardwareLfoDelayFrames(part),
             CompiledOpnaSong.LOGICAL_PART_NONE,
             0
         )
+        fmHardwareLfoDelayClocksByVoice[voiceIndex] = performance.hardwareLfoDelayClocks(part)
         bindFmVoiceToPart(voiceIndex, part)
         performance.noteOnFm(part, 0)
         fmDrivenPortamentoMaskByVoice[voiceIndex] = 0
@@ -568,10 +593,11 @@ class CompiledOpnaPlayer internal constructor(
         voice.setDrivenNoteControls(
             timeline.pan[index],
             timeline.detuneCents[index],
-            performance.hardwareLfoDelayFrames(FM3_PHYSICAL_VOICE),
             CompiledOpnaSong.LOGICAL_PART_NONE,
             0
         )
+        fmHardwareLfoDelayClocksByVoice[FM3_PHYSICAL_VOICE] =
+            performance.hardwareLfoDelayClocks(FM3_PHYSICAL_VOICE)
         voice.noteOnDrivenSlots(
             mask,
             timeline.midi[index],
@@ -858,6 +884,9 @@ class CompiledOpnaPlayer internal constructor(
         while (voice < fmRenderBindingByVoice.size) {
             val binding = fmRenderBindingStorage[voice]
             binding.reset()
+            if (fmHardwareLfoGateRequiredByVoice[voice]) {
+                binding.bindHardwareLfoApplication(fmHardwareLfoAppliesByVoice[voice])
+            }
             val carrierMask = fmCarrierMaskByVoice[voice]
             if (voice == FM3_PHYSICAL_VOICE && fm3UsesLogicalParts) {
                 resolveFm3Sources(binding, carrierMask)
@@ -996,6 +1025,9 @@ class CompiledOpnaPlayer internal constructor(
             fmCarrierMaskByVoice[voice] = DEFAULT_FM_CARRIER_MASK
             fmFeedbackByVoice[voice] = DEFAULT_FEEDBACK
             fmDrivenPortamentoMaskByVoice[voice] = 0
+            fmHardwareLfoDelayClocksByVoice[voice] = 0
+            fmHardwareLfoAppliesByVoice[voice].fill(true)
+            fmHardwareLfoGateRequiredByVoice[voice] = false
             var operator = 0
             while (operator < AudioLaws.FM_OPERATORS) {
                 fmSlotDetuneByVoice[fmOperatorStateIndex(voice, operator)] = DEFAULT_SLOT_DETUNE

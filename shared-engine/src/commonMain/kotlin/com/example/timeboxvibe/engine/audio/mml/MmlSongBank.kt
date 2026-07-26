@@ -13,9 +13,9 @@ object MmlSongBank {
 #Zenlen 192
 #BAR 4/4
 #LFO 5
-#EQ peak 180 -2.0 0.70
-#EQ peak 850 1.5 0.65
-#EQ peak 2400 -4.0 0.85
+#EQ peak 180 -0.0 0.70
+#EQ peak 850 0.5 0.65
+#EQ peak 2400 0.0 0.85
 
 ; 52 bars / 77.64 seconds. The discarded three-bar test intro stays removed.
 ; Authentic coordinated ST02.M86 lanes, source clocks 288..<5280 (three-bar cut).

@@ -136,9 +136,9 @@ internal class PmdPerformanceState(sampleRate: Int) {
         state.hardwareDelayDotted = dotted && state.hardwareDelayKind == CompiledOpnaSong.HW_LFO_DELAY_NOTE_LENGTH
     }
 
-    /** Resolves the preserved PMD delay unit against the tempo in force at key-on. */
-    fun hardwareLfoDelayFrames(part: Int): Int =
-        selectedPart(fmParts, part)?.hardwareLfoDelayFrames() ?: 0
+    /** Resolves the preserved PMD delay unit to internal clocks at key-on. */
+    fun hardwareLfoDelayClocks(part: Int): Int =
+        selectedPart(fmParts, part)?.hardwareLfoDelayClocks() ?: 0
 
     fun noteOnFm(part: Int, portamentoFrames: Int) {
         selectedPart(fmParts, part)?.noteOn(portamentoFrames)
@@ -420,27 +420,15 @@ internal class PmdPerformanceState(sampleRate: Int) {
             ssgFrame?.clear(ssgBaseLevel)
         }
 
-        fun hardwareLfoDelayFrames(): Int {
+        fun hardwareLfoDelayClocks(): Int {
             if (hardwareDelayValue <= 0) return 0
-            val numerator: Long
-            val denominator: Long
             if (hardwareDelayKind == CompiledOpnaSong.HW_LFO_DELAY_RAW_CLOCKS) {
-                numerator = sampleRate.toLong() * 60_000L * hardwareDelayValue.toLong()
-                denominator = tempoMilliBpm.toLong() * clocksPerQuarter.toLong()
-            } else if (hardwareDelayKind == CompiledOpnaSong.HW_LFO_DELAY_NOTE_LENGTH) {
-                var top = sampleRate.toLong() * 240_000L
-                var bottom = tempoMilliBpm.toLong() * hardwareDelayValue.toLong()
-                if (hardwareDelayDotted) {
-                    top *= 3L
-                    bottom *= 2L
-                }
-                numerator = top
-                denominator = bottom
-            } else {
-                return 0
+                return hardwareDelayValue
             }
-            if (denominator <= 0L) return 0
-            return (numerator / denominator).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+            if (hardwareDelayKind != CompiledOpnaSong.HW_LFO_DELAY_NOTE_LENGTH) return 0
+            val wholeNoteClocks = clocksPerQuarter * QUARTERS_PER_WHOLE_NOTE
+            val baseClocks = wholeNoteClocks / hardwareDelayValue
+            return if (hardwareDelayDotted) baseClocks + baseClocks / 2 else baseClocks
         }
     }
 
@@ -452,6 +440,7 @@ internal class PmdPerformanceState(sampleRate: Int) {
         const val PART_SEED_STEP = 0x10203
         const val DEFAULT_SSG_LEVEL = 12
         const val SOFTWARE_VOLUME_ATTENUATION_STEP = 8
+        const val QUARTERS_PER_WHOLE_NOTE = 4
 
         fun seedFor(family: Int, part: Int): Int =
             PmdPerformanceLaws.SOFTWARE_LFO_RANDOM_SEED xor family xor (part * PART_SEED_STEP)

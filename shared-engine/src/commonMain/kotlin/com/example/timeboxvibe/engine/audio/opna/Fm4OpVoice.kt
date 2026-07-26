@@ -243,14 +243,13 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     internal fun setDrivenNoteControls(
         pan: Int,
         cents: Int,
-        delayFrames: Int,
         slideTargetMidi: Int,
         slideFrames: Int
     ) {
         driverPortamentoManaged = true
         panOverride = pan.coerceIn(0, 3)
         detuneCents = cents.coerceIn(-1_200, 1_200)
-        lfoDelayRemaining = delayFrames.coerceAtLeast(0)
+        lfoDelayRemaining = 0
         targetMidi = slideTargetMidi
         requestedSlideFrames = slideFrames.coerceAtLeast(0)
     }
@@ -627,9 +626,9 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             var frame = 0
             while (frame < frames) {
                 val first = frame * 2
-                setLfoFrame(lfo, frame, clockFrame = true)
+                setLfoFrame(lfo, frame, clockFrame = true, driverHardwareLfoApplies = true)
                 oversampleBuffer[first] = renderOne(clockEnvelope = true) * combinedGain
-                setLfoFrame(lfo, frame, clockFrame = false)
+                setLfoFrame(lfo, frame, clockFrame = false, driverHardwareLfoApplies = true)
                 oversampleBuffer[first + 1] = renderOne(clockEnvelope = false) * combinedGain
                 frame++
             }
@@ -637,7 +636,7 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         } else {
             var i = 0
             while (i < frames) {
-                setLfoFrame(lfo, i, clockFrame = true)
+                setLfoFrame(lfo, i, clockFrame = true, driverHardwareLfoApplies = true)
                 val sample = renderOne(clockEnvelope = true)
                 buffer[startFrame + i] += sample * combinedGain
                 i++
@@ -660,10 +659,21 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
             var frame = 0
             while (frame < frames) {
                 val first = frame * 2
-                setLfoFrame(lfo, frame, clockFrame = true)
+                val hardwareLfoApplies = renderBinding.hardwareLfoAppliesAt(frame)
+                setLfoFrame(
+                    lfo,
+                    frame,
+                    clockFrame = true,
+                    driverHardwareLfoApplies = hardwareLfoApplies
+                )
                 readRenderStreams(renderBinding, frame)
                 oversampleBuffer[first] = renderOne(clockEnvelope = true) * combinedGain
-                setLfoFrame(lfo, frame, clockFrame = false)
+                setLfoFrame(
+                    lfo,
+                    frame,
+                    clockFrame = false,
+                    driverHardwareLfoApplies = hardwareLfoApplies
+                )
                 oversampleBuffer[first + 1] = renderOne(clockEnvelope = false) * combinedGain
                 frame++
             }
@@ -671,7 +681,12 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
         } else {
             var frame = 0
             while (frame < frames) {
-                setLfoFrame(lfo, frame, clockFrame = true)
+                setLfoFrame(
+                    lfo,
+                    frame,
+                    clockFrame = true,
+                    driverHardwareLfoApplies = renderBinding.hardwareLfoAppliesAt(frame)
+                )
                 readRenderStreams(renderBinding, frame)
                 val sample = renderOne(clockEnvelope = true)
                 buffer[startFrame + frame] += sample * combinedGain
@@ -821,11 +836,12 @@ class Fm4OpVoice(val sampleRate: Int = AudioLaws.SAMPLE_RATE) {
     private fun setLfoFrame(
         lfo: Lfo?,
         frame: Int,
-        clockFrame: Boolean
+        clockFrame: Boolean,
+        driverHardwareLfoApplies: Boolean
     ) {
         val delayed = lfoDelayRemaining > 0
         if (clockFrame && delayed) lfoDelayRemaining--
-        if (lfo == null || delayed) {
+        if (lfo == null || delayed || !driverHardwareLfoApplies) {
             currentPmQ20 = 0
             currentAmAttenuation = 0
         } else {

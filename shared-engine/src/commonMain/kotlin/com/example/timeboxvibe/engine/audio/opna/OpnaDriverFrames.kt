@@ -12,6 +12,8 @@ internal class FmRenderBinding {
     val portamentoStreams = arrayOfNulls<IntArray>(MAX_PORTAMENTO_STREAMS)
     val portamentoMasks = IntArray(MAX_PORTAMENTO_STREAMS)
     val portamentoFrames = IntArray(MAX_PORTAMENTO_STREAMS)
+    private lateinit var hardwareLfoApplication: BooleanArray
+    private var hasHardwareLfoApplication = false
     var pitchStreamCount = 0
         private set
     var attenuationStreamCount = 0
@@ -45,6 +47,7 @@ internal class FmRenderBinding {
         pitchStreamCount = 0
         attenuationStreamCount = 0
         portamentoStreamCount = 0
+        hasHardwareLfoApplication = false
         mode = MODE_IDENTITY
     }
 
@@ -78,8 +81,18 @@ internal class FmRenderBinding {
         portamentoStreamCount++
     }
 
+    fun bindHardwareLfoApplication(stream: BooleanArray) {
+        hardwareLfoApplication = stream
+        hasHardwareLfoApplication = true
+    }
+
+    fun hardwareLfoAppliesAt(frame: Int): Boolean =
+        !hasHardwareLfoApplication || hardwareLfoApplication[frame]
+
     fun finish(): Boolean {
-        if (pitchStreamCount > 0 || attenuationStreamCount > 0 || portamentoStreamCount > 0) {
+        if (hasHardwareLfoApplication ||
+            pitchStreamCount > 0 || attenuationStreamCount > 0 || portamentoStreamCount > 0
+        ) {
             mode = MODE_STREAMED
             return true
         }
