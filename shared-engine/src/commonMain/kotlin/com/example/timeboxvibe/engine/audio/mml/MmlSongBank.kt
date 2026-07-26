@@ -4,21 +4,18 @@ import com.example.timeboxvibe.engine.ArrangementLanes
 
 object MmlSongBank {
     const val SENBONZAKURA_DEMO_KEY = "synth-mml-senbonzakura-demo"
-    const val LLS_LOGO_KEY = "synth-mml-lls-logo"
-    const val LLS_LOGO_MML = LOGO_M86_MML_SOURCE
 
     const val BAD_APPLE_LLS_MML = """
 #MML 2
 #Tempo 80
 #Zenlen 192
-#BAR 4/4
 #LFO 5
 #EQ peak 180 -0.0 0.70
 #EQ peak 850 0.5 0.65
 #EQ peak 2400 0.0 0.85
 
-; 52 bars / 77.64 seconds. The discarded three-bar test intro stays removed.
-; Authentic coordinated ST02.M86 lanes, source clocks 288..<5280 (three-bar cut).
+; Source clocks 288..<5280 / 77.64 seconds. The discarded 288-clock test opening stays removed.
+; Authentic coordinated ST02.M86 lanes.
 ; FM is retained at 64%; the two summed SSG lanes use 37% to fit clean-room mixer headroom.
 A @74 V78 q0 o3 e-8 b-8 a-8 b-8 f+8 b-8 f8 b-8 e-8 b-8 a-8 b-8 f+8 b-8 f8 b-8 e-8 b-8 a-8 b-8 f+8 b-8 f8 b-8 e-8 b-8
     a-8 b-8 f+8 b-8 f8 b-8 e-8 b-8 a-8 b-8 f+8 b-8 f8 b-8 o2 b8 o3 f+8 f8 f+8 e-8 f+8 c+8 f+8 o2 b8 o3 f+8 f8 f+8 d8
@@ -195,26 +192,27 @@ H @lls_square EX0 E2,-1,24,1 r8 r1 V40 q0 o4 b-8 r8 b-8 r8 b-8 r8 b-8 r8 b-8 r8 
     o5 c16 f16 f16 o4 f16 o5 c16 f16 f16 o4 g16 o5 d16 g16 g16 o4 g16 o5 d16 g16 g16 o4 g16 o5 d16 g16 g16 o4 g16 o5
     d16 g16 g16 r1
 R @drum V93 l8 p3
-; Intro continuation - eight bars.
-[k h s h k h s h |]8
-; A is repetition 1; B is repetitions 2-3 plus the four-bar close.
-[k h s h k h s h | k h s h k h s h |
- k h s h k h s h | k h s h k r s h |
- k h s h k h s h | k h s h k h s h |
- k h s h k h s h | k h s h k r s h |]3
-k h s h k h s h | k h s h k h s h | k h s h k h s h | k h s h k r s h |
-[k h s h k h s h | k h s h k h s h | k h s h k h s h | k h s h k r s h |]4
+; Opening continuation.
+[k h s h k h s h]8
+; Repeated A/B rhythm groups and close.
+[k h s h k h s h k h s h k h s h
+ k h s h k h s h k h s h k r s h
+ k h s h k h s h k h s h k h s h
+ k h s h k h s h k h s h k r s h]3
+k h s h k h s h k h s h k h s h k h s h k h s h k h s h k r s h
+[k h s h k h s h
+ k h s h k h s h
+ k h s h k h s h
+ k h s h k r s h]4
 """
 
     const val SENBONZAKURA_DEMO_MML = BAD_APPLE_LLS_MML
 
     val senbonzakuraDemoResult: MmlCompileResult = MmlCompiler.compile(BAD_APPLE_LLS_MML)
-    val llsLogoResult: MmlCompileResult = MmlCompiler.compile(LLS_LOGO_MML, LogoSongPatchBank)
 
     fun getArrangement(key: String, volume: Float): ArrangementLanes? {
         val result = when (key) {
             SENBONZAKURA_DEMO_KEY -> senbonzakuraDemoResult
-            LLS_LOGO_KEY -> llsLogoResult
             else -> return null
         }
 

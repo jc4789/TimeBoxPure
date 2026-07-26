@@ -65,10 +65,6 @@ object MmlCompiler {
             initialTimerB,
             initialClocksPerQuarter
         )
-        val scaledBarClocks = document.barNumerator.toLong() * document.initialWholeNoteClocks.toLong()
-        if (scaledBarClocks % document.barDenominator != 0L || scaledBarClocks > Int.MAX_VALUE) {
-            return MmlCompileResult.Failure(listOf(MmlDiagnostic(1, 1, "#BAR cannot be represented by PMD clocks")))
-        }
         var eqIndex = 0
         while (eqIndex < document.eqBands.size) {
             val directive = document.eqBands[eqIndex]
@@ -78,11 +74,9 @@ object MmlCompiler {
             eqIndex++
         }
 
-        val barClocks = (scaledBarClocks / document.barDenominator).toInt()
         val builder = CompiledOpnaSongBuilder(
             bpm = initialBpmMilli.toFloat() / PmdPerformanceLaws.BPM_MILLI_SCALE,
             bpmMilli = initialBpmMilli,
-            beatsPerBar = document.barNumerator,
             pmdClocksPerQuarter = initialClocksPerQuarter,
             initialMusicalTempo = document.initialMusicalTempo ?: -1,
             initialTimerB = initialTimerB,
@@ -94,7 +88,7 @@ object MmlCompiler {
         addInitialHardwareLfoState(document, builder, diagnostics)
         val channelC = document.tracks[MmlChannelId.C.ordinal]
         val channelCPatch = firstFmPatch(channelC, instruments, builder)
-        compileRhythmSequence(document, barClocks, builder, diagnostics)
+        compileRhythmSequence(document, builder, diagnostics)
         var trackIndex = 0
         while (trackIndex < document.tracks.size) {
             val track = document.tracks[trackIndex]
@@ -109,9 +103,9 @@ object MmlCompiler {
                     val first = track.commands.first { it is MmlCommand.Note || it is MmlCommand.Chord || it is MmlCommand.Portamento || it is MmlCommand.Drum }
                     diagnostics.add(MmlDiagnostic(first.line, first.column, "Channel C supplies FM3 patch/control data while #FM3EXTEND is ON; write notes on C1-C4"))
                 }
-                compileV2Track(track, document, barClocks, channelCPatch, instruments, builder, diagnostics, fm3ControlLane = true)
+                compileV2Track(track, document, channelCPatch, instruments, builder, diagnostics, fm3ControlLane = true)
             } else {
-                compileV2Track(track, document, barClocks, channelCPatch, instruments, builder, diagnostics)
+                compileV2Track(track, document, channelCPatch, instruments, builder, diagnostics)
             }
             trackIndex++
         }
@@ -159,7 +153,6 @@ object MmlCompiler {
                 tempoBpm = initialBpmMilli.toFloat() / PmdPerformanceLaws.BPM_MILLI_SCALE,
                 keyRootMidi = DEFAULT_KEY_ROOT_MIDI,
                 routing = ArrangementRouting.MML_LOGICAL_TRACKS,
-                beatsPerBar = document.barNumerator,
                 eqBands = document.eqBands.map { it.band },
                 compiledOpnaSong = program
             ),
@@ -270,7 +263,6 @@ object MmlCompiler {
     private fun compileV2Track(
         track: MmlTrack,
         document: MmlDocument,
-        barClocks: Int,
         channelCPatch: Int,
         instruments: SourceInstrumentLookup,
         builder: CompiledOpnaSongBuilder,
@@ -300,7 +292,6 @@ object MmlCompiler {
         var polyphonicPart = false
         var sawSoftwareLfo = false
         var tick = 0L
-        var sawEvent = false
         if (isSsg && document.envelopeClockMode != PmdPerformanceLaws.ENVELOPE_CLOCK_NORMAL) {
             builder.beginSource(Int.MAX_VALUE, 1, 1)
         }
@@ -828,7 +819,6 @@ object MmlCompiler {
                     ) diagnostics.add(MmlDiagnostic(command.line, command.column, "Compiled OPNA event capacity exceeded"))
                 }
                 is MmlCommand.Note -> {
-                    sawEvent = true
                     if (isRhythm) {
                         diagnostics.add(MmlDiagnostic(command.line, command.column, "Pitched notes are not allowed on channel R"))
                     } else {
@@ -895,7 +885,6 @@ object MmlCompiler {
                     }
                 }
                 is MmlCommand.Chord -> {
-                    sawEvent = true
                     if (!isFm) {
                         diagnostics.add(MmlDiagnostic(command.line, command.column, "Polyphonic chords are only valid on FM channels A-F"))
                     } else {
@@ -945,7 +934,6 @@ object MmlCompiler {
                     }
                 }
                 is MmlCommand.Portamento -> {
-                    sawEvent = true
                     if (isRhythm) {
                         diagnostics.add(MmlDiagnostic(command.line, command.column, "Portamento is not valid on channel R"))
                     } else {
@@ -990,7 +978,6 @@ object MmlCompiler {
                     }
                 }
                 is MmlCommand.Rest -> {
-                    sawEvent = true
                     tick += durationPmdClocks(
                         command.length,
                         command.dotCount,
@@ -1001,7 +988,6 @@ object MmlCompiler {
                     )
                 }
                 is MmlCommand.Drum -> {
-                    sawEvent = true
                     if (!isRhythm) {
                         diagnostics.add(MmlDiagnostic(command.line, command.column, "Drum tokens are only allowed on channel R"))
                     } else {
@@ -1022,15 +1008,8 @@ object MmlCompiler {
                         }
                     }
                 }
-                is MmlCommand.Bar -> {
-                    if (tick == 0L || tick % barClocks != 0L) diagnostics.add(MmlDiagnostic(command.line, command.column, "Bar line does not fall on a complete #BAR boundary"))
-                }
             }
             i++
-        }
-        if (sawEvent && tick % barClocks != 0L) {
-            val last = track.commands[track.commands.size - 1]
-            diagnostics.add(MmlDiagnostic(last.line, last.column, "Final bar is incomplete"))
         }
     }
 
@@ -1289,7 +1268,6 @@ object MmlCompiler {
 
     private fun compileRhythmSequence(
         document: MmlDocument,
-        barClocks: Int,
         builder: CompiledOpnaSongBuilder,
         diagnostics: MutableList<MmlDiagnostic>
     ) {
@@ -1298,7 +1276,6 @@ object MmlCompiler {
         var tick = 0L
         var defaultLength = DEFAULT_LENGTH
         var wholeNoteClocks = document.initialWholeNoteClocks
-        var sawEvent = false
         var commandIndex = 0
         while (commandIndex < track.commands.size) {
             val command = track.commands[commandIndex]
@@ -1321,7 +1298,6 @@ object MmlCompiler {
                             builder,
                             diagnostics
                         )
-                        sawEvent = true
                     }
                 }
                 is MmlCommand.DefaultLength -> {
@@ -1356,10 +1332,6 @@ object MmlCompiler {
                         command,
                         diagnostics
                     )
-                    sawEvent = true
-                }
-                is MmlCommand.Bar -> if (tick == 0L || tick % barClocks != 0L) {
-                    diagnostics.add(MmlDiagnostic(command.line, command.column, "K-part bar line does not fall on a complete #BAR boundary"))
                 }
                 is MmlCommand.RhythmShot,
                 is MmlCommand.RhythmMasterLevel,
@@ -1370,10 +1342,6 @@ object MmlCompiler {
                 else -> diagnostics.add(MmlDiagnostic(command.line, command.column, "Command is not valid on PMD rhythm-selection part K"))
             }
             commandIndex++
-        }
-        if (sawEvent && tick % barClocks != 0L) {
-            val last = track.commands[track.commands.lastIndex]
-            diagnostics.add(MmlDiagnostic(last.line, last.column, "Final K-part bar is incomplete"))
         }
     }
 
@@ -1467,7 +1435,6 @@ object MmlCompiler {
                 is MmlCommand.RhythmVoicePan -> diagnostics.add(
                     MmlDiagnostic(command.line, command.column, "YM2608 rhythm controls are not valid inside R${pattern.id}; author them on bare R")
                 )
-                is MmlCommand.Bar -> Unit
                 else -> diagnostics.add(MmlDiagnostic(command.line, command.column, "Command is not valid in PMD rhythm definition R${pattern.id}"))
             }
             commandIndex++

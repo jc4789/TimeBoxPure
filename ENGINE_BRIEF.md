@@ -35,7 +35,7 @@
 - `PmdSsgEffectUnit` remains under `audio/opna` because it owns and renders a procedural audio generator through `OpnaChipState`; its PMD name does not make it parser/compiler state.
 - Catalog MML has one runtime path: `CompiledOpnaSong` -> exact `CompiledOpnaTimeline` -> `CompiledOpnaPlayer`. The compiled-song-to-`OpnaSequencer` compatibility translator was removed; `OpnaSequencer` remains only for direct procedural motifs/tests.
 - `OpnaChipState` owns only physical chip voices/register-equivalent state. `PmdPerformanceState` owns six FM, three SSG, and four FM3 logical-part driver states; `OpnaMixer` owns selected output-profile bus gains; `SongMastering` owns EQ/filter/resonator/clipping state and accumulated measurements.
-- Compiled songs carry exact used-only `CompiledInstrumentBank` instances. Shared built-ins are compile-time sources; LOGO patch 79 is song-local and no longer extends the global built-in ID namespace.
+- Compiled songs carry exact used-only `CompiledInstrumentBank` instances. Shared built-ins are compile-time sources and do not extend the runtime song-local bank.
 - FM3 C1-C4 carry explicit logical-part IDs, independent volume/two-LFO state, and slot masks. Channel C is an explicit register-control lane; unsupported part-local controls fail compilation instead of disappearing.
 - FM3 slot ownership is time-aware: simultaneous cross-part overlap fails, while sequential reuse is legal. ALG remains channel-global and patch FB changes only when slot 1 participates.
 - Legacy authored drums, YM2608 rhythm-register controls, and PMD K/R SSG effects use separate procedural generators and reset domains. Timeline precedence is global -> state -> off/dump -> on/shot -> zero-gate off.
@@ -113,14 +113,14 @@
 
 - Production source constant: `MmlSongBank.BAD_APPLE_LLS_MML`.
 - Catalog title: `BAD APPLE!! / LOTUS LAND STORY`.
-- Tempo: 160.73 BPM, 4/4.
-- Current duration: 52 bars, approximately 77.64 seconds.
+- Timing source: PMD `#Tempo 80` with `#Zenlen 192`.
+- Current duration: approximately 77.64 seconds across 4992 source PMD clocks.
 - Master EQ:
   - 180 Hz, -2.0 dB, Q 0.70
   - 850 Hz, +1.5 dB, Q 0.65
   - 2400 Hz, -4.0 dB, Q 0.85
 - The TH04 archive and `ST02.M86` were decoded by offline tooling only. No archive bytes, PMD binary, extracted asset, or runtime file access was added to the project.
-- Current source window is PMD clocks `288..<5280`, retaining the requested three-bar cut and 52-bar runtime.
+- Current source window is PMD clocks `288..<5280`, retaining the requested 288-clock cut.
 - A-E are coordinated source-derived FM1-FM5:
   - A / FM1: 487 notes, `@74` harmonic bed.
   - B / FM2: 205 notes, upper melody/doubling; begins on `@181`, then changes to `@99`.
@@ -131,7 +131,7 @@
 - PMD FM channel volume is mapped to 64% and the two summed SSG lanes to 37% before `MmlArrangementScheduler.MIX_GAIN = 0.75f`.
 - R remains the existing 405-shot procedural rhythm approximation.
 - Both active SSG lanes author the decoded PMD legacy software envelope `[AL=2, DD=-1, SR=24, RR=1]` as ordered part controls, clocked at 24 PMD clocks per quarter note.
-- The original cut is still ambiguous: the source has a 192-clock/two-bar leading opening, while the current duration edit removes 288 clocks/three bars (about 4.48 seconds). Change this only as an explicit musical decision.
+- The original cut is still ambiguous: the source has a 192-clock leading opening, while the current duration edit removes 288 clocks (about 4.48 seconds). Change this only as an explicit musical decision.
 - The obsolete headerless `BAD_APPLE_LLS_MIGRATION_FIXTURE_MML` was removed with MML v1. `BAD_APPLE_LLS_MML` is the sole Bad Apple source of truth.
 - The v1/Rin cleanup preserved the active Bad Apple source block, its `MmlCompiler.compile(BAD_APPLE_LLS_MML)` initializer, and the persisted `SENBONZAKURA_DEMO_KEY` unchanged.
 - Current authored size is 3868 primitive events: 2037 FM notes, 1422 SSG notes, 405 rhythm shots, and four SSG envelope/mode controls. The exact runtime timeline contains 7328 ordered tempo, control, note-on, key-off, and rhythm events.
@@ -199,5 +199,4 @@ $env:JAVA_HOME="D:\Programes\Android Studio\jbr"; .\gradlew :shared-engine:compi
 - Keep the parser/compiler v2-only. Do not restore headerless/v1 parsing, the removed v1 compiler branch, obsolete dialect metadata, or the deleted Bad Apple migration fixture.
 - `SongCatalog` currently has only Bad Apple. `RIN TO SHITE` was removed as an invalid arrangement; do not restore its source, key, eager compile result, or catalog entry without an explicit new decision.
 - Catalog expansion remains closed until four independent register/state traces validate the required capabilities and a timestamped, musically diverse human listening record exists. Automated tests are not musical approval.
-- Keep LOGO available only as the explicit research/test fixture until those gates pass. Do not bypass admission because its semantic oracle is green.
 - Keep the clean-room OPN core plus embedded MML as the forward architecture; do not add a PMD binary runtime, copied emulator, sample assets, or a UI framework rewrite.

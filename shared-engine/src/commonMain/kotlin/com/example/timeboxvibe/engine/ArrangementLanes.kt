@@ -22,7 +22,6 @@ data class ArrangementLanes(
     val tempoBpm: Float,
     val keyRootMidi: Int,
     val routing: ArrangementRouting = ArrangementRouting.MML_LOGICAL_TRACKS,
-    val beatsPerBar: Int = 4,
     val eqBands: List<SongEqBand> = emptyList(),
     val compiledOpnaSong: CompiledOpnaSong
 )

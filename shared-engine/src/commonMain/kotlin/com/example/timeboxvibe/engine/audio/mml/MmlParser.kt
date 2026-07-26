@@ -180,8 +180,6 @@ sealed class MmlCommand(open val line: Int, open val column: Int) {
         override val line: Int,
         override val column: Int
     ) : MmlCommand(line, column)
-    data class Bar(override val line: Int, override val column: Int) : MmlCommand(line, column)
-
     companion object {
         const val LINK_NONE = 0
         const val LINK_TIE = 1
@@ -199,8 +197,6 @@ data class MmlEqDirective(val band: SongEqBand, val line: Int, val column: Int)
 
 data class MmlDocument(
     val bpm: Float,
-    val barNumerator: Int,
-    val barDenominator: Int,
     val tracks: List<MmlTrack>,
     val eqBands: List<MmlEqDirective> = emptyList(),
     val lfoRate: Int = -1,
@@ -264,8 +260,6 @@ object MmlParser {
         val diagnostics = mutableListOf<MmlDiagnostic>()
         val sources = Array(MmlChannelId.entries.size) { ChannelSourceBuilder() }
         val rhythmPatternSources = arrayOfNulls<ChannelSourceBuilder>(256)
-        var barNumerator: Int? = null
-        var barDenominator: Int? = null
         var currentChannel: MmlChannelId? = null
         var currentRhythmPattern = -1
         var sawMmlV2Directive = false
@@ -352,19 +346,6 @@ object MmlParser {
                         } else {
                             diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#EnvelopeSpeed requires Normal or Extend"))
                         }
-                    } else if (directive.startsWith("#BAR", ignoreCase = true)) {
-                        val value = directive.substring(4).trim()
-                        val slash = value.indexOf('/')
-                        val numerator = if (slash > 0) value.substring(0, slash).trim().toIntOrNull() else null
-                        val denominator = if (slash > 0) value.substring(slash + 1).trim().toIntOrNull() else null
-                        if (numerator == null || denominator == null || numerator <= 0 || denominator <= 0) {
-                            diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#BAR requires a positive fraction such as 4/4"))
-                        } else if (barNumerator != null) {
-                            diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#BAR may only be declared once"))
-                        } else {
-                            barNumerator = numerator
-                            barDenominator = denominator
-                        }
                     } else if (directive.startsWith("#eq", ignoreCase = true)) {
                         parseEqDirective(directive, lineIndex + 1, first + 1, eqBands, diagnostics)
                     } else {
@@ -416,7 +397,6 @@ object MmlParser {
         if (initialMusicalTempo == null && initialTimerB == null) {
             diagnostics.add(MmlDiagnostic(1, 1, "Missing #Tempo or #Timer directive"))
         }
-        if (barNumerator == null || barDenominator == null) diagnostics.add(MmlDiagnostic(1, 1, "Missing #BAR directive"))
         if (diagnostics.isNotEmpty()) return MmlParseResult.Failure(diagnostics)
         val resultTracks = mutableListOf<MmlTrack>()
         var i = 0
@@ -452,8 +432,6 @@ object MmlParser {
         return MmlParseResult.Success(
             MmlDocument(
                 bpm = initialBpmMilli.toFloat() / PmdPerformanceLaws.BPM_MILLI_SCALE,
-                barNumerator = barNumerator!!,
-                barDenominator = barDenominator!!,
                 tracks = resultTracks,
                 eqBands = eqBands,
                 lfoRate = lfoRate,
@@ -1014,9 +992,6 @@ object MmlParser {
                 output.add(MmlCommand.RelativeVolume(if (c == ')') amount else -amount, source.lineAt(tokenStart), source.columnAt(tokenStart)))
             } else if (c == '>' || c == '<') {
                 output.add(MmlCommand.OctaveShift(if (c == '>') 1 else -1, source.lineAt(i), source.columnAt(i)))
-                i++
-            } else if (c == '|') {
-                output.add(MmlCommand.Bar(source.lineAt(i), source.columnAt(i)))
                 i++
             } else if (raw == 'C') {
                 val tokenStart = i

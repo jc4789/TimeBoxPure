@@ -9,7 +9,6 @@ package com.example.timeboxvibe.engine.audio.mml
 class CompiledOpnaSong internal constructor(
     val bpm: Float,
     internal val bpmMilli: Int,
-    val beatsPerBar: Int,
     internal val pmdClocksPerQuarter: Int,
     internal val initialMusicalTempo: Int,
     internal val initialTimerB: Int,
@@ -75,7 +74,6 @@ class CompiledOpnaSong internal constructor(
         return CompiledOpnaSong(
             bpm = bpm,
             bpmMilli = bpmMilli,
-            beatsPerBar = beatsPerBar,
             pmdClocksPerQuarter = pmdClocksPerQuarter,
             initialMusicalTempo = initialMusicalTempo,
             initialTimerB = initialTimerB,
@@ -202,7 +200,6 @@ class CompiledOpnaSong internal constructor(
 internal class CompiledOpnaSongBuilder(
     private val bpm: Float,
     private val bpmMilli: Int,
-    private val beatsPerBar: Int,
     private val pmdClocksPerQuarter: Int,
     private val initialMusicalTempo: Int,
     private val initialTimerB: Int,
@@ -659,7 +656,6 @@ internal class CompiledOpnaSongBuilder(
     fun build(): CompiledOpnaSong = CompiledOpnaSong(
         bpm = bpm,
         bpmMilli = bpmMilli,
-        beatsPerBar = beatsPerBar,
         pmdClocksPerQuarter = pmdClocksPerQuarter,
         initialMusicalTempo = initialMusicalTempo,
         initialTimerB = initialTimerB,
