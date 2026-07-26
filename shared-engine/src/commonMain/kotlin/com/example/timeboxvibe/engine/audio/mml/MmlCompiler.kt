@@ -292,8 +292,30 @@ object MmlCompiler {
         var polyphonicPart = false
         var sawSoftwareLfo = false
         var tick = 0L
+        val hasPartSoftwareLfo = (isFmPart && !fm3ControlLane) || isSsg
+        if (hasPartSoftwareLfo &&
+            document.softwareLfoClockMode != PmdPerformanceLaws.LFO_CLOCK_NORMAL
+        ) {
+            builder.beginSource(INITIAL_PART_STATE_SOURCE_ORDER, 1, 1)
+            var lfoIndex = 0
+            while (lfoIndex < SOFTWARE_LFO_COUNT) {
+                if (!builder.addSoftwareLfoControl(
+                        CompiledOpnaSong.SOFTWARE_LFO_CLOCK,
+                        0L,
+                        if (isSsg) track.channel.ordinal - MmlChannelId.G.ordinal else fmChannelIndex,
+                        if (isSsg) 1 else 0,
+                        lfoIndex,
+                        document.softwareLfoClockMode,
+                        logicalPartId = logicalPart
+                    )
+                ) {
+                    diagnostics.add(MmlDiagnostic(1, 1, "Compiled OPNA event capacity exceeded"))
+                }
+                lfoIndex++
+            }
+        }
         if (isSsg && document.envelopeClockMode != PmdPerformanceLaws.ENVELOPE_CLOCK_NORMAL) {
-            builder.beginSource(Int.MAX_VALUE, 1, 1)
+            builder.beginSource(INITIAL_PART_STATE_SOURCE_ORDER, 1, 1)
         }
         if (isSsg && document.envelopeClockMode != PmdPerformanceLaws.ENVELOPE_CLOCK_NORMAL &&
             !builder.addSsgEnvelopeMode(
@@ -1547,5 +1569,7 @@ object MmlCompiler {
     }
 
     private const val QUARTERS_PER_WHOLE_NOTE = 4
+    private const val SOFTWARE_LFO_COUNT = 2
+    private const val INITIAL_PART_STATE_SOURCE_ORDER = Int.MIN_VALUE
 
 }

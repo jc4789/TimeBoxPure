@@ -200,6 +200,7 @@ data class MmlDocument(
     val tracks: List<MmlTrack>,
     val eqBands: List<MmlEqDirective> = emptyList(),
     val lfoRate: Int = -1,
+    val softwareLfoClockMode: Int = PmdPerformanceLaws.LFO_CLOCK_NORMAL,
     val fm3Extended: Boolean = false,
     val bpmMilli: Int = (bpm * PmdPerformanceLaws.BPM_MILLI_SCALE + 0.5f).toInt(),
     val pmdClocksPerQuarter: Int = PmdPerformanceLaws.DEFAULT_CLOCKS_PER_QUARTER,
@@ -264,6 +265,7 @@ object MmlParser {
         var currentRhythmPattern = -1
         var sawMmlV2Directive = false
         var lfoRate = -1
+        var softwareLfoClockMode = PmdPerformanceLaws.LFO_CLOCK_NORMAL
         var fm3Extended = false
         var envelopeClockMode = PmdPerformanceLaws.ENVELOPE_CLOCK_NORMAL
         var initialMusicalTempo: Int? = null
@@ -303,6 +305,15 @@ object MmlParser {
                         val value = directive.substring(4).trim().toIntOrNull()
                         if (value != 2) diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#MML requires version 2"))
                         else sawMmlV2Directive = true
+                    } else if (directive.startsWith("#LFOSPEED", ignoreCase = true)) {
+                        val value = directive.substring(9).trim()
+                        if (value.equals("Normal", ignoreCase = true)) {
+                            softwareLfoClockMode = PmdPerformanceLaws.LFO_CLOCK_NORMAL
+                        } else if (value.equals("Extend", ignoreCase = true)) {
+                            softwareLfoClockMode = PmdPerformanceLaws.LFO_CLOCK_FIXED
+                        } else {
+                            diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#LFOSpeed requires Normal or Extend"))
+                        }
                     } else if (directive.startsWith("#LFO", ignoreCase = true)) {
                         val value = directive.substring(4).trim().toIntOrNull()
                         if (value == null || value !in 0..7) diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#LFO requires rate 0..7"))
@@ -435,6 +446,7 @@ object MmlParser {
                 tracks = resultTracks,
                 eqBands = eqBands,
                 lfoRate = lfoRate,
+                softwareLfoClockMode = softwareLfoClockMode,
                 fm3Extended = fm3Extended,
                 bpmMilli = initialBpmMilli,
                 pmdClocksPerQuarter = (initialWholeNoteClocks / 4).coerceAtLeast(1),

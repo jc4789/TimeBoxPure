@@ -502,6 +502,10 @@ User note T and t are 2 differnt things as well as C and c.  also C and %値  ar
 - `audio/mml/MmlParser.kt`
 - `audio/mml/MmlCompiler.kt`
 - `audio/mml/CompiledOpnaSong.kt`
+ 
+
+- user note  **PmdSoftwareEnvelope.kt** and **PmdSoftwareLfo.kt** are most likly included in the scope as well. 
+
 
 内容:
 
@@ -631,4 +635,7 @@ This is  hardware logic not  software logic.
 
 - このように、オーバーフローはFM音源ドライバにおける**「時間創出のトリガー」であり、同時に「システム限界の境界線」**でもある、極めて重要な役割を持った言葉なのです。
 
-## If this correction on timer info is not enough please consult the following two files for a more indeapth exeplnation of timer logic "D:\Programes\ym2608-info\timeboxinfo\timerinfo\gemini exeplantion of timer logic 1.txt" "D:\Programes\ym2608-info\timeboxinfo\timerinfo\gemini exeplnation of timer logic refined.txt
+## If this correction on timer info is not enough please consult the following two files for a more indeapth exeplnation of timer logic "D:\Programes\ym2608-info\timeboxinfo\timerinfo\gemini exeplantion of timer logic 1.txt" "D:\Programes\ym2608-info\timeboxinfo\timerinfo\gemini exeplnation of timer logic refined.txt    "D:\Programes\ym2608-info\timeboxinfo\timerinfo\gemini on overflow.txt"   
+ - "D:\Programes\ym2608-info\timeboxinfo\timerinfo\pmd soft LFO info.txt" info from PMDMAN about software LFO
+ - "D:\Programes\ym2608-info\timeboxinfo\timerinfo\PMD HARDWARE LFO INFO.txt" Info From PMDMAN about hardware LFO  
+- "D:\Programes\ym2608-info\timeboxinfo\timerinfo\pmd note info.txt"  Info From PMDMAN about various notes.  please be aware that upper and lowercase letters always do and are differnt things.    

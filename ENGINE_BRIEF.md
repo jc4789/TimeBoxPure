@@ -136,7 +136,7 @@
 - The v1/Rin cleanup preserved the active Bad Apple source block, its `MmlCompiler.compile(BAD_APPLE_LLS_MML)` initializer, and the persisted `SENBONZAKURA_DEMO_KEY` unchanged.
 - Current authored size is 3868 primitive events: 2037 FM notes, 1422 SSG notes, 405 rhythm shots, and four SSG envelope/mode controls. The exact runtime timeline contains 7328 ordered tempo, control, note-on, key-off, and rhythm events.
 - This is a source-coordinated reconstruction, not a complete or bit-authentic PMD claim. Exact decoded note timing, ties, mid-track patches, volume changes, PMD gate tails, and the LLS SSG software envelope are preserved for the included lanes. ST02 contains no active software-LFO definition/switch in the preserved source window, so Phase 4 intentionally leaves Bad Apple unchanged. Original rhythm semantics and the final cut decision remain unresolved.
-
+- 「固定小節撤去後、Bad Appleの旋律再現が改善」
 ## Current Listening Risks
 
 - User reports across recent passes included excessive 2-3 kHz bite, electronic/sharp timbre, muddy or overpowering bass, weak low/high cohesion, missing mids, intermittent resonance, and distortion.
