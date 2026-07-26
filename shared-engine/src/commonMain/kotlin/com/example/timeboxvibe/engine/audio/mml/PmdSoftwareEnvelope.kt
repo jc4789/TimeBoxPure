@@ -4,8 +4,6 @@ package com.example.timeboxvibe.engine.audio.mml
 internal class PmdSoftwareEnvelope(private var sampleRate: Int) {
     private var format = PmdPerformanceLaws.ENVELOPE_DISABLED
     private var clockMode = PmdPerformanceLaws.ENVELOPE_CLOCK_NORMAL
-    private var tempoMilliBpm = 120 * PmdPerformanceLaws.BPM_MILLI_SCALE
-    private var clocksPerQuarter = PmdPerformanceLaws.DEFAULT_CLOCKS_PER_QUARTER
     private var clockPhase = 0u
     private var clockStep = 0u
 
@@ -45,18 +43,12 @@ internal class PmdSoftwareEnvelope(private var sampleRate: Int) {
 
     fun setClockMode(mode: Int) {
         clockMode = mode
-        updateClockStep()
-    }
-
-    fun setTempo(milliBpm: Int, sourceClocksPerQuarter: Int) {
-        tempoMilliBpm = milliBpm.coerceAtLeast(1)
-        clocksPerQuarter = sourceClocksPerQuarter.coerceAtLeast(1)
-        if (clockMode == PmdPerformanceLaws.ENVELOPE_CLOCK_NORMAL) updateClockStep()
+        updateExtendedClockStep()
     }
 
     fun setSampleRate(value: Int) {
         sampleRate = value.coerceAtLeast(1)
-        updateClockStep()
+        updateExtendedClockStep()
     }
 
     fun noteOn() {
@@ -94,12 +86,25 @@ internal class PmdSoftwareEnvelope(private var sampleRate: Int) {
         }
     }
 
-    fun advanceSample() {
-        if (!enabled || releaseFinished) return
+    fun advanceTimerBClocks(clockNotifications: Int) {
+        if (clockMode != PmdPerformanceLaws.ENVELOPE_CLOCK_NORMAL ||
+            !enabled || releaseFinished
+        ) return
+        var remaining = clockNotifications
+        while (remaining > 0) {
+            clockEnvelope()
+            remaining--
+        }
+    }
+
+    fun advanceExtendedSample() {
+        if (clockMode != PmdPerformanceLaws.ENVELOPE_CLOCK_EXTENDED ||
+            !enabled || releaseFinished
+        ) return
         val previous = clockPhase
         clockPhase += clockStep
         if (clockPhase < previous) {
-            if (format == PmdPerformanceLaws.ENVELOPE_LEGACY) clockLegacy() else clockExtended()
+            clockEnvelope()
         }
     }
 
@@ -119,8 +124,6 @@ internal class PmdSoftwareEnvelope(private var sampleRate: Int) {
     fun reset() {
         format = PmdPerformanceLaws.ENVELOPE_DISABLED
         clockMode = PmdPerformanceLaws.ENVELOPE_CLOCK_NORMAL
-        tempoMilliBpm = 120 * PmdPerformanceLaws.BPM_MILLI_SCALE
-        clocksPerQuarter = PmdPerformanceLaws.DEFAULT_CLOCKS_PER_QUARTER
         clockPhase = 0u
         clockStep = 0u
         attack = 0
@@ -136,16 +139,15 @@ internal class PmdSoftwareEnvelope(private var sampleRate: Int) {
         releaseFinished = false
     }
 
-    private fun updateClockStep() {
-        val milliHertz = if (clockMode == PmdPerformanceLaws.ENVELOPE_CLOCK_EXTENDED) {
-            PmdPerformanceLaws.EXTENDED_ENVELOPE_CLOCK_MILLIHERTZ
-        } else {
-            tempoMilliBpm.toLong() * clocksPerQuarter.toLong() / SECONDS_PER_MINUTE
-        }
+    private fun updateExtendedClockStep() {
         clockStep = (
-            milliHertz * UINT_CYCLE /
+            PmdPerformanceLaws.EXTENDED_ENVELOPE_CLOCK_MILLIHERTZ * UINT_CYCLE /
                 (sampleRate.coerceAtLeast(1).toLong() * MILLIHERTZ_PER_HERTZ)
             ).toUInt()
+    }
+
+    private fun clockEnvelope() {
+        if (format == PmdPerformanceLaws.ENVELOPE_LEGACY) clockLegacy() else clockExtended()
     }
 
     private fun clockLegacy() {
@@ -261,7 +263,6 @@ internal class PmdSoftwareEnvelope(private var sampleRate: Int) {
         const val STAGE_RELEASE = 4
         const val MAX_LEVEL = 15
         const val RATE_CENTER = 16
-        const val SECONDS_PER_MINUTE = 60L
         const val MILLIHERTZ_PER_HERTZ = 1_000L
         const val UINT_CYCLE = 4_294_967_296L
     }

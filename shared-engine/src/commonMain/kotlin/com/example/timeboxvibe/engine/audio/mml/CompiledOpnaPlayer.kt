@@ -17,6 +17,7 @@ class CompiledOpnaPlayer internal constructor(
     private val performance = PmdPerformanceState(sampleRate)
     private val seekMonoBuffer = FloatArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
     private val seekStereoBuffer = FloatArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK * CHANNELS_STEREO)
+    private val timerBNotifications = IntArray(OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
     private val fmActiveNoteId = IntArray(AudioLaws.FM_RENDER_VOICES) { FM_VOICE_FREE }
     private val fmLogicalPartByVoice = IntArray(AudioLaws.FM_RENDER_VOICES)
     private val fmRenderBindingStorage = Array(AudioLaws.FM_RENDER_VOICES) { FmRenderBinding() }
@@ -46,6 +47,7 @@ class CompiledOpnaPlayer internal constructor(
     private var activeChannelCount: Int = CHANNELS_MONO
     private var activeOutputStage: Int = STAGE_PROFILED_PRE_MASTER
     private var activeSynthesizer: OpnaLikeSynthesizer? = null
+    private var timerBStarted = false
 
     var nextEventIndex: Int = 0
         private set
@@ -259,6 +261,7 @@ class CompiledOpnaPlayer internal constructor(
         channelCount: Int,
         outputStage: Int
     ) {
+        prepareTimerBNotifications(synthesizer, frames)
         preparePerformanceFrames(frames)
         synthesizer.renderTimelineSegment(
             buffer,
@@ -272,13 +275,28 @@ class CompiledOpnaPlayer internal constructor(
         )
     }
 
+    private fun prepareTimerBNotifications(synthesizer: OpnaLikeSynthesizer, frames: Int) {
+        val timerB = synthesizer.timerB
+        if (!timerBStarted) {
+            timerB.setNotificationsEnabled(true)
+            timerB.loadAndStart()
+            timerBStarted = true
+        }
+        timerB.prepare(frames)
+        var frame = 0
+        while (frame < frames) {
+            timerBNotifications[frame] = timerB.consumeOverflowCount(frame)
+            frame++
+        }
+    }
+
     private fun preparePerformanceFrames(frames: Int) {
         var channel = 0
         while (channel < AudioLaws.SSG_CHANNELS) {
             ssgDisableAfterFrame[channel] = DISABLE_FRAME_NONE
             channel++
         }
-        performance.prepare(frames)
+        performance.prepare(frames, timerBNotifications)
         channel = 0
         while (channel < AudioLaws.SSG_CHANNELS) {
             if (ssgReleasePending[channel]) {
@@ -301,6 +319,8 @@ class CompiledOpnaPlayer internal constructor(
                 val bpmMilli = timeline.controlValues[index * CompiledOpnaTimeline.CONTROL_STRIDE]
                 performance.setTempo(bpmMilli, timeline.pmdClocksPerQuarter)
             }
+            CompiledOpnaTimeline.TIMER_B ->
+                synthesizer.timerB.setPreset(timeline.controlValue(index))
             CompiledOpnaTimeline.SSG_ENVELOPE_DEFINE -> {
                 val channel = timeline.channel[index]
                 if (channel in 0 until AudioLaws.SSG_CHANNELS) {
@@ -967,6 +987,8 @@ class CompiledOpnaPlayer internal constructor(
 
     private fun resetDriverOwnership() {
         performance.reset()
+        timerBStarted = false
+        timerBNotifications.fill(0)
         var voice = 0
         while (voice < fmActiveNoteId.size) {
             fmActiveNoteId[voice] = FM_VOICE_FREE

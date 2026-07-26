@@ -15,8 +15,6 @@ internal class PmdSoftwareLfo(
     private var switchValue = 0
     private var tlMask = 0
     private var clockMode = PmdPerformanceLaws.LFO_CLOCK_NORMAL
-    private var tempoMilliBpm = 120_000
-    private var clocksPerQuarter = PmdPerformanceLaws.DEFAULT_CLOCKS_PER_QUARTER
 
     private var clockPhase = 0u
     private var clockStep = 0u
@@ -51,7 +49,7 @@ internal class PmdSoftwareLfo(
         get() = switchValue in 1..3
 
     init {
-        updateClockStep()
+        updateFixedClockStep()
         resetState()
     }
 
@@ -73,7 +71,7 @@ internal class PmdSoftwareLfo(
 
     fun setClockMode(value: Int) {
         clockMode = value.coerceIn(PmdPerformanceLaws.LFO_CLOCK_NORMAL, PmdPerformanceLaws.LFO_CLOCK_FIXED)
-        updateClockStep()
+        updateFixedClockStep()
     }
 
     fun setTlMask(value: Int) {
@@ -88,22 +86,26 @@ internal class PmdSoftwareLfo(
         depthChangeRemaining = depthChangeTime
     }
 
-    fun setTempo(bpmMilli: Int, sourceClocksPerQuarter: Int) {
-        tempoMilliBpm = bpmMilli.coerceAtLeast(1)
-        clocksPerQuarter = sourceClocksPerQuarter.coerceAtLeast(1)
-        if (clockMode == PmdPerformanceLaws.LFO_CLOCK_NORMAL) updateClockStep()
-    }
-
     fun setSampleRate(value: Int) {
         sampleRate = value.coerceAtLeast(1)
-        updateClockStep()
+        updateFixedClockStep()
     }
 
     fun noteOn() {
         if (enabled && keyOnSynchronized) resetState()
     }
 
-    fun advanceSample() {
+    fun advanceTimerBClocks(clockNotifications: Int) {
+        if (clockMode != PmdPerformanceLaws.LFO_CLOCK_NORMAL) return
+        var remaining = clockNotifications
+        while (remaining > 0) {
+            clock()
+            remaining--
+        }
+    }
+
+    fun advanceFixedSample() {
+        if (clockMode != PmdPerformanceLaws.LFO_CLOCK_FIXED) return
         val previous = clockPhase
         clockPhase += clockStep
         clockRemainder += clockRemainderStep
@@ -130,12 +132,10 @@ internal class PmdSoftwareLfo(
         switchValue = 0
         tlMask = 0
         clockMode = PmdPerformanceLaws.LFO_CLOCK_NORMAL
-        tempoMilliBpm = 120_000
-        clocksPerQuarter = PmdPerformanceLaws.DEFAULT_CLOCKS_PER_QUARTER
         depthChangeSpeed = 0
         depthChangeAmount = 0
         depthChangeTime = 0
-        updateClockStep()
+        updateFixedClockStep()
         resetState()
     }
 
@@ -155,14 +155,10 @@ internal class PmdSoftwareLfo(
         depthChangeRemaining = depthChangeTime
     }
 
-    private fun updateClockStep() {
-        val milliHertz = if (clockMode == PmdPerformanceLaws.LFO_CLOCK_FIXED) {
-            PmdPerformanceLaws.FIXED_LFO_CLOCK_MILLIHERTZ
-        } else {
-            tempoMilliBpm.toLong() * clocksPerQuarter.toLong() / 60L
-        }
+    private fun updateFixedClockStep() {
         clockDenominator = sampleRate.coerceAtLeast(1).toLong() * 1_000L
-        val numerator = milliHertz * OpnaLfoLaws.PHASE_CYCLE
+        val numerator = PmdPerformanceLaws.FIXED_LFO_CLOCK_MILLIHERTZ *
+            OpnaLfoLaws.PHASE_CYCLE
         clockStep = (numerator / clockDenominator).toUInt()
         clockRemainderStep = numerator % clockDenominator
     }

@@ -80,11 +80,11 @@ internal class PmdPerformanceState(sampleRate: Int) {
         setTempo(fm3Parts, bpmMilli, clocksPerQuarter)
     }
 
-    fun prepare(frames: Int) {
+    fun prepare(frames: Int, timerBNotifications: IntArray) {
         val count = frames.coerceIn(0, OpnaLikeSynthesizer.MAX_FRAMES_PER_CHUNK)
-        prepareParts(fmParts, count)
-        prepareParts(ssgParts, count)
-        prepareParts(fm3Parts, count)
+        prepareParts(fmParts, count, timerBNotifications)
+        prepareParts(ssgParts, count, timerBNotifications)
+        prepareParts(fm3Parts, count, timerBNotifications)
     }
 
     fun fmFrame(part: Int): PmdFmFrame? =
@@ -274,10 +274,14 @@ internal class PmdPerformanceState(sampleRate: Int) {
         }
     }
 
-    private fun prepareParts(parts: Array<PmdLogicalPartState>, frames: Int) {
+    private fun prepareParts(
+        parts: Array<PmdLogicalPartState>,
+        frames: Int,
+        timerBNotifications: IntArray
+    ) {
         var part = 0
         while (part < parts.size) {
-            parts[part].prepare(frames)
+            parts[part].prepare(frames, timerBNotifications)
             part++
         }
     }
@@ -326,9 +330,6 @@ internal class PmdPerformanceState(sampleRate: Int) {
         fun setTempo(bpmMilli: Int, clocksPerQuarter: Int) {
             tempoMilliBpm = bpmMilli.coerceAtLeast(1)
             this.clocksPerQuarter = clocksPerQuarter.coerceAtLeast(1)
-            lfo1.setTempo(tempoMilliBpm, this.clocksPerQuarter)
-            lfo2.setTempo(tempoMilliBpm, this.clocksPerQuarter)
-            envelope?.setTempo(tempoMilliBpm, this.clocksPerQuarter)
         }
 
         fun noteOn(
@@ -345,7 +346,7 @@ internal class PmdPerformanceState(sampleRate: Int) {
             ssgPortamentoTargetPeriod = targetPeriod
         }
 
-        fun prepare(frames: Int) {
+        fun prepare(frames: Int, timerBNotifications: IntArray) {
             val output = modulation
             output.pitchTarget1 = lfo1.targetsPitch
             output.pitchTarget2 = lfo2.targetsPitch
@@ -358,6 +359,7 @@ internal class PmdPerformanceState(sampleRate: Int) {
             val selectedSsg = ssgFrame
             var frame = 0
             while (frame < frames) {
+                val clockNotifications = timerBNotifications[frame]
                 if (portamentoFrames > 0 && portamentoPosition < portamentoFrames) {
                     portamentoPosition++
                 }
@@ -384,11 +386,14 @@ internal class PmdPerformanceState(sampleRate: Int) {
                     selectedSsg.volumeOffset[frame] = volume1 + volume2
                     selectedSsg.softwareEnvelopeLevel[frame] =
                         selectedEnvelope?.levelFor(ssgBaseLevel) ?: ssgBaseLevel
-                    selectedEnvelope?.advanceSample()
+                    selectedEnvelope?.advanceTimerBClocks(clockNotifications)
+                    selectedEnvelope?.advanceExtendedSample()
                     selectedSsg.releaseFinished[frame] = selectedEnvelope?.finishedRelease() == true
                 }
-                lfo1.advanceSample()
-                lfo2.advanceSample()
+                lfo1.advanceTimerBClocks(clockNotifications)
+                lfo1.advanceFixedSample()
+                lfo2.advanceTimerBClocks(clockNotifications)
+                lfo2.advanceFixedSample()
                 frame++
             }
         }
