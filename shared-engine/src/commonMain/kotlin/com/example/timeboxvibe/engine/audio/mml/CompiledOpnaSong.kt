@@ -48,6 +48,7 @@ class CompiledOpnaSong internal constructor(
     internal val patchId: IntArray,
     internal val pan: IntArray,
     internal val detuneCents: IntArray,
+    internal val ssgDetuneMode: IntArray,
     internal val gateValue: IntArray,
     internal val gateScale: IntArray,
     internal val gateTailClocks: IntArray,
@@ -113,6 +114,7 @@ class CompiledOpnaSong internal constructor(
             patchId = patchId,
             pan = pan,
             detuneCents = detuneCents,
+            ssgDetuneMode = ssgDetuneMode,
             gateValue = gateValue,
             gateScale = gateScale,
             gateTailClocks = gateTailClocks,
@@ -243,6 +245,7 @@ internal class CompiledOpnaSongBuilder(
     private var patchId = IntArray(INITIAL_EVENT_CAPACITY)
     private var pan = IntArray(INITIAL_EVENT_CAPACITY)
     private var detuneCents = IntArray(INITIAL_EVENT_CAPACITY)
+    private var ssgDetuneMode = IntArray(INITIAL_EVENT_CAPACITY)
     private var gateValue = IntArray(INITIAL_EVENT_CAPACITY)
     private var gateScale = IntArray(INITIAL_EVENT_CAPACITY)
     private var gateTailClocks = IntArray(INITIAL_EVENT_CAPACITY)
@@ -446,6 +449,7 @@ internal class CompiledOpnaSongBuilder(
         selectedGateMinimumClocks: Int = 0,
         selectedSlotMask: Int = 0,
         selectedLogicalPart: Int = CompiledOpnaSong.LOGICAL_PART_NONE,
+        selectedSsgDetuneMode: Int = PmdPerformanceLaws.SSG_DETUNE_NORMAL,
         selectedSourceOrder: Int = SOURCE_ORDER_UNSET,
         selectedSourceLine: Int = 0,
         selectedSourceColumn: Int = 0
@@ -467,6 +471,7 @@ internal class CompiledOpnaSongBuilder(
         patchId[i] = selectedPatchId
         pan[i] = selectedPan
         detuneCents[i] = cents
+        ssgDetuneMode[i] = selectedSsgDetuneMode
         gateValue[i] = selectedGateValue
         gateScale[i] = selectedGateScale
         gateTailClocks[i] = selectedGateTailClocks
@@ -695,6 +700,7 @@ internal class CompiledOpnaSongBuilder(
         patchId = patchId.copyOf(size),
         pan = pan.copyOf(size),
         detuneCents = detuneCents.copyOf(size),
+        ssgDetuneMode = ssgDetuneMode.copyOf(size),
         gateValue = gateValue.copyOf(size),
         gateScale = gateScale.copyOf(size),
         gateTailClocks = gateTailClocks.copyOf(size),
@@ -764,6 +770,7 @@ internal class CompiledOpnaSongBuilder(
         patchId = patchId.copyOf(next)
         pan = pan.copyOf(next)
         detuneCents = detuneCents.copyOf(next)
+        ssgDetuneMode = ssgDetuneMode.copyOf(next)
         gateValue = gateValue.copyOf(next)
         gateScale = gateScale.copyOf(next)
         gateTailClocks = gateTailClocks.copyOf(next)

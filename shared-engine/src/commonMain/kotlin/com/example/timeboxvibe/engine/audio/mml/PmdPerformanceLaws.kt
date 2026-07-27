@@ -32,6 +32,8 @@ object PmdPerformanceLaws {
     const val LFO_CLOCK_FIXED = 1
     const val FIXED_LFO_CLOCK_MILLIHERTZ = 56_000L
     const val SOFTWARE_LFO_RANDOM_SEED = 0x13579BDF
+    const val SSG_DETUNE_NORMAL = 0
+    const val SSG_DETUNE_EXTENDED = 1
 
     // Stable compile-time gate randomization seed; loop playback reuses the
     // resulting primitive gate clocks exactly.
@@ -61,7 +63,27 @@ object PmdPerformanceLaws {
         return ((numerator + denominator / 2L) / denominator).toInt()
     }
 
+    /**
+     * PMD DX1 scales SSG detune/LFO period offsets down once per authored
+     * octave. A non-zero source value always retains at least one period step.
+     */
+    internal fun extendedSsgPitchOffset(value: Int, midi: Int): Int {
+        if (value == 0) return 0
+        val octave = (midi / NOTES_PER_OCTAVE - MIDI_OCTAVE_BIAS).coerceIn(
+            MIN_PMD_OCTAVE,
+            MAX_PMD_OCTAVE
+        )
+        val magnitude = if (value < 0) -value.toLong() else value.toLong()
+        val corrected = (magnitude shr octave).coerceAtLeast(MIN_NONZERO_SSG_PITCH_OFFSET)
+        return if (value < 0) -corrected.toInt() else corrected.toInt()
+    }
+
     private const val TEMPO_MASTER_CLOCK_MULTIPLIER = 5
     private const val TEMPO_DIVISOR = 48
     private const val SECONDS_PER_MINUTE = 60
+    private const val NOTES_PER_OCTAVE = 12
+    private const val MIDI_OCTAVE_BIAS = 1
+    private const val MIN_PMD_OCTAVE = 0
+    private const val MAX_PMD_OCTAVE = 8
+    private const val MIN_NONZERO_SSG_PITCH_OFFSET = 1L
 }

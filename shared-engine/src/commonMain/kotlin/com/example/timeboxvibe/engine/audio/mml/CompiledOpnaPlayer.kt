@@ -535,15 +535,25 @@ class CompiledOpnaPlayer internal constructor(
             performance.setSsgBaseLevel(channel, patch.fixedLevel)
         }
         voice.setPan(timeline.pan[index])
-        val frequency = OpnPitch.applyCents(midiToFreq(timeline.midi[index]), timeline.detuneCents[index])
-        val startPeriod = SsgHardwareLaws.nearestTonePeriod(frequency.toDouble())
+        val detuneMode = timeline.ssgDetuneMode[index]
+        val extendedDetune = detuneMode == PmdPerformanceLaws.SSG_DETUNE_EXTENDED
+        val frequency = if (extendedDetune) {
+            midiToFreq(timeline.midi[index])
+        } else {
+            OpnPitch.applyCents(midiToFreq(timeline.midi[index]), timeline.detuneCents[index])
+        }
+        val startPeriod = ssgPeriod(
+            timeline.midi[index],
+            timeline.detuneCents[index],
+            detuneMode
+        )
         val hasTarget = timeline.targetMidi[index] >= 0
         val targetPeriod = if (hasTarget) {
-            val targetFrequency = OpnPitch.applyCents(
-                midiToFreq(timeline.targetMidi[index]),
-                timeline.detuneCents[index]
+            ssgPeriod(
+                timeline.targetMidi[index],
+                timeline.detuneCents[index],
+                detuneMode
             )
-            SsgHardwareLaws.nearestTonePeriod(targetFrequency.toDouble())
         } else {
             startPeriod
         }
@@ -551,10 +561,18 @@ class CompiledOpnaPlayer internal constructor(
             channel,
             startPeriod,
             targetPeriod,
-            if (hasTarget) timeline.slideFrames[index] else 0
+            if (hasTarget) timeline.slideFrames[index] else 0,
+            timeline.midi[index],
+            detuneMode
         )
         ssgReleasePending[channel] = false
-        voice.noteOn(frequency)
+        voice.noteOn(
+            if (extendedDetune) {
+                SsgHardwareLaws.toneFrequency(startPeriod).toFloat()
+            } else {
+                frequency
+            }
+        )
         voice.noteGain = timeline.velocity[index]
         ssgActiveNoteId[channel] = timeline.noteId[index]
     }
@@ -569,6 +587,18 @@ class CompiledOpnaPlayer internal constructor(
             synthesizer.ssg[channel].noteOff()
         }
         ssgActiveNoteId[channel] = NOTE_ID_NONE
+    }
+
+    private fun ssgPeriod(midi: Int, detune: Int, mode: Int): Int {
+        val baseFrequency = midiToFreq(midi)
+        if (mode != PmdPerformanceLaws.SSG_DETUNE_EXTENDED) {
+            val frequency = OpnPitch.applyCents(baseFrequency, detune)
+            return SsgHardwareLaws.nearestTonePeriod(frequency.toDouble())
+        }
+        val basePeriod = SsgHardwareLaws.nearestTonePeriod(baseFrequency.toDouble())
+        return (
+            basePeriod + PmdPerformanceLaws.extendedSsgPitchOffset(detune, midi)
+            ).coerceIn(SsgHardwareLaws.MIN_TONE_PERIOD, SsgHardwareLaws.MAX_TONE_PERIOD)
     }
 
     private fun noteOnFm3(synthesizer: OpnaLikeSynthesizer, index: Int) {

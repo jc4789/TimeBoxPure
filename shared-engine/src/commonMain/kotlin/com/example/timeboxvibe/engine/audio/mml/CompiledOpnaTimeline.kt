@@ -18,6 +18,7 @@ class CompiledOpnaTimeline internal constructor(
     internal val patchId: IntArray,
     internal val pan: IntArray,
     internal val detuneCents: IntArray,
+    internal val ssgDetuneMode: IntArray,
     internal val targetMidi: IntArray,
     internal val slideFrames: IntArray,
     internal val controlValues: IntArray,
@@ -240,7 +241,8 @@ internal object CompiledOpnaTimelineFactory {
             onType, eventTick, ORDER_KEY_ON, song.channel[sourceIndex], song.operator[sourceIndex], song.slotMask[sourceIndex],
             song.midi[sourceIndex], velocity, id, song.patchId[sourceIndex], song.pan[sourceIndex],
             song.detuneCents[sourceIndex], song.targetMidi[sourceIndex],
-            eventTick + song.durationTick[sourceIndex], song.logicalPart[sourceIndex]
+            eventTick + song.durationTick[sourceIndex], song.logicalPart[sourceIndex],
+            song.ssgDetuneMode[sourceIndex]
         )
         val gateEnd = eventTick + song.gateTick[sourceIndex]
         draft.addNote(
@@ -270,6 +272,7 @@ private class TimelineDraft(private val capacity: Int) {
     private val patchId = IntArray(capacity)
     private val pan = IntArray(capacity)
     private val detuneCents = IntArray(capacity)
+    private val ssgDetuneMode = IntArray(capacity)
     private val targetMidi = IntArray(capacity)
     private val slideEndTick = LongArray(capacity)
     private val controlValues = IntArray(capacity * CompiledOpnaTimeline.CONTROL_STRIDE)
@@ -415,7 +418,8 @@ private class TimelineDraft(private val capacity: Int) {
         cents: Int,
         targetMidiNote: Int,
         portamentoEndTick: Long,
-        logicalPartId: Int = CompiledOpnaSong.LOGICAL_PART_NONE
+        logicalPartId: Int = CompiledOpnaSong.LOGICAL_PART_NONE,
+        selectedSsgDetuneMode: Int = PmdPerformanceLaws.SSG_DETUNE_NORMAL
     ) {
         val i = reserve(type, atTick, order, channelIndex)
         operator[i] = operatorIndex
@@ -427,6 +431,7 @@ private class TimelineDraft(private val capacity: Int) {
         patchId[i] = selectedPatchId
         pan[i] = selectedPan
         detuneCents[i] = cents
+        ssgDetuneMode[i] = selectedSsgDetuneMode
         targetMidi[i] = targetMidiNote
         slideEndTick[i] = portamentoEndTick
     }
@@ -467,6 +472,7 @@ private class TimelineDraft(private val capacity: Int) {
         val sortedPatchId = IntArray(size)
         val sortedPan = IntArray(size)
         val sortedDetune = IntArray(size)
+        val sortedSsgDetuneMode = IntArray(size)
         val sortedTarget = IntArray(size)
         val sortedSlide = IntArray(size)
         val sortedControls = IntArray(size * CompiledOpnaTimeline.CONTROL_STRIDE)
@@ -489,6 +495,7 @@ private class TimelineDraft(private val capacity: Int) {
             sortedPatchId[i] = patchId[source]
             sortedPan[i] = pan[source]
             sortedDetune[i] = detuneCents[source]
+            sortedSsgDetuneMode[i] = ssgDetuneMode[source]
             sortedTarget[i] = targetMidi[source]
             sortedSourceOrder[i] = sourceOrder[source]
             sortedSourceLine[i] = sourceLine[source]
@@ -515,7 +522,7 @@ private class TimelineDraft(private val capacity: Int) {
         return CompiledOpnaTimeline(
             size, PmdSampleClock.samplesAt(song, song.durationTicks, sampleRate), song.pmdClocksPerQuarter, song.instrumentBank,
             sortedType, sortedTime, sortedChannel, sortedLogicalPart, sortedOperator, sortedSlotMask, sortedMidi, sortedVelocity,
-            sortedNoteId, sortedPatchId, sortedPan, sortedDetune,
+            sortedNoteId, sortedPatchId, sortedPan, sortedDetune, sortedSsgDetuneMode,
             sortedTarget, sortedSlide, sortedControls,
             sortedSourceOrder, sortedSourceLine, sortedSourceColumn
         )

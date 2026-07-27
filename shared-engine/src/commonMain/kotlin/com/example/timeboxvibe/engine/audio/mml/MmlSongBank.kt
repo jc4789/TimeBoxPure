@@ -8,8 +8,7 @@ object MmlSongBank {
     const val BAD_APPLE_LLS_MML = """
 #MML 2
 #Tempo 80
-#Zenlen 192
-#LFO 5
+#Zenlen 96
 #EQ peak 180 -0.0 0.70
 #EQ peak 850 0.5 0.65
 #EQ peak 2400 0.0 0.85

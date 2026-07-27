@@ -288,6 +288,7 @@ object MmlCompiler {
         var fmSlotMask = if (isFm3Operator) 1 shl (track.channel.ordinal - MmlChannelId.C1.ordinal) else 15
         var pan = 0
         var detuneCents = 0
+        var ssgDetuneMode = document.ssgDetuneMode
         var hasExplicitHardwareLfoDepth = false
         var polyphonicPart = false
         var sawSoftwareLfo = false
@@ -566,6 +567,15 @@ object MmlCompiler {
                 is MmlCommand.Detune -> {
                     if (command.cents !in -1_200..1_200) diagnostics.add(MmlDiagnostic(command.line, command.column, "Detune must be between -1200 and +1200 cents"))
                     else detuneCents = command.cents
+                }
+                is MmlCommand.SsgDetuneMode -> {
+                    if (!isSsg || command.mode !in
+                        PmdPerformanceLaws.SSG_DETUNE_NORMAL..PmdPerformanceLaws.SSG_DETUNE_EXTENDED
+                    ) {
+                        diagnostics.add(MmlDiagnostic(command.line, command.column, "DX0/DX1 detune modes are only valid on SSG channels G-I"))
+                    } else {
+                        ssgDetuneMode = command.mode
+                    }
                 }
                 is MmlCommand.FmSlotMask -> {
                     if (!isFmPart || command.mask !in 0..15) {
@@ -896,7 +906,12 @@ object MmlCompiler {
                                     gateState.proportionalValue, gateState.proportionalScale,
                                     gateState.lastResolvedTailClocks, gateState.minimumClocks,
                                     if (isFm3Operator) fmSlotMask else 0,
-                                    logicalPart
+                                    logicalPart,
+                                    selectedSsgDetuneMode = if (isSsg) {
+                                        ssgDetuneMode
+                                    } else {
+                                        PmdPerformanceLaws.SSG_DETUNE_NORMAL
+                                    }
                                 )
                             ) {
                                 diagnostics.add(MmlDiagnostic(command.line, command.column, "Compiled OPNA event capacity exceeded"))
@@ -990,7 +1005,12 @@ object MmlCompiler {
                                     gateState.proportionalValue, gateState.proportionalScale,
                                     gateState.lastResolvedTailClocks, gateState.minimumClocks,
                                     if (isFm3Operator) fmSlotMask else 0,
-                                    logicalPart
+                                    logicalPart,
+                                    selectedSsgDetuneMode = if (isSsg) {
+                                        ssgDetuneMode
+                                    } else {
+                                        PmdPerformanceLaws.SSG_DETUNE_NORMAL
+                                    }
                                 )
                             ) {
                                 diagnostics.add(MmlDiagnostic(command.line, command.column, "Compiled OPNA event safety limit exceeded"))

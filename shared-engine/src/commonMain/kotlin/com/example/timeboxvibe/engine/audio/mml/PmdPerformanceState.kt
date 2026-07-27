@@ -144,8 +144,21 @@ internal class PmdPerformanceState(sampleRate: Int) {
         selectedPart(fmParts, part)?.noteOn(portamentoFrames)
     }
 
-    fun noteOnSsg(part: Int, startPeriod: Int, targetPeriod: Int, portamentoFrames: Int) {
-        selectedPart(ssgParts, part)?.noteOn(portamentoFrames, startPeriod, targetPeriod)
+    fun noteOnSsg(
+        part: Int,
+        startPeriod: Int,
+        targetPeriod: Int,
+        portamentoFrames: Int,
+        midi: Int,
+        detuneMode: Int
+    ) {
+        selectedPart(ssgParts, part)?.noteOn(
+            portamentoFrames,
+            startPeriod,
+            targetPeriod,
+            midi,
+            detuneMode
+        )
     }
 
     fun noteOnFm3(part: Int, portamentoFrames: Int) {
@@ -326,6 +339,8 @@ internal class PmdPerformanceState(sampleRate: Int) {
         private var portamentoPosition = 0
         private var ssgPortamentoStartPeriod = 0
         private var ssgPortamentoTargetPeriod = 0
+        private var ssgMidi = 0
+        private var ssgDetuneMode = PmdPerformanceLaws.SSG_DETUNE_NORMAL
 
         fun setTempo(bpmMilli: Int, clocksPerQuarter: Int) {
             tempoMilliBpm = bpmMilli.coerceAtLeast(1)
@@ -335,7 +350,9 @@ internal class PmdPerformanceState(sampleRate: Int) {
         fun noteOn(
             selectedPortamentoFrames: Int,
             startPeriod: Int = 0,
-            targetPeriod: Int = 0
+            targetPeriod: Int = 0,
+            midi: Int = 0,
+            detuneMode: Int = PmdPerformanceLaws.SSG_DETUNE_NORMAL
         ) {
             lfo1.noteOn()
             lfo2.noteOn()
@@ -344,6 +361,8 @@ internal class PmdPerformanceState(sampleRate: Int) {
             portamentoPosition = 0
             ssgPortamentoStartPeriod = startPeriod
             ssgPortamentoTargetPeriod = targetPeriod
+            ssgMidi = midi
+            ssgDetuneMode = detuneMode
         }
 
         fun prepare(frames: Int, timerBNotifications: IntArray) {
@@ -374,6 +393,16 @@ internal class PmdPerformanceState(sampleRate: Int) {
                 output.attenuation2[frame] = -volume2 * SOFTWARE_VOLUME_ATTENUATION_STEP
                 if (selectedSsg != null) {
                     val selectedEnvelope = envelope
+                    val ssgPitch1 = if (ssgDetuneMode == PmdPerformanceLaws.SSG_DETUNE_EXTENDED) {
+                        PmdPerformanceLaws.extendedSsgPitchOffset(pitch1, ssgMidi)
+                    } else {
+                        pitch1
+                    }
+                    val ssgPitch2 = if (ssgDetuneMode == PmdPerformanceLaws.SSG_DETUNE_EXTENDED) {
+                        PmdPerformanceLaws.extendedSsgPitchOffset(pitch2, ssgMidi)
+                    } else {
+                        pitch2
+                    }
                     val portamentoOffset = if (portamentoFrames > 0) {
                         val interpolated = ssgPortamentoStartPeriod.toLong() +
                             (ssgPortamentoTargetPeriod - ssgPortamentoStartPeriod).toLong() *
@@ -382,7 +411,7 @@ internal class PmdPerformanceState(sampleRate: Int) {
                     } else {
                         ssgPortamentoTargetPeriod - ssgPortamentoStartPeriod
                     }
-                    selectedSsg.tonePeriodOffset[frame] = pitch1 + pitch2 + portamentoOffset
+                    selectedSsg.tonePeriodOffset[frame] = ssgPitch1 + ssgPitch2 + portamentoOffset
                     selectedSsg.volumeOffset[frame] = volume1 + volume2
                     selectedSsg.softwareEnvelopeLevel[frame] =
                         selectedEnvelope?.levelFor(ssgBaseLevel) ?: ssgBaseLevel
@@ -414,6 +443,8 @@ internal class PmdPerformanceState(sampleRate: Int) {
             portamentoPosition = 0
             ssgPortamentoStartPeriod = 0
             ssgPortamentoTargetPeriod = 0
+            ssgMidi = 0
+            ssgDetuneMode = PmdPerformanceLaws.SSG_DETUNE_NORMAL
             tempoMilliBpm = 120_000
             clocksPerQuarter = PmdPerformanceLaws.DEFAULT_CLOCKS_PER_QUARTER
             modulation.clear()

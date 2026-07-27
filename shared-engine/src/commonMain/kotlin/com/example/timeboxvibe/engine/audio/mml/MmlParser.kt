@@ -64,6 +64,7 @@ sealed class MmlCommand(open val line: Int, open val column: Int) {
     data class Pan(val value: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
     data class Polyphony(val enabled: Boolean, override val line: Int, override val column: Int) : MmlCommand(line, column)
     data class Detune(val cents: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
+    data class SsgDetuneMode(val mode: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
     data class FmSlotMask(val mask: Int, override val line: Int, override val column: Int) : MmlCommand(line, column)
     data class FmSlotDetune(
         val mask: Int,
@@ -205,6 +206,7 @@ data class MmlDocument(
     val bpmMilli: Int = (bpm * PmdPerformanceLaws.BPM_MILLI_SCALE + 0.5f).toInt(),
     val pmdClocksPerQuarter: Int = PmdPerformanceLaws.DEFAULT_CLOCKS_PER_QUARTER,
     val envelopeClockMode: Int = PmdPerformanceLaws.ENVELOPE_CLOCK_NORMAL,
+    val ssgDetuneMode: Int = PmdPerformanceLaws.SSG_DETUNE_NORMAL,
     val rhythmPatterns: List<MmlRhythmPattern> = emptyList(),
     val initialMusicalTempo: Int? = null,
     val initialTimerB: Int? = null,
@@ -268,6 +270,7 @@ object MmlParser {
         var softwareLfoClockMode = PmdPerformanceLaws.LFO_CLOCK_NORMAL
         var fm3Extended = false
         var envelopeClockMode = PmdPerformanceLaws.ENVELOPE_CLOCK_NORMAL
+        var ssgDetuneMode = PmdPerformanceLaws.SSG_DETUNE_NORMAL
         var initialMusicalTempo: Int? = null
         var initialTimerB: Int? = null
         var initialWholeNoteClocks = PmdPerformanceLaws.DEFAULT_WHOLE_NOTE_CLOCKS
@@ -323,6 +326,15 @@ object MmlParser {
                         if (value.equals("ON", ignoreCase = true)) fm3Extended = true
                         else if (value.equals("OFF", ignoreCase = true)) fm3Extended = false
                         else diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#FM3EXTEND requires ON or OFF"))
+                    } else if (directive.startsWith("#DETUNE", ignoreCase = true)) {
+                        val value = directive.substring(7).trim()
+                        if (value.equals("Normal", ignoreCase = true)) {
+                            ssgDetuneMode = PmdPerformanceLaws.SSG_DETUNE_NORMAL
+                        } else if (value.equals("Extend", ignoreCase = true)) {
+                            ssgDetuneMode = PmdPerformanceLaws.SSG_DETUNE_EXTENDED
+                        } else {
+                            diagnostics.add(MmlDiagnostic(lineIndex + 1, first + 1, "#Detune requires Normal or Extend"))
+                        }
                     } else if (directive.startsWith("#TEMPO", ignoreCase = true)) {
                         val value = directive.substring(6).trim().toIntOrNull()
                         if (value == null || value !in PmdPerformanceLaws.MUSICAL_TEMPO_MIN..PmdPerformanceLaws.MUSICAL_TEMPO_MAX) {
@@ -451,6 +463,7 @@ object MmlParser {
                 bpmMilli = initialBpmMilli,
                 pmdClocksPerQuarter = (initialWholeNoteClocks / 4).coerceAtLeast(1),
                 envelopeClockMode = envelopeClockMode,
+                ssgDetuneMode = ssgDetuneMode,
                 rhythmPatterns = rhythmPatterns,
                 initialMusicalTempo = initialMusicalTempo,
                 initialTimerB = initialTimerB,
@@ -735,6 +748,23 @@ object MmlParser {
                     diagnostics.add(MmlDiagnostic(source.lineAt(tokenStart), source.columnAt(tokenStart), "O requires slotMask,value"))
                 } else {
                     output.add(MmlCommand.FmOperatorTl(mask.first!!, value.first!! * sign, relative, source.lineAt(tokenStart), source.columnAt(tokenStart)))
+                }
+            } else if (raw == 'D' && i + 1 < end && text[i + 1] == 'X') {
+                val tokenStart = i
+                i += 2
+                val value = parseUnsignedInteger(text, i, end)
+                i = value.second
+                val selectedMode = value.first
+                if (selectedMode == null || selectedMode !in 0..1) {
+                    diagnostics.add(MmlDiagnostic(source.lineAt(tokenStart), source.columnAt(tokenStart), "DX requires DX0 or DX1"))
+                } else {
+                    output.add(
+                        MmlCommand.SsgDetuneMode(
+                            selectedMode,
+                            source.lineAt(tokenStart),
+                            source.columnAt(tokenStart)
+                        )
+                    )
                 }
             } else if (raw == 'Q' || c == 'p' || raw == 'D' || raw == 'T') {
                 val tokenStart = i
