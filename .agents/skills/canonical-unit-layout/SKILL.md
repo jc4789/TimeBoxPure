@@ -17,10 +17,12 @@ No arbitrary pixels. No orientation hacks. No layout folklore.
 U = glyphWidth = glyphHeight
 ```
 
-The current engine uses a 16x16 ROM font.
+The current engine uses a 16x16 東雲 ROM font. 
 
 The literal value `16` is an implementation detail. Code should use `U`, `glyphWidth`, `glyphHeight`, or a named engine constant.
 
+U は単なる「16刻みのグリッド」ではありません。文字表示とUI構造を一致させる基準単位です。ボタン、入力欄、余白、行高、カーソル、当たり判定をグリフセルから導出することで、文字と装飾が整数座標に揃い、拡大時にもピクセルパーフェクトな表示を維持できます。
+また、U の対象はUI幾何です。表示寸法キャッシュ、時間、割合、音量などを無理に U で表すものではありません。
 ## Trigger When
 
 Use this skill when implementing or reviewing:

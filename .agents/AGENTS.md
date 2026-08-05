@@ -733,3 +733,17 @@ permission to simplify, modernize, redesign, or replace working behavior.
 Before changing baseline behavior, state the exact behavior, evidence, files,
 symbols, and smallest proposed change, then wait for user approval.
 
+Also, this includes re-verification.
+
+
+
+## TOKEN-ONLY EDIT MODE
+
+ユーザーが「数値だけ」「リテラルだけ」「Uへ置換だけ」と指定した場合：
+
+- 変更可能なのは、ユーザーが許可した数値リテラルの文字列だけ。
+- 識別子、型、変数、関数、引数、演算子、条件、分岐、行順、空白構造を変更してはならない。
+- 周辺の違反や改善点を実装範囲へ追加してはならない。
+- 最初は読み取り専用で候補一覧を提示し、ユーザー承認後だけ編集する。
+- 承認されていない候補は変更しない。
+- 適用スキルは変更対象の分類にのみ使い、設計変更の権限とは解釈しない。
