@@ -42,16 +42,16 @@ object MainMenuScene : Scene {
 //  ACTIVE TIMER SCENE
 // ════════════════════════════════════════════════════════════════════
 object ActiveTimerScene : Scene {
-    private const val TASK_INPUT_SIDE_PAD = 20f
-    private const val TASK_INPUT_HEIGHT = 36f
-    private const val TASK_INPUT_INNER_PAD = 8f
-    private const val PRESET_BADGE_SIZE = 36f
-    private const val PRESET_BADGE_GAP = 8f
+    private const val TASK_INPUT_SIDE_PAD = U + (U / 4)
+    private const val TASK_INPUT_HEIGHT = (U * 2) + (U / 4)
+    private const val TASK_INPUT_INNER_PAD = U / 2
+    private const val PRESET_BADGE_SIZE = (U * 2) + (U / 4)
+    private const val PRESET_BADGE_GAP = U / 2
     private const val CONTROL_SLOT_COUNT = 3
-    private const val CONTROL_BUTTON_HEIGHT = 42f
-    private const val CONTROL_GAP_PORTRAIT = 10f
-    private const val CONTROL_GAP_LANDSCAPE = 16f
-    private const val CONTROL_ICON_SIZE = 32f
+    private const val CONTROL_BUTTON_HEIGHT = (U * 2) + (U / 2) + (U / 8)
+    private const val CONTROL_GAP_PORTRAIT = (U / 2) + (U / 8)
+    private const val CONTROL_GAP_LANDSCAPE = U
+    private const val CONTROL_ICON_SIZE = U * 2
     private const val CONTROL_ICON_SCALE = 1
     private const val TIMER_RADIUS_WIDTH_NUM = 9f
     private const val TIMER_RADIUS_WIDTH_DEN = 20f
@@ -240,17 +240,17 @@ object ActiveTimerScene : Scene {
         val taskText = state.currentTask
         val inputH = TASK_INPUT_HEIGHT
         val inputX = playAreaStartX + TASK_INPUT_SIDE_PAD
-        val showPresetBadge = playAreaW >= 220f
+        val showPresetBadge = playAreaW >= (U * 14) - (U / 4)
         val presetBadgeX = inputX + playAreaW - TASK_INPUT_SIDE_PAD * 2f - PRESET_BADGE_SIZE
         val inputW = if (showPresetBadge) {
             playAreaW - TASK_INPUT_SIDE_PAD * 2f - PRESET_BADGE_SIZE - PRESET_BADGE_GAP
         } else {
             playAreaW - TASK_INPUT_SIDE_PAD * 2f
         }
-        renderer.drawRect(inputX, inputY, inputW, inputH, if (isTaskFocused) PaletteIndices.HIGHLIGHT else PaletteIndices.BORDER)
+        renderer.drawRect(inputX, inputY, inputW, inputH.toFloat(), if (isTaskFocused) PaletteIndices.HIGHLIGHT else PaletteIndices.BORDER)
 
         if (showPresetBadge) {
-            renderer.drawRect(presetBadgeX, inputY, PRESET_BADGE_SIZE, PRESET_BADGE_SIZE, PaletteIndices.BORDER)
+            renderer.drawRect(presetBadgeX, inputY, PRESET_BADGE_SIZE.toFloat(), PRESET_BADGE_SIZE.toFloat(), PaletteIndices.BORDER)
             ProceduralIconRenderer.draw(
                 renderer,
                 activePresetIcon(state.activeMode),
@@ -280,7 +280,7 @@ object ActiveTimerScene : Scene {
             inputX + TASK_INPUT_INNER_PAD,
             inputY,
             inputW - TASK_INPUT_INNER_PAD * 2f,
-            inputH
+            inputH.toFloat()
         )
 
         // Task caret: blink owned by EngineCursorRenderer; placement from field + Int U cells.
@@ -303,7 +303,7 @@ object ActiveTimerScene : Scene {
         var controlIndex = 0
         while (controlIndex < CONTROL_SLOT_COUNT) {
             val bx = timerControlX(playAreaStartX, playAreaW, isPortrait, controlIndex, btnW)
-            drawTimerControlButton(renderer, state, controlIndex, bx, btnY, btnW, CONTROL_BUTTON_HEIGHT)
+            drawTimerControlButton(renderer, state, controlIndex, bx, btnY, btnW, CONTROL_BUTTON_HEIGHT.toFloat())
             controlIndex++
         }
 
@@ -515,7 +515,7 @@ object ActiveTimerScene : Scene {
         val inputY = inputBaseY + scrollY
         val inputH = TASK_INPUT_HEIGHT
         val inputX = playAreaStartX + TASK_INPUT_SIDE_PAD
-        val inputW = if (playAreaW >= 220f) {
+        val inputW = if (playAreaW >= (U * 14) - (U / 4)) {
             playAreaW - TASK_INPUT_SIDE_PAD * 2f - PRESET_BADGE_SIZE - PRESET_BADGE_GAP
         } else {
             playAreaW - TASK_INPUT_SIDE_PAD * 2f
@@ -577,7 +577,7 @@ object ActiveTimerScene : Scene {
     }
 
     private fun timerControlGap(isPortrait: Boolean): Float {
-        return if (isPortrait) CONTROL_GAP_PORTRAIT else CONTROL_GAP_LANDSCAPE
+        return if (isPortrait) CONTROL_GAP_PORTRAIT.toFloat() else CONTROL_GAP_LANDSCAPE.toFloat()
     }
 
     private fun timerControlWidth(playAreaW: Float, isPortrait: Boolean): Float {
@@ -708,13 +708,13 @@ object ActiveTimerScene : Scene {
         val frameColor = PaletteIndices.BORDER_BRIGHT
         val fillColor = if (isClicked) PaletteIndices.BORDER_BRIGHT else PaletteIndices.PANEL_DARK
         renderer.fillRectDither(x, y, x + width, y + height, frameColor, frameColor, SoftDitherPattern.SOLID)
-        renderer.fillRectDither(x + 2f, y + 2f, x + width - 2f, y + height - 2f, fillColor, fillColor, SoftDitherPattern.SOLID)
+        renderer.fillRectDither(x + (U / 8), y + (U / 8), x + width - (U / 8), y + height - (U / 8), fillColor, fillColor, SoftDitherPattern.SOLID)
         if (!drawIcon) return
 
         val contentColor = if (isClicked) PaletteIndices.PANEL_DARK else PaletteIndices.TEXT_PRIMARY
         val surfaceColor = if (isClicked) PaletteIndices.ACCENT_PRIMARY else PaletteIndices.PANEL_DARK
         val iconX = x + (width - CONTROL_ICON_SIZE) / 2f
-        val iconY = y + 2f
+        val iconY = y + (U / 8)
         ProceduralIconRenderer.draw(
             renderer,
             iconName,
@@ -957,12 +957,12 @@ object TemplateCustomizerScene : Scene {
         renderer.fillRectDither(playAreaStartX, 0f, playAreaStartX + playAreaW, playAreaH, PaletteIndices.BG, PaletteIndices.BG, SoftDitherPattern.SOLID)
 
         scrollY = scrollY.coerceIn(templateMinScroll(state, playAreaH, logicalHeight), 0f)
-        val cardH = maxOf(playAreaH * 3f / 20f, 60f)
-        val cardSpacing = maxOf(playAreaH * 3f / 100f, 6f)
+        val cardH = maxOf(playAreaH * 3f / 20f, ((U * 4) - (U / 4)).toFloat())
+        val cardSpacing = maxOf(playAreaH * 3f / 100f, ((U / 4) + (U / 8)).toFloat())
         
         // Draw cards with layout cursor starting strictly at headerCoverH + scrollY
-        val safeTop = maxOf(logicalHeight * 0.08f, 30f)
-        val headerCoverH = safeTop + 24f
+        val safeTop = maxOf(logicalHeight * 0.08f, ((U * 2) - (U / 8)).toFloat())
+        val headerCoverH = safeTop + U + (U / 2)
         var currentY = headerCoverH + scrollY
         var idx = 0
         while (idx < state.presets.size) {
@@ -974,8 +974,8 @@ object TemplateCustomizerScene : Scene {
             val isActive = preset.id == state.activePresetId
             
             val frameColorIndex = if (isActive) PaletteIndices.PRIMARY else PaletteIndices.SECONDARY
-            val cardX = playAreaStartX + 20f
-            val cardW = playAreaW - 40f
+            val cardX = playAreaStartX + U + (U / 4)
+            val cardW = playAreaW - (U * 2) - (U / 2)
             
             if (isActive) {
                 renderer.fillRectDither(cardX, currentY, cardX + cardW, currentY + cardH, frameColorIndex, frameColorIndex, SoftDitherPattern.SOLID)
@@ -985,14 +985,14 @@ object TemplateCustomizerScene : Scene {
 
             val textLeftX = cardX + (U / 2 + U / 8).toFloat()
             val hasDelete = preset.id.startsWith("custom_")
-            val delW = 60f
-            val delH = 26f
-            val delX = playAreaStartX + playAreaW - 90f
+            val delW = (U * 4) - (U / 4)
+            val delH = U + (U / 2) + (U / 8)
+            val delX = playAreaStartX + playAreaW - (U * 5) - (U / 2) - (U / 8)
             val editX = delX - delW - (U / 2).toFloat()
             val delY = currentY + (cardH - delH) / 2f
             
             val textRightLimit = if (hasDelete) editX - (U / 2).toFloat() else cardX + cardW - (U / 2 + U / 8).toFloat()
-            val maxTextW = maxOf(16f, textRightLimit - textLeftX)
+            val maxTextW = maxOf(U.toFloat(), textRightLimit - textLeftX)
 
             val nameScale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
             val textColor = if (isActive) PaletteIndices.BLACK else PaletteIndices.PRIMARY
@@ -1024,9 +1024,9 @@ object TemplateCustomizerScene : Scene {
             }
 
             if (preset.id.startsWith("custom_")) {
-                val delW = 60f
-                val delH = 26f
-                val delX = playAreaStartX + playAreaW - 90f
+                val delW = ((U * 4) - (U / 4)).toFloat()
+                val delH = (U + (U / 2) + (U / 8)).toFloat()
+                val delX = playAreaStartX + playAreaW - (U * 5) - (U / 2) - (U / 8)
                 val editX = delX - delW - (U / 2).toFloat()
                 val delY = currentY + (cardH - delH) / 2f
                 renderer.drawButton("EDIT", editX, delY, delW, delH, isClicked = false)
@@ -1043,12 +1043,12 @@ object TemplateCustomizerScene : Scene {
         // Draw header over the cover
         val headerY = safeTop
         val headerText = "SPELL CARDS / 呪符"
-        val forgeBtnW = maxOf(92f, playAreaW * 0.24f)
-        val forgeBtnH = 26f
-        val forgeBtnX = playAreaStartX + playAreaW - forgeBtnW - 20f
+        val forgeBtnW = maxOf(((U * 6) - (U / 4)).toFloat(), playAreaW * 0.24f)
+        val forgeBtnH = (U + (U / 2) + (U / 8)).toFloat()
+        val forgeBtnX = playAreaStartX + playAreaW - forgeBtnW - U - (U / 4)
         val forgeBtnY = headerY - (U / 8).toFloat()
         val headerScale = ScaledProceduralRenderer.TEXT_SCALE_HEADER
-        renderer.drawText(headerText, playAreaStartX + 20f, headerY, PaletteIndices.PRIMARY, scale = headerScale, startX = playAreaStartX + 20f, startY = headerY, clipWidth = maxOf(U, (forgeBtnX - playAreaStartX - 28f).toInt()), clipHeight = forgeBtnH.toInt())
+        renderer.drawText(headerText, playAreaStartX + U + (U / 4), headerY, PaletteIndices.PRIMARY, scale = headerScale, startX = playAreaStartX + U + (U / 4), startY = headerY, clipWidth = maxOf(U, (forgeBtnX - playAreaStartX - ((U * 2) - (U / 4))).toInt()), clipHeight = forgeBtnH.toInt())
         renderer.drawButton("FORGE", forgeBtnX, forgeBtnY, forgeBtnW, forgeBtnH, isClicked = false)
         renderer.drawLine(playAreaStartX + (U / 2 + U / 8).toFloat(), headerCoverH - (U / 8).toFloat(), playAreaStartX + playAreaW - (U / 2 + U / 8).toFloat(), headerCoverH - (U / 8).toFloat(), PaletteIndices.SECONDARY, 1f)
         RetroHudComponent.render(renderer, playX, playY, playW, playH)
@@ -1119,15 +1119,15 @@ object TemplateCustomizerScene : Scene {
         val playAreaH = playH.toFloat()
         val logicalHeight = if (playX > 0) playH.toFloat() else playH * 20f / 17f
 
-        val safeTop = maxOf(logicalHeight * 0.08f, 30f)
-        val headerCoverH = safeTop + 24f
-        val cardH = maxOf(playAreaH * 3f / 20f, 60f)
-        val cardSpacing = maxOf(playAreaH * 3f / 100f, 6f)
+        val safeTop = maxOf(logicalHeight * 0.08f, ((U * 2) - (U / 8)).toFloat())
+        val headerCoverH = safeTop + U + (U / 2)
+        val cardH = maxOf(playAreaH * 3f / 20f, ((U * 4) - (U / 4)).toFloat())
+        val cardSpacing = maxOf(playAreaH * 3f / 100f, ((U / 4) + (U / 8)).toFloat())
         var currentY = headerCoverH + scrollY
-        val forgeBtnW = maxOf(92f, playAreaW * 0.24f)
-        val forgeBtnH = 26f
-        val forgeBtnX = playAreaStartX + playAreaW - forgeBtnW - 20f
-        val forgeBtnY = safeTop - 2f
+        val forgeBtnW = maxOf(((U * 6) - (U / 4)).toFloat(), playAreaW * 0.24f)
+        val forgeBtnH = U + (U / 2) + (U / 8)
+        val forgeBtnX = playAreaStartX + playAreaW - forgeBtnW - U - (U / 4)
+        val forgeBtnY = safeTop - (U / 8)
 
         val fx = x.toFloat()
         val fy = y.toFloat()
@@ -1149,10 +1149,10 @@ object TemplateCustomizerScene : Scene {
             currentY += cardH + cardSpacing
 
             if (fy >= cardY && fy <= cardY + cardH) {
-                if (fx >= playAreaStartX + 20f && fx <= playAreaStartX + playAreaW - 20f) {
-                    val delW = 60f
-                    val delH = 26f
-                    val delX = playAreaStartX + playAreaW - 90f
+                if (fx >= playAreaStartX + U + (U / 4) && fx <= playAreaStartX + playAreaW - U - (U / 4)) {
+                    val delW = (U * 4) - (U / 4)
+                    val delH = U + (U / 2) + (U / 8)
+                    val delX = playAreaStartX + playAreaW - (U * 5) - (U / 2) - (U / 8)
                     val editX = delX - delW - (U / 2).toFloat()
                     val delY = cardY + (cardH - delH) / 2f
                     if (preset.id.startsWith("custom_") && fy >= delY && fy <= delY + delH) {
@@ -1192,10 +1192,10 @@ object TemplateCustomizerScene : Scene {
     private fun templateMinScroll(state: EngineUiState, playAreaH: Float, logicalHeight: Float): Float {
         val visibleCount = countVisiblePresets(state)
         if (visibleCount <= 0) return 0f
-        val cardH = maxOf(playAreaH * 3f / 20f, 60f)
-        val cardSpacing = maxOf(playAreaH * 3f / 100f, 6f)
-        val safeTop = maxOf(logicalHeight * 0.08f, 30f)
-        val headerCoverH = safeTop + 24f
+        val cardH = maxOf(playAreaH * 3f / 20f, ((U * 4) - (U / 4)).toFloat())
+        val cardSpacing = maxOf(playAreaH * 3f / 100f, ((U / 4) + (U / 8)).toFloat())
+        val safeTop = maxOf(logicalHeight * 0.08f, ((U * 2) - (U / 8)).toFloat())
+        val headerCoverH = safeTop + U + (U / 2)
         val contentBottom = headerCoverH + visibleCount * cardH + (visibleCount - 1) * cardSpacing + U.toFloat()
         return (playAreaH - contentBottom).coerceAtMost(0f)
     }
@@ -1220,8 +1220,8 @@ object TemplateForgeScene : Scene {
     private const val MAX_CALENDAR_BLOCKS = 8
     private const val LABEL_COLUMN_RATIO_NUM = 2f
     private const val LABEL_COLUMN_RATIO_DEN = 5f
-    private const val SAFE_TOP_RATIO_DEN = 12f
-    private const val CONTENT_PAD_RATIO_DEN = 20f
+    private const val SAFE_TOP_RATIO_DEN = U - (U / 4)
+    private const val CONTENT_PAD_RATIO_DEN = U + (U / 4)
     private const val CONTROL_HEIGHT_CELLS = 2
     private const val HEADER_BUTTON_WIDTH_CELLS = 5
     private const val TITLE_ROW_HEIGHT_CELLS = 2
@@ -1436,7 +1436,7 @@ object TemplateForgeScene : Scene {
             TouchAction.MOVE -> {
                 if (isDragging) {
                     val deltaY = y - lastTouchY
-                    if (abs(deltaY) > 2f) hasDragged = true
+                    if (abs(deltaY) > (U / 8).toFloat()) hasDragged = true
                     scrollY += deltaY
                     lastTouchY = y.toFloat()
                     scrollY = scrollY.coerceIn(contentMinScroll(playAreaH, logicalHeight), 0f)
@@ -1447,7 +1447,7 @@ object TemplateForgeScene : Scene {
                     isDragging = false
                     val deltaX = x - initialTouchX
                     val deltaY = y - initialTouchY
-                    if (inPlayArea && abs(deltaX) < 8f && abs(deltaY) < 8f && !hasDragged) {
+                    if (inPlayArea && abs(deltaX) < (U / 2).toFloat() && abs(deltaY) < (U / 2).toFloat() && !hasDragged) {
                         onInput(x, y, TouchAction.UP, playX, playY, playW, playH)
                     }
                 }
@@ -2384,10 +2384,10 @@ object SettingsScene : Scene {
         playAreaW = if (isPortrait) logicalWidth else logicalWidth - playAreaStartX
         playAreaH = RetroHudComponent.playAreaHeight(logicalWidth, logicalHeight)
 
-        val padding = maxOf(U.toFloat(), playAreaW / 20f)
+        val padding = maxOf(U.toFloat(), playAreaW / (U + (U / 4)))
         usableWidth = playAreaW - padding * 2f
         labelX = playAreaStartX + padding
-        safeTop = maxOf(logicalHeight / 12f, (U * 2).toFloat())
+        safeTop = maxOf(logicalHeight / (U - (U / 4)), (U * 2).toFloat())
         rowH = maxOf(playAreaH * 3f / 25f, (U * 2).toFloat())
         spacing = (U / 4).toFloat()
         currentY = safeTop
@@ -2561,7 +2561,7 @@ object SettingsScene : Scene {
         val startX = x + localArrowW + barPad
         val spaceW = width - localArrowW * 2f - barPad * 2f
         if (spaceW <= U.toFloat() || maxBlocks <= 0) return
-        val blockW = maxOf(1f, spaceW / maxBlocks - gap)
+        val blockW = maxOf((U / 16).toFloat(), spaceW / maxBlocks - gap)
 
         var i = 0
         while (i < maxBlocks) {
@@ -2596,9 +2596,9 @@ object EntropyScene : Scene {
     private const val MAX_TASKS = 16
     private const val TASK_CAPACITY = 64
     private const val MIN_TASK_ROWS = 1
-    private const val INPUT_HEIGHT_DEN = 14f
-    private const val TASK_ROW_HEIGHT_DEN = 14f
-    private const val DETONATOR_HEIGHT_DEN = 12f
+    private const val INPUT_HEIGHT_DEN = U - (U / 8)
+    private const val TASK_ROW_HEIGHT_DEN = U - (U / 8)
+    private const val DETONATOR_HEIGHT_DEN = U - (U / 4)
     private const val MIN_TASK_ROW_CELLS_NUM = 3
     private const val MIN_TASK_ROW_CELLS_DEN = 2
     private const val POPUP_CLOSE_CELLS = 2
@@ -2684,8 +2684,8 @@ object EntropyScene : Scene {
         
         renderer.fillRectDither(playAreaStartX, 0f, playAreaStartX + playAreaW, playAreaH, PaletteIndices.BG, PaletteIndices.BG, SoftDitherPattern.SOLID)
 
-        val padding = maxOf(U.toFloat(), playAreaW / 24f)
-        val safeTop = maxOf(playAreaH / 12f, (U * 2).toFloat())
+        val padding = maxOf(U.toFloat(), playAreaW / (U + (U / 2)))
+        val safeTop = maxOf(playAreaH / (U - (U / 4)), (U * 2).toFloat())
         val headerY = safeTop
         
         val headerScale = ScaledProceduralRenderer.TEXT_SCALE_HEADER
@@ -2697,7 +2697,7 @@ object EntropyScene : Scene {
 
         val inputH = maxOf((U * 2).toFloat(), playAreaH / INPUT_HEIGHT_DEN)
         val inputY = descY + (U * 2).toFloat()
-        val loadW = minOf((U * 6).toFloat(), playAreaW / 4f)
+        val loadW = minOf((U * 6).toFloat(), playAreaW / (U / 4))
         val gap = (U / 2).toFloat()
         val inputW = playAreaW - padding * 2f - loadW - gap
         val inputX = playAreaStartX + padding
@@ -2718,7 +2718,7 @@ object EntropyScene : Scene {
         val slotSpacing = (U / 4).toFloat()
         val detH = maxOf((U * 2).toFloat(), playAreaH / DETONATOR_HEIGHT_DEN)
         val detY = playAreaH - detH - U.toFloat()
-        val switcherBtnSize = maxOf((U + U / 2).toFloat(), playAreaH / 18f)
+        val switcherBtnSize = maxOf((U + U / 2).toFloat(), playAreaH / (U + (U / 8)))
         val rowsPerPage = computeRowsPerPage(playAreaH, slotsStartY, detY, switcherBtnSize, taskCount)
         val totalPages = ((taskCount + rowsPerPage - 1) / rowsPerPage).coerceAtLeast(1)
         if (activePage >= totalPages) activePage = totalPages - 1
@@ -2818,9 +2818,9 @@ object EntropyScene : Scene {
         drawTaskBuffer(renderer, selectedIndex, popupX + U.toFloat(), taskY, PaletteIndices.PRIMARY, taskScale, popupW - (U * 2).toFloat())
         
         val cBtnW = popupW * 0.75f
-        val cBtnH = maxOf(popupH * 0.18f, 32f)
+        val cBtnH = maxOf(popupH * 0.18f, (U * 2).toFloat())
         val cBtnX = popupX + (popupW - cBtnW) / 2f
-        val cBtnY = popupY + popupH - cBtnH - 20f
+        val cBtnY = popupY + popupH - cBtnH - U - (U / 4)
         renderer.drawButton(strings.launchEmergency, cBtnX, cBtnY, cBtnW, cBtnH, isClicked = false)
     }
 
@@ -2869,9 +2869,9 @@ object EntropyScene : Scene {
             }
             // Commence button
             val cBtnW = popupW * 0.75f
-            val cBtnH = maxOf(popupH * 0.18f, 32f)
+            val cBtnH = maxOf(popupH * 0.18f, (U * 2).toFloat())
             val cBtnX = popupX + (popupW - cBtnW) / 2f
-            val cBtnY = popupY + popupH - cBtnH - 20f
+            val cBtnY = popupY + popupH - cBtnH - U - (U / 4)
             if (fx >= cBtnX && fx <= cBtnX + cBtnW && fy >= cBtnY && fy <= cBtnY + cBtnH) {
                 SceneManager.performHapticFeedback(EngineHaptics.CLICK)
                 if (SceneManager.timerActionsFromTouchEnabled()) {
@@ -2885,15 +2885,15 @@ object EntropyScene : Scene {
             return
         }
 
-        val padding = maxOf(U.toFloat(), playAreaW / 24f)
-        val safeTop = maxOf(cachedLogicalHeight / 12f, (U * 2).toFloat())
+        val padding = maxOf(U.toFloat(), playAreaW / (U + (U / 2)))
+        val safeTop = maxOf(cachedLogicalHeight / (U - (U / 4)), (U * 2).toFloat())
         val headerY = safeTop
         val strings = getStrings(state.language)
         val headerScale = ScaledProceduralRenderer.TEXT_SCALE_HEADER
         val descY = headerY + (U * headerScale).toFloat() + U.toFloat()
         val inputH = maxOf((U * 2).toFloat(), playAreaH / INPUT_HEIGHT_DEN)
         val inputY = descY + (U * 2).toFloat()
-        val loadW = minOf((U * 6).toFloat(), playAreaW / 4f)
+        val loadW = minOf((U * 6).toFloat(), playAreaW / (U / 4))
         val gap = (U / 2).toFloat()
         val inputW = playAreaW - padding * 2f - loadW - gap
         val inputX = playAreaStartX + padding
@@ -2919,7 +2919,7 @@ object EntropyScene : Scene {
         val detH = maxOf((U * 2).toFloat(), playAreaH / DETONATOR_HEIGHT_DEN)
         val detY = playAreaH - detH - U.toFloat()
         
-        val switcherBtnSize = maxOf((U + U / 2).toFloat(), playAreaH / 18f)
+        val switcherBtnSize = maxOf((U + U / 2).toFloat(), playAreaH / (U + (U / 8)))
         val rowsPerPage = computeRowsPerPage(playAreaH, slotsStartY, detY, switcherBtnSize, taskCount)
         val totalPages = ((taskCount + rowsPerPage - 1) / rowsPerPage).coerceAtLeast(1)
         val switcherY = slotsStartY + rowsPerPage * (slotH + slotSpacing)
@@ -3163,8 +3163,8 @@ object BlockOverlayScene : Scene {
         drawTextCentered(renderer, cx, "FOCUS MODE ACTIVE", titleY, 2, PaletteIndices.PRIMARY)
         drawTextCentered(renderer, cx, "Get back to work.", subtitleY, 1, PaletteIndices.SECONDARY)
 
-        val btnW = maxOf(logicalWidth * 0.4f, 200f)
-        val btnH = maxOf(logicalHeight * 0.1f, 32f)
+        val btnW = maxOf(logicalWidth * 0.4f, ((U * 12) + (U / 2)).toFloat())
+        val btnH = maxOf(logicalHeight * 0.1f, (U * 2).toFloat())
         val btnX = cx - btnW / 2f
         val btnY = logicalHeight * 0.7f
         
@@ -3178,8 +3178,8 @@ object BlockOverlayScene : Scene {
             val logicalWidth = (playX + playW).toFloat()
             val logicalHeight = if (playX > 0) playH.toFloat() else playH * 20f / 17f
             val cx = logicalWidth / 2f
-            val btnW = maxOf(logicalWidth * 0.4f, 200f)
-            val btnH = maxOf(logicalHeight * 0.1f, 32f)
+            val btnW = maxOf(logicalWidth * 0.4f, ((U * 12) + (U / 2)).toFloat())
+            val btnH = maxOf(logicalHeight * 0.1f, (U * 2).toFloat())
             val btnX = cx - btnW / 2f
             val btnY = logicalHeight * 0.7f
             
