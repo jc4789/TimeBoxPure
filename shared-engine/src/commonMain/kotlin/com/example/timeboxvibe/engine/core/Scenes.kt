@@ -2880,7 +2880,7 @@ object EntropyScene : Scene {
                     SceneManager.timerActions?.startTimer()
                 }
                 selectedIndex = -1
-                SceneManager.switchScene(ActiveTimerScene)
+                SceneManager.switchScene(SceneId.ACTIVE_TIMER)
             }
             return
         }

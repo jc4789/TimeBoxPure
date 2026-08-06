@@ -59,6 +59,11 @@ object SceneManager {
         this.inputTrigger = trigger
     }
 
+    fun switchScene(sceneId: SceneId, payload: Any? = null) {
+        val newScene = sceneRegistry[sceneId] ?: return
+        switchScene(newScene, payload)
+    }
+
     fun switchScene(newScene: Scene, payload: Any? = null) {
         if (isDrainingInput) {
             pendingScene = newScene
