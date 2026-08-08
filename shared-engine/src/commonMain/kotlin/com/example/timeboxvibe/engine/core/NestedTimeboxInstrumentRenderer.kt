@@ -474,7 +474,7 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         val startY = centerY - (U / 2).toFloat()
         var index = 0
         while (index < text.length) {
-            drawGlyph(text[index], startX + (index * U).toFloat(), startY, colorIndex)
+            drawGlyph(toFullwidthDisplayChar(text[index]), startX + (index * U).toFloat(), startY, colorIndex)
             index++
         }
     }
@@ -492,7 +492,7 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         val startY = centerY - (U / 2).toFloat()
         var index = 0
         while (index < cellCount) {
-            drawGlyph(text[index], startX + (index * U).toFloat(), startY, colorIndex)
+            drawGlyph(toFullwidthDisplayChar(text[index]), startX + (index * U).toFloat(), startY, colorIndex)
             index++
         }
     }
@@ -504,18 +504,18 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         val cellWidth = (U * scale).toFloat()
         val startX = centerX - cellWidth * 2.5f
         val startY = centerY - cellWidth / 2f
-        drawGlyph(((minutes / 10) % 10 + 48).toChar(), startX, startY, colorIndex, scale)
-        drawGlyph((minutes % 10 + 48).toChar(), startX + cellWidth, startY, colorIndex, scale)
-        drawGlyph(':', startX + cellWidth * 2f, startY, colorIndex, scale)
-        drawGlyph((remainder / 10 + 48).toChar(), startX + cellWidth * 3f, startY, colorIndex, scale)
-        drawGlyph((remainder % 10 + 48).toChar(), startX + cellWidth * 4f, startY, colorIndex, scale)
+        drawGlyph(FULLWIDTH_DIGITS[(minutes / 10) % 10], startX, startY, colorIndex, scale)
+        drawGlyph(FULLWIDTH_DIGITS[minutes % 10], startX + cellWidth, startY, colorIndex, scale)
+        drawGlyph('：', startX + cellWidth * 2f, startY, colorIndex, scale)
+        drawGlyph(FULLWIDTH_DIGITS[remainder / 10], startX + cellWidth * 3f, startY, colorIndex, scale)
+        drawGlyph(FULLWIDTH_DIGITS[remainder % 10], startX + cellWidth * 4f, startY, colorIndex, scale)
     }
 
     private fun drawAlarmTimeCentered(centerX: Float, seconds: Int, centerY: Float, colorIndex: Int) {
         val safeSeconds = maxOf(0, seconds)
         val minutes = safeSeconds / 60
         val remainder = safeSeconds % 60
-        val prefix = "[ ALARM: "
+        val prefix = "［　ＡＬＡＲＭ：　"
         val totalCells = prefix.length + 7
         var drawX = centerX - (totalCells * U / 2).toFloat()
         val drawY = centerY - (U / 2).toFloat()
@@ -525,13 +525,13 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
             drawX += U.toFloat()
             index++
         }
-        drawGlyph(((minutes / 10) % 10 + 48).toChar(), drawX, drawY, colorIndex); drawX += U.toFloat()
-        drawGlyph((minutes % 10 + 48).toChar(), drawX, drawY, colorIndex); drawX += U.toFloat()
-        drawGlyph(':', drawX, drawY, colorIndex); drawX += U.toFloat()
-        drawGlyph((remainder / 10 + 48).toChar(), drawX, drawY, colorIndex); drawX += U.toFloat()
-        drawGlyph((remainder % 10 + 48).toChar(), drawX, drawY, colorIndex); drawX += U.toFloat()
-        drawGlyph(' ', drawX, drawY, colorIndex); drawX += U.toFloat()
-        drawGlyph(']', drawX, drawY, colorIndex)
+        drawGlyph(FULLWIDTH_DIGITS[(minutes / 10) % 10], drawX, drawY, colorIndex); drawX += U.toFloat()
+        drawGlyph(FULLWIDTH_DIGITS[minutes % 10], drawX, drawY, colorIndex); drawX += U.toFloat()
+        drawGlyph('：', drawX, drawY, colorIndex); drawX += U.toFloat()
+        drawGlyph(FULLWIDTH_DIGITS[remainder / 10], drawX, drawY, colorIndex); drawX += U.toFloat()
+        drawGlyph(FULLWIDTH_DIGITS[remainder % 10], drawX, drawY, colorIndex); drawX += U.toFloat()
+        drawGlyph('　', drawX, drawY, colorIndex); drawX += U.toFloat()
+        drawGlyph('］', drawX, drawY, colorIndex)
     }
 
     private fun drawGlyph(char: Char, x: Float, y: Float, colorIndex: Int, scale: Int = 1) {

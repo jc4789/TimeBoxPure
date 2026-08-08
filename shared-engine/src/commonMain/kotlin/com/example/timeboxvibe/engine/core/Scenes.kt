@@ -264,7 +264,7 @@ object ActiveTimerScene : Scene {
         }
 
         val displayText = if (taskText.isEmpty()) {
-            if (isTaskFocused) "_" else strings.enterTaskPrompt
+            if (isTaskFocused) "＿" else strings.enterTaskPrompt
         } else {
             taskText
         }
@@ -321,13 +321,13 @@ object ActiveTimerScene : Scene {
 
             // Top warning bar — no local function, no allocations
             val marqueeH = (U * 2).toFloat()
-            val msg = "ALARM RINGING"
+            val msg = "ＡＬＡＲＭ　ＲＩＮＧＩＮＧ"
             // draw top marquee strip
             val stripeCount = (logicalWidth / (marqueeH * 2)).toInt() + 2
             renderer.fillRectDither(0f, 0f, logicalWidth, marqueeH, PaletteIndices.HIGHLIGHT, PaletteIndices.HIGHLIGHT, SoftDitherPattern.SOLID)
             // draw text
             val marqueeTopY = U.toFloat()
-            val marqueeTextStr = " $msg "
+            val marqueeTextStr = "　$msg　"
             val marqueeTextLen = marqueeTextStr.length
             val marqueeCharH = ScaledProceduralRenderer.measureTextHeight(ScaledProceduralRenderer.TEXT_SCALE_IDENTITY)
             val marqueeMaxChars = (logicalWidth / marqueeCharH).toInt() + 2
@@ -341,7 +341,7 @@ object ActiveTimerScene : Scene {
             }
 
             // Title
-            val titleText = "SPELL CARD ACTIVE"
+            val titleText = "ＳＰＥＬＬ　ＣＡＲＤ　ＡＣＴＩＶＥ"
             val titleScale = ScaledProceduralRenderer.TEXT_SCALE_HEADER
             val titleW = ScaledProceduralRenderer.measureTextWidth(titleText, titleScale)
             val titleCellH = ScaledProceduralRenderer.measureTextHeight(titleScale)
@@ -363,7 +363,7 @@ object ActiveTimerScene : Scene {
             renderer.fillRectDither(alarmCx - (U / 2).toFloat(), ornamentCy - (U / 2).toFloat(), alarmCx + (U / 2).toFloat(), ornamentCy + (U / 2).toFloat(), PaletteIndices.HIGHLIGHT, PaletteIndices.HIGHLIGHT, SoftDitherPattern.SOLID)
 
             // Subtitle
-            val subText = "ADHD BLOCKADE INITIATED"
+            val subText = "ＡＤＨＤ　ＢＬＯＣＫＡＤＥ　ＩＮＩＴＩＡＴＥＤ"
             val subScale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
             val subW = ScaledProceduralRenderer.measureTextWidth(subText, subScale)
             val subCellH = ScaledProceduralRenderer.measureTextHeight(subScale)
@@ -386,8 +386,8 @@ object ActiveTimerScene : Scene {
                 marqueeIdx2++
             }
 
-            // "BOMB / DISMISS" dismiss button
-            val bombText = "BOMB / DISMISS"
+            // Full-width dismiss label.
+            val bombText = "ＢＯＭＢ　／　ＤＩＳＭＩＳＳ"
             val bombScale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
             val bombTW = ScaledProceduralRenderer.measureTextWidth(bombText, bombScale)
             val bombTH = ScaledProceduralRenderer.measureTextHeight(bombScale)
@@ -750,7 +750,7 @@ object ActiveTimerScene : Scene {
         val charW = ScaledProceduralRenderer.measureTextHeight(scale)
         var i = 0
         while (i < ScaledProceduralRenderer.measureTextCells(text)) {
-            renderer.drawGlyph(text[i], startX + i * charW, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
+            renderer.drawGlyph(toFullwidthDisplayChar(text[i]), startX + i * charW, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
             i++
         }
     }
@@ -765,7 +765,7 @@ object ActiveTimerScene : Scene {
         val startY = centerY - ScaledProceduralRenderer.measureTextHeight(scale) / 2f
         var i = 0
         while (i < cellCount && i < text.length) {
-            renderer.drawGlyph(text[i], startX + i * charW, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
+            renderer.drawGlyph(toFullwidthDisplayChar(text[i]), startX + i * charW, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
             i++
         }
     }
@@ -785,11 +785,11 @@ object ActiveTimerScene : Scene {
         val startY = centerY - ScaledProceduralRenderer.measureTextHeight(scale) / 2f
         val charW = ScaledProceduralRenderer.measureTextHeight(scale)
         
-        renderer.drawGlyph((m1 + 48).toChar(), startX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
-        renderer.drawGlyph((m2 + 48).toChar(), startX + charW, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
-        renderer.drawGlyph(':', startX + charW * 2f, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
-        renderer.drawGlyph((s1 + 48).toChar(), startX + charW * 3f, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
-        renderer.drawGlyph((s2 + 48).toChar(), startX + charW * 4f, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
+        renderer.drawGlyph(FULLWIDTH_DIGITS[m1], startX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
+        renderer.drawGlyph(FULLWIDTH_DIGITS[m2], startX + charW, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
+        renderer.drawGlyph('：', startX + charW * 2f, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
+        renderer.drawGlyph(FULLWIDTH_DIGITS[s1], startX + charW * 3f, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
+        renderer.drawGlyph(FULLWIDTH_DIGITS[s2], startX + charW * 4f, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
     }
 
     private fun drawStepCentered(renderer: ScaledProceduralRenderer, cx: Float, current: Int, total: Int, centerY: Float, scale: Int, colorIndex: Int) {
@@ -807,23 +807,23 @@ object ActiveTimerScene : Scene {
         val startY = centerY - ScaledProceduralRenderer.measureTextHeight(scale) / 2f
         val charW = ScaledProceduralRenderer.measureTextHeight(scale)
         
-        renderer.drawGlyph('S', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
-        renderer.drawGlyph('T', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
-        renderer.drawGlyph('E', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
-        renderer.drawGlyph('P', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
-        renderer.drawGlyph(' ', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph('Ｓ', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph('Ｔ', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph('Ｅ', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph('Ｐ', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph('　', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
         
         if (x1 >= 0) {
-            renderer.drawGlyph((x1 + 48).toChar(), curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+            renderer.drawGlyph(FULLWIDTH_DIGITS[x1], curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
         }
-        renderer.drawGlyph((x2 + 48).toChar(), curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph(FULLWIDTH_DIGITS[x2], curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
         
-        renderer.drawGlyph('/', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph('／', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
         
         if (y1 >= 0) {
-            renderer.drawGlyph((y1 + 48).toChar(), curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+            renderer.drawGlyph(FULLWIDTH_DIGITS[y1], curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
         }
-        renderer.drawGlyph((y2 + 48).toChar(), curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph(FULLWIDTH_DIGITS[y2], curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
     }
 
     private fun drawAlarmTimeCentered(renderer: ScaledProceduralRenderer, cx: Float, secs: Int, centerY: Float, scale: Int, colorIndex: Int) {
@@ -841,7 +841,7 @@ object ActiveTimerScene : Scene {
         val startY = centerY - ScaledProceduralRenderer.measureTextHeight(scale) / 2f
         val charW = ScaledProceduralRenderer.measureTextHeight(scale)
         
-        val prefix = "[ ALARM: "
+        val prefix = "［　ＡＬＡＲＭ：　"
         var i = 0
         while (i < prefix.length) {
             renderer.drawGlyph(prefix[i], curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
@@ -849,21 +849,21 @@ object ActiveTimerScene : Scene {
             i++
         }
         
-        renderer.drawGlyph((m1 + 48).toChar(), curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
-        renderer.drawGlyph((m2 + 48).toChar(), curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
-        renderer.drawGlyph(':', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
-        renderer.drawGlyph((s1 + 48).toChar(), curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
-        renderer.drawGlyph((s2 + 48).toChar(), curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph(FULLWIDTH_DIGITS[m1], curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph(FULLWIDTH_DIGITS[m2], curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph('：', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph(FULLWIDTH_DIGITS[s1], curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph(FULLWIDTH_DIGITS[s2], curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
         
-        renderer.drawGlyph(' ', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
-        renderer.drawGlyph(']', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
+        renderer.drawGlyph('　', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale); curX += charW
+        renderer.drawGlyph('］', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
     }
 
     private fun drawTextRaw(renderer: ScaledProceduralRenderer, text: String, x: Float, y: Float, colorIndex: Int, scale: Int = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY) {
         val charW = ScaledProceduralRenderer.measureTextHeight(scale)
         var i = 0
         while (i < ScaledProceduralRenderer.measureTextCells(text)) {
-            renderer.drawGlyph(text[i], x + i * charW, y, colorIndex, scale = scale)
+            renderer.drawGlyph(toFullwidthDisplayChar(text[i]), x + i * charW, y, colorIndex, scale = scale)
             i++
         }
     }
@@ -1030,8 +1030,8 @@ object TemplateCustomizerScene : Scene {
                 val delX = playAreaStartX + playAreaW - (U * 5) - (U / 2) - (U / 8)
                 val editX = delX - delW - (U / 2).toFloat()
                 val delY = currentY + (cardH - delH) / 2f
-                renderer.drawButton("EDIT", editX, delY, delW, delH, isClicked = false)
-                renderer.drawButton("DEL", delX, delY, delW, delH, isClicked = false)
+                renderer.drawButton("ＥＤＩＴ", editX, delY, delW, delH, isClicked = false)
+                renderer.drawButton("ＤＥＬ", delX, delY, delW, delH, isClicked = false)
             }
             
             currentY += cardH + cardSpacing
@@ -1051,7 +1051,7 @@ object TemplateCustomizerScene : Scene {
         val maxHeaderW = maxOf(U.toFloat(), forgeBtnX - playAreaStartX - ((U * 2) - (U / 4)))
         val headerScale = ScaledProceduralRenderer.calculateTextScaleDownToFit(headerText, maxHeaderW, forgeBtnH, ScaledProceduralRenderer.TEXT_SCALE_HEADER)
         renderer.drawText(headerText, playAreaStartX + U + (U / 4), headerY, PaletteIndices.PRIMARY, scale = headerScale, startX = playAreaStartX + U + (U / 4), startY = headerY, clipWidth = maxOf(U, (forgeBtnX - playAreaStartX - ((U * 2) - (U / 4))).toInt()), clipHeight = forgeBtnH.toInt())
-        renderer.drawButton("FORGE", forgeBtnX, forgeBtnY, forgeBtnW, forgeBtnH, isClicked = false)
+        renderer.drawButton("ＦＯＲＧＥ", forgeBtnX, forgeBtnY, forgeBtnW, forgeBtnH, isClicked = false)
         renderer.drawLine(playAreaStartX + (U / 2 + U / 8).toFloat(), headerCoverH - (U / 8).toFloat(), playAreaStartX + playAreaW - (U / 2 + U / 8).toFloat(), headerCoverH - (U / 8).toFloat(), PaletteIndices.SECONDARY, 1f)
         RetroHudComponent.render(renderer, playX, playY, playW, playH)
 
@@ -1206,7 +1206,7 @@ object TemplateCustomizerScene : Scene {
         val charW = ScaledProceduralRenderer.measureTextHeight(scale)
         var i = 0
         while (i < ScaledProceduralRenderer.measureTextCells(text)) {
-            renderer.drawGlyph(text[i], x + i * charW, y, color, scale = scale)
+            renderer.drawGlyph(toFullwidthDisplayChar(text[i]), x + i * charW, y, color, scale = scale)
             i++
         }
     }
@@ -1251,10 +1251,10 @@ object TemplateForgeScene : Scene {
     private val calendarRelaxFlags = BooleanArray(MAX_CALENDAR_BLOCKS)
 
     private val modeKeys = arrayOf("classic", "dual", "dual.5", "sequence", "dual-sequence", "calendar")
-    private val modeLabels = arrayOf("CLASSIC", "DUAL", "DUAL.5", "SPIRAL", "SPIRAL+", "CALENDAR")
+    private val modeLabels = arrayOf("ＣＬＡＳＳＩＣ", "ＤＵＡＬ", "ＤＵＡＬ．５", "ＳＰＩＲＡＬ", "ＳＰＩＲＡＬ＋", "ＣＡＬＥＮＤＡＲ")
     private val behaviorKeys = arrayOf("alarm", "auto")
-    private val behaviorLabels = arrayOf("REQUIRE", "AUTO")
-    private val sequenceUnitLabels = arrayOf("MINUTES", "SECONDS")
+    private val behaviorLabels = arrayOf("ＲＥＱＵＩＲＥ", "ＡＵＴＯ")
+    private val sequenceUnitLabels = arrayOf("ＭＩＮＵＴＥＳ", "ＳＥＣＯＮＤＳ")
 
     private var modeIndex = 0
     private var behaviorIndex = 0
@@ -1707,11 +1707,11 @@ object TemplateForgeScene : Scene {
         val id = editingPresetId ?: nextCustomId(state)
         val name = inputToString(presetNameInput).trim()
         return when (modeKeys[modeIndex]) {
-            "classic" -> TimerPreset(id = id, name = name, mode = "classic", sequence = intArrayOf(classicDurationMinutes * 60), alarmBehavior = behaviorKeys[behaviorIndex], description = "SYS.CLASSIC // CUSTOM")
-            "dual" -> TimerPreset(id = id, name = name, mode = "dual", dualBigDuration = dualBigMinutes * 60, dualSmallDuration = dualSmallSeconds, alarmBehavior = behaviorKeys[behaviorIndex], description = "SYS.DUAL // CUSTOM")
-            "dual.5" -> TimerPreset(id = id, name = name, mode = "dual.5", dualBigDuration = dual5BigMinutes * 60, dualMidDuration = dual5MidMinutes * 60, dualSmallDuration = dual5SmallSeconds, alarmBehavior = behaviorKeys[behaviorIndex], description = "SYS.DUAL.5 // CUSTOM")
-            "sequence" -> TimerPreset(id = id, name = name, mode = "sequence", sequence = parseSequenceValues(), alarmBehavior = behaviorKeys[behaviorIndex], description = "SYS.SEQUENCE // CUSTOM")
-            "dual-sequence" -> TimerPreset(id = id, name = name, mode = "dual-sequence", sequence = parseSequenceValues(), dualSmallDuration = dualSequenceSmallSeconds, alarmBehavior = behaviorKeys[behaviorIndex], description = "SYS.DUAL-SEQUENCE // CUSTOM")
+            "classic" -> TimerPreset(id = id, name = name, mode = "classic", sequence = intArrayOf(classicDurationMinutes * 60), alarmBehavior = behaviorKeys[behaviorIndex], description = "ＳＹＳ．ＣＬＡＳＳＩＣ　／／　ＣＵＳＴＯＭ")
+            "dual" -> TimerPreset(id = id, name = name, mode = "dual", dualBigDuration = dualBigMinutes * 60, dualSmallDuration = dualSmallSeconds, alarmBehavior = behaviorKeys[behaviorIndex], description = "ＳＹＳ．ＤＵＡＬ　／／　ＣＵＳＴＯＭ")
+            "dual.5" -> TimerPreset(id = id, name = name, mode = "dual.5", dualBigDuration = dual5BigMinutes * 60, dualMidDuration = dual5MidMinutes * 60, dualSmallDuration = dual5SmallSeconds, alarmBehavior = behaviorKeys[behaviorIndex], description = "ＳＹＳ．ＤＵＡＬ．５　／／　ＣＵＳＴＯＭ")
+            "sequence" -> TimerPreset(id = id, name = name, mode = "sequence", sequence = parseSequenceValues(), alarmBehavior = behaviorKeys[behaviorIndex], description = "ＳＹＳ．ＳＥＱＵＥＮＣＥ　／／　ＣＵＳＴＯＭ")
+            "dual-sequence" -> TimerPreset(id = id, name = name, mode = "dual-sequence", sequence = parseSequenceValues(), dualSmallDuration = dualSequenceSmallSeconds, alarmBehavior = behaviorKeys[behaviorIndex], description = "ＳＹＳ．ＤＵＡＬ‐ＳＥＱＵＥＮＣＥ　／／　ＣＵＳＴＯＭ")
             else -> {
                 val strings = getStrings(state.language)
                 val seq = IntArray(calendarBlockCount)
@@ -1729,7 +1729,7 @@ object TemplateForgeScene : Scene {
                     }
                     i++
                 }
-                TimerPreset(id = id, name = name, mode = "calendar", sequence = seq, alarmBehavior = "alarm", description = "SYS.CALENDAR // CUSTOM TIMELINE", sequenceTypes = types, sequenceLabels = labels)
+                TimerPreset(id = id, name = name, mode = "calendar", sequence = seq, alarmBehavior = "alarm", description = "ＳＹＳ．ＣＡＬＥＮＤＡＲ　／／　ＣＵＳＴＯＭ　ＴＩＭＥＬＩＮＥ", sequenceTypes = types, sequenceLabels = labels)
             }
         }.normalized(logFailures = true)
     }
@@ -1809,7 +1809,7 @@ object TemplateForgeScene : Scene {
         y: Float,
         rowH: Float
     ): Float {
-        val blockLabel = "${strings.calendarBlockLabel} ${blockIndex + 1}"
+        val blockLabel = "${strings.calendarBlockLabel}　${FULLWIDTH_DIGITS[blockIndex + 1]}"
         var currentY = drawStepperRow(
             renderer,
             blockLabel,
@@ -1851,7 +1851,7 @@ object TemplateForgeScene : Scene {
         width: Float,
         rowH: Float
     ): Boolean {
-        val blockLabel = "${strings.calendarBlockLabel} ${blockIndex + 1}"
+        val blockLabel = "${strings.calendarBlockLabel}　${FULLWIDTH_DIGITS[blockIndex + 1]}"
         var currentY = y
         if (handleStepperTap(fx, fy, blockLabel, currentY, x, width, rowH, {
                 selectedCalendarBlock = blockIndex
@@ -1883,7 +1883,7 @@ object TemplateForgeScene : Scene {
     }
 
     private fun calendarBlockRowsEndY(strings: AppStrings, blockIndex: Int, y: Float, width: Float, rowH: Float): Float {
-        var currentY = nextRowY("${strings.calendarBlockLabel} ${blockIndex + 1}", y, width, rowH)
+        var currentY = nextRowY("${strings.calendarBlockLabel}　${FULLWIDTH_DIGITS[blockIndex + 1]}", y, width, rowH)
         currentY = nextRowY(strings.calendarBlockNameLabel, currentY, width, rowH)
         return nextRowY(strings.durationLabel, currentY, width, rowH)
     }
@@ -1967,8 +1967,8 @@ object TemplateForgeScene : Scene {
         val labelY = labelYForRow(label, y, fieldY, rowH, width)
         drawTextRaw(renderer, label, x, labelY, PaletteIndices.PRIMARY, 1)
         renderer.drawRect(controlX, fieldY, controlW, rowH, if (isFocused) PaletteIndices.PRIMARY else PaletteIndices.SECONDARY)
-        val display = if (value.isEmpty()) "> $placeholder _" else value
-        renderer.drawText(display, controlX + (U / 2).toFloat(), fieldY + (rowH - U.toFloat()) / 2f, if (value.isEmpty()) PaletteIndices.SECONDARY else PaletteIndices.PRIMARY, scale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, startX = controlX, startY = fieldY, clipWidth = controlW.toInt(), clipHeight = rowH.toInt())
+        val display = if (value.isEmpty()) "＞　$placeholder　＿" else value
+        ProceduralTextRenderer.drawClipped(renderer, display, controlX + (U / 2).toFloat(), fieldY + (rowH - U.toFloat()) / 2f, if (value.isEmpty()) PaletteIndices.SECONDARY else PaletteIndices.PRIMARY, ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, controlX, fieldY, controlW, rowH)
         return nextRowY(label, y, width, rowH)
     }
 
@@ -1986,9 +1986,9 @@ object TemplateForgeScene : Scene {
         val fieldY = controlYForLabel(label, y, width, rowH)
         val labelY = labelYForRow(label, y, fieldY, rowH, width)
         drawTextRaw(renderer, label, x, labelY, PaletteIndices.PRIMARY, 1)
-        renderer.drawButton("<", controlX, fieldY, rowH, rowH, isClicked = false)
-        renderer.drawButton(">", controlX + controlW - rowH, fieldY, rowH, rowH, isClicked = false)
-        renderer.drawText(value, controlX + rowH + (U / 2).toFloat(), fieldY + (rowH - U.toFloat()) / 2f, PaletteIndices.PRIMARY, scale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, startX = controlX + rowH, startY = fieldY, clipWidth = (controlW - rowH * 2f).toInt(), clipHeight = rowH.toInt())
+        renderer.drawButton("＜", controlX, fieldY, rowH, rowH, isClicked = false)
+        renderer.drawButton("＞", controlX + controlW - rowH, fieldY, rowH, rowH, isClicked = false)
+        ProceduralTextRenderer.drawClipped(renderer, value, controlX + rowH + (U / 2).toFloat(), fieldY + (rowH - U.toFloat()) / 2f, PaletteIndices.PRIMARY, ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, controlX + rowH, fieldY, controlW - rowH * 2f, rowH)
         return nextRowY(label, y, width, rowH)
     }
 
@@ -2088,7 +2088,7 @@ object TemplateForgeScene : Scene {
         val charW = ScaledProceduralRenderer.measureTextHeight(scale)
         var i = 0
         while (i < ScaledProceduralRenderer.measureTextCells(text)) {
-            renderer.drawGlyph(text[i], x + i * charW, y, color, scale = scale)
+            renderer.drawGlyph(toFullwidthDisplayChar(text[i]), x + i * charW, y, color, scale = scale)
             i++
         }
     }
@@ -2747,13 +2747,13 @@ object EntropyScene : Scene {
                 renderer.fillRectDither(inputX, slotY, inputX + playAreaW - padding * 2f, slotY + slotH, frameColorIndex, frameColorIndex, SoftDitherPattern.SOLID)
                 drawTaskRow(renderer, idx, inputX + (U / 2).toFloat(), slotTxtY, PaletteIndices.BLACK, slotTxtScale, taskMaxW)
                 if (!isSpinning) {
-                    renderer.drawText("[X]", deleteX, slotTxtY, PaletteIndices.BLACK, scale = slotTxtScale)
+                    renderer.drawText("［Ｘ］", deleteX, slotTxtY, PaletteIndices.BLACK, scale = slotTxtScale)
                 }
             } else {
                 renderer.drawRect(inputX, slotY, playAreaW - padding * 2f, slotH, frameColorIndex)
                 drawTaskRow(renderer, idx, inputX + (U / 2).toFloat(), slotTxtY, PaletteIndices.PRIMARY, slotTxtScale, taskMaxW)
                 if (!isSpinning) {
-                    renderer.drawText("[X]", deleteX, slotTxtY, PaletteIndices.SECONDARY, scale = slotTxtScale)
+                    renderer.drawText("［Ｘ］", deleteX, slotTxtY, PaletteIndices.SECONDARY, scale = slotTxtScale)
                 }
             }
             k++
@@ -2763,14 +2763,14 @@ object EntropyScene : Scene {
             val switcherY = slotsStartY + rowsPerPage * (slotH + slotSpacing)
             
             // draw < button
-            renderer.drawButton("<", inputX, switcherY, switcherBtnSize, switcherBtnSize, isClicked = false)
+            renderer.drawButton("＜", inputX, switcherY, switcherBtnSize, switcherBtnSize, isClicked = false)
             
             val pageTextScale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
             val pageTextY = switcherY + (switcherBtnSize - (U * pageTextScale).toFloat()) / 2f
             drawPageIndicator(renderer, activePage + 1, totalPages, inputX + switcherBtnSize + (U / 2).toFloat(), pageTextY, PaletteIndices.PRIMARY, pageTextScale)
 
             // draw > button
-            renderer.drawButton(">", inputX + switcherBtnSize + (U * 4).toFloat(), switcherY, switcherBtnSize, switcherBtnSize, isClicked = false)
+            renderer.drawButton("＞", inputX + switcherBtnSize + (U * 4).toFloat(), switcherY, switcherBtnSize, switcherBtnSize, isClicked = false)
         }
         val detW = playAreaW - padding * 2f
         
@@ -2806,10 +2806,10 @@ object EntropyScene : Scene {
         renderer.fillRectDither(popupX, popupY, popupX + popupW, popupY + popupH, PaletteIndices.BLACK, PaletteIndices.BLACK, SoftDitherPattern.SOLID)
         renderer.drawRect(popupX, popupY, popupW, popupH, PaletteIndices.ERROR)
         
-        // Close button "X" using drawButton
+        // Full-width close button using drawButton.
         val closeSize = (U * POPUP_CLOSE_CELLS).toFloat()
         val closePad = (U / 2).toFloat()
-        renderer.drawButton("X", popupX + popupW - closeSize - closePad, popupY + closePad, closeSize, closeSize, isClicked = false)
+        renderer.drawButton("Ｘ", popupX + popupW - closeSize - closePad, popupY + closePad, closeSize, closeSize, isClicked = false)
 
         val titleScale = ScaledProceduralRenderer.TEXT_SCALE_HEADER
         val titleY = popupY + (popupH * 0.12f)
@@ -3077,10 +3077,10 @@ object EntropyScene : Scene {
 
     private fun drawTaskRow(renderer: ScaledProceduralRenderer, index: Int, x: Float, y: Float, color: Int, scale: Int, maxWidth: Float) {
         var curX = x
-        renderer.drawGlyph('[', curX, y, color, scale = scale); curX += (U * scale).toFloat()
+        renderer.drawGlyph('［', curX, y, color, scale = scale); curX += (U * scale).toFloat()
         drawTwoDigits(renderer, index + 1, curX, y, color, scale); curX += (U * scale * 2).toFloat()
-        renderer.drawGlyph(']', curX, y, color, scale = scale); curX += (U * scale).toFloat()
-        renderer.drawGlyph(' ', curX, y, color, scale = scale); curX += (U * scale).toFloat()
+        renderer.drawGlyph('］', curX, y, color, scale = scale); curX += (U * scale).toFloat()
+        renderer.drawGlyph('　', curX, y, color, scale = scale); curX += (U * scale).toFloat()
         drawTaskBuffer(renderer, index, curX, y, color, scale, maxWidth - (U * scale * 5).toFloat())
     }
 
@@ -3096,7 +3096,7 @@ object EntropyScene : Scene {
         var i = 0
         while (i < count) {
             val codePoint = buffer[offset + i]
-            val char = if (codePoint <= 0xFFFF) codePoint.toChar() else '?'
+            val char = toFullwidthDisplayChar(if (codePoint <= 0xFFFF) codePoint.toChar() else '?')
             renderer.drawGlyph(char, x + i * charW, y, color, scale = scale)
             i++
         }
@@ -3106,13 +3106,13 @@ object EntropyScene : Scene {
         val clamped = value.coerceIn(0, 99)
         val tens = clamped / 10
         val ones = clamped % 10
-        renderer.drawGlyph((tens + 48).toChar(), x, y, color, scale = scale)
-        renderer.drawGlyph((ones + 48).toChar(), x + (U * scale).toFloat(), y, color, scale = scale)
+        renderer.drawGlyph(FULLWIDTH_DIGITS[tens], x, y, color, scale = scale)
+        renderer.drawGlyph(FULLWIDTH_DIGITS[ones], x + (U * scale).toFloat(), y, color, scale = scale)
     }
 
     private fun drawPageIndicator(renderer: ScaledProceduralRenderer, page: Int, total: Int, x: Float, y: Float, color: Int, scale: Int) {
         drawTwoDigits(renderer, page, x, y, color, scale)
-        renderer.drawGlyph('/', x + (U * scale * 2).toFloat(), y, color, scale = scale)
+        renderer.drawGlyph('／', x + (U * scale * 2).toFloat(), y, color, scale = scale)
         drawTwoDigits(renderer, total, x + (U * scale * 3).toFloat(), y, color, scale)
     }
 
@@ -3162,15 +3162,15 @@ object BlockOverlayScene : Scene {
         val titleY = logicalHeight * 0.3f
         val subtitleY = logicalHeight * 0.45f
         
-        drawTextCentered(renderer, cx, "FOCUS MODE ACTIVE", titleY, 2, PaletteIndices.PRIMARY)
-        drawTextCentered(renderer, cx, "Get back to work.", subtitleY, 1, PaletteIndices.SECONDARY)
+        drawTextCentered(renderer, cx, "ＦＯＣＵＳ　ＭＯＤＥ　ＡＣＴＩＶＥ", titleY, 2, PaletteIndices.PRIMARY)
+        drawTextCentered(renderer, cx, "Ｇｅｔ　ｂａｃｋ　ｔｏ　ｗｏｒｋ．", subtitleY, 1, PaletteIndices.SECONDARY)
 
         val btnW = maxOf(logicalWidth * 0.4f, ((U * 12) + (U / 2)).toFloat())
         val btnH = maxOf(logicalHeight * 0.1f, (U * 2).toFloat())
         val btnX = cx - btnW / 2f
         val btnY = logicalHeight * 0.7f
         
-        renderer.drawButton("RETURN TO TIMEBOX", btnX, btnY, btnW, btnH, isClicked = false)
+        renderer.drawButton("ＲＥＴＵＲＮ　ＴＯ　ＴＩＭＥＢＯＸ", btnX, btnY, btnW, btnH, isClicked = false)
     }
 
     override fun onInput(inputCode: Int) {}
@@ -3205,7 +3205,7 @@ object BlockOverlayScene : Scene {
         val charW = ScaledProceduralRenderer.measureTextHeight(scale)
         var i = 0
         while (i < ScaledProceduralRenderer.measureTextCells(text)) {
-            renderer.drawGlyph(text[i], startX + i * charW, startY, colorIndex, scale = scale)
+            renderer.drawGlyph(toFullwidthDisplayChar(text[i]), startX + i * charW, startY, colorIndex, scale = scale)
             i++
         }
     }

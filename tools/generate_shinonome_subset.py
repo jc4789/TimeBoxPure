@@ -11,18 +11,40 @@ TEXT_PATHS = [
     ROOT / "shared-engine" / "src" / "commonMain" / "kotlin" / "com" / "example" / "timeboxvibe" / "engine" / "DefaultPresets.kt",
     ROOT / "shared-engine" / "src" / "commonMain" / "kotlin" / "com" / "example" / "timeboxvibe" / "engine" / "SongCatalog.kt",
     ROOT / "shared-engine" / "src" / "commonMain" / "kotlin" / "com" / "example" / "timeboxvibe" / "engine" / "core" / "Scenes.kt",
+    ROOT / "shared-engine" / "src" / "commonMain" / "kotlin" / "com" / "example" / "timeboxvibe" / "engine" / "core" / "ProceduralUiPrimitives.kt",
+    ROOT / "shared-engine" / "src" / "commonMain" / "kotlin" / "com" / "example" / "timeboxvibe" / "engine" / "core" / "NestedTimeboxInstrumentRenderer.kt",
 ]
+
+
+def fullwidth_display_char(char):
+    if char == " ":
+        return "　"
+    if char == '"':
+        return "”"
+    if char == "'":
+        return "’"
+    if char == "-":
+        return "‐"
+    if char == "~":
+        return "〜"
+    return chr(ord(char) + 0xFEE0)
 
 
 def collect_chars():
     chars = set()
-    literal_pattern = re.compile(r'"((?:[^"\\]|\\.)*)"')
+    literal_patterns = (
+        re.compile(r'"((?:[^"\\]|\\.)*)"'),
+        re.compile(r"'([^'\\])'"),
+    )
     for path in TEXT_PATHS:
         text = path.read_text(encoding="utf-8")
-        for match in literal_pattern.finditer(text):
-            for char in match.group(1):
-                if ord(char) > 0x7F:
-                    chars.add(char)
+        for literal_pattern in literal_patterns:
+            for match in literal_pattern.finditer(text):
+                for char in match.group(1):
+                    if ord(char) > 0x7F:
+                        chars.add(char)
+    for code_point in range(0x20, 0x7F):
+        chars.add(fullwidth_display_char(chr(code_point)))
     return chars
 
 
@@ -96,7 +118,7 @@ def main():
         "",
         "/**",
         " * Generated from the Shinonome JIS X 0208 16x16 BDF.",
-        " * Only non-ASCII full-width source characters are generated.",
+        " * Full-width source characters and the full-width display repertoire are generated.",
         " * Runtime code does not read the BDF; this is a compact ROM-glyph subset.",
         " */",
         "internal object ShinonomeGeneratedGlyphs {",

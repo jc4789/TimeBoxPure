@@ -57,6 +57,21 @@ object ProceduralIconRenderer {
     }
 }
 
+internal const val FULLWIDTH_DIGITS = "０１２３４５６７８９"
+private const val FULLWIDTH_ASCII_OFFSET = 0xFEE0
+
+internal fun toFullwidthDisplayChar(char: Char): Char {
+    return when {
+        char == ' ' -> '　'
+        char == '"' -> '”'
+        char == '\'' -> '’'
+        char == '-' -> '‐'
+        char == '~' -> '〜'
+        char in '!'..'}' -> (char.code + FULLWIDTH_ASCII_OFFSET).toChar()
+        else -> char
+    }
+}
+
 object ProceduralTextRenderer {
     private const val U = 16
     private const val CUSTOM_ID_SUFFIX_CHARS = 6
@@ -73,7 +88,7 @@ object ProceduralTextRenderer {
         val charW = U * scale
         var i = 0
         while (i < text.length) {
-            renderer.drawGlyph(text[i], x + i * charW, y, color, scale = scale)
+            renderer.drawGlyph(toFullwidthDisplayChar(text[i]), x + i * charW, y, color, scale = scale)
             i++
         }
     }
@@ -104,7 +119,7 @@ object ProceduralTextRenderer {
             if (drawX + charW > clipRight) return
             if (drawX >= clipX) {
                 renderer.drawGlyph(
-                    text[i],
+                    toFullwidthDisplayChar(text[i]),
                     drawX,
                     y,
                     color,
@@ -138,7 +153,7 @@ object ProceduralTextRenderer {
             if (drawX + charW > clipX + clipW) return
             val c = text[i]
             renderer.drawGlyph(
-                toUpperCase(c),
+                toFullwidthDisplayChar(toUpperCase(c)),
                 drawX,
                 y,
                 color,
@@ -165,7 +180,7 @@ object ProceduralTextRenderer {
         clipH: Float
     ) {
         val charW = U * scale
-        renderer.drawText("SYS_ID: ", x, y, color, scale = scale, startX = clipX, startY = clipY, clipWidth = clipW.toInt(), clipHeight = clipH.toInt())
+        renderer.drawText("ＳＹＳ＿ＩＤ：　", x, y, color, scale = scale, startX = clipX, startY = clipY, clipWidth = clipW.toInt(), clipHeight = clipH.toInt())
         val suffixStart = if (id.length > CUSTOM_ID_SUFFIX_CHARS) id.length - CUSTOM_ID_SUFFIX_CHARS else 0
         var sourceIdx = suffixStart
         var outIdx = SYS_ID_PREFIX_CHARS
@@ -173,7 +188,7 @@ object ProceduralTextRenderer {
             val drawX = x + outIdx * charW
             if (drawX + charW > clipX + clipW) return
             renderer.drawGlyph(
-                toUpperCase(id[sourceIdx]),
+                toFullwidthDisplayChar(toUpperCase(id[sourceIdx])),
                 drawX,
                 y,
                 color,
