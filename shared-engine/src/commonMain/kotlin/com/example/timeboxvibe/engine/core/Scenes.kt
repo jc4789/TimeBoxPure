@@ -1002,7 +1002,8 @@ object TemplateCustomizerScene : Scene {
                 ProceduralTextRenderer.drawUpperClipped(renderer, preset.name, textLeftX, currentY + cardH * 0.12f, textColor, nameScale, textLeftX, currentY, maxTextW, cardH)
                 
                 val idColor = if (isActive) PaletteIndices.BLACK else PaletteIndices.SECONDARY
-                ProceduralTextRenderer.drawPresetId(renderer, preset.id, textLeftX, currentY + cardH * 0.4f, idColor, ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, textLeftX, currentY, maxTextW, cardH)
+                val idScale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
+                ProceduralTextRenderer.drawPresetId(renderer, preset.id, textLeftX, currentY + cardH * 0.4f, idColor, idScale, textLeftX, currentY, maxTextW, cardH)
                 
                 // Bottom half: Calendar Timeline
                 val timelineY = currentY + cardH * 0.65f
@@ -1042,12 +1043,13 @@ object TemplateCustomizerScene : Scene {
 
         // Draw header over the cover
         val headerY = safeTop
-        val headerText = "SPELL CARDS / 呪符"
+        val headerText = strings.presetsTitle
         val forgeBtnW = maxOf(((U * 6) - (U / 4)).toFloat(), playAreaW * 0.24f)
         val forgeBtnH = (U + (U / 2) + (U / 8)).toFloat()
         val forgeBtnX = playAreaStartX + playAreaW - forgeBtnW - U - (U / 4)
         val forgeBtnY = headerY - (U / 8).toFloat()
-        val headerScale = ScaledProceduralRenderer.TEXT_SCALE_HEADER
+        val maxHeaderW = maxOf(U.toFloat(), forgeBtnX - playAreaStartX - ((U * 2) - (U / 4)))
+        val headerScale = ScaledProceduralRenderer.calculateTextScaleDownToFit(headerText, maxHeaderW, forgeBtnH, ScaledProceduralRenderer.TEXT_SCALE_HEADER)
         renderer.drawText(headerText, playAreaStartX + U + (U / 4), headerY, PaletteIndices.PRIMARY, scale = headerScale, startX = playAreaStartX + U + (U / 4), startY = headerY, clipWidth = maxOf(U, (forgeBtnX - playAreaStartX - ((U * 2) - (U / 4))).toInt()), clipHeight = forgeBtnH.toInt())
         renderer.drawButton("FORGE", forgeBtnX, forgeBtnY, forgeBtnW, forgeBtnH, isClicked = false)
         renderer.drawLine(playAreaStartX + (U / 2 + U / 8).toFloat(), headerCoverH - (U / 8).toFloat(), playAreaStartX + playAreaW - (U / 2 + U / 8).toFloat(), headerCoverH - (U / 8).toFloat(), PaletteIndices.SECONDARY, 1f)
@@ -2448,10 +2450,10 @@ object SettingsScene : Scene {
         drawBarStepper(renderer, (state.volume * AUDIO_STEPS).toInt().coerceIn(0, AUDIO_STEPS), AUDIO_STEPS, ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY)
 
         layoutRow(renderer, strings.focusToneLabel)
-        drawStepper(renderer, SongCatalog.all[SongCatalog.indexOf(state.selectedFocusSound)].displayTitle, ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY)
+        drawStepper(renderer, SongCatalog.all[SongCatalog.indexOf(state.selectedFocusSound)].displayTitle, ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY, toneText = true)
 
         layoutRow(renderer, strings.relaxToneLabel)
-        drawStepper(renderer, SongCatalog.all[SongCatalog.indexOf(state.selectedRelaxSound)].displayTitle, ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY)
+        drawStepper(renderer, SongCatalog.all[SongCatalog.indexOf(state.selectedRelaxSound)].displayTitle, ctrlX, ctrlY, rowH, ctrlW, PaletteIndices.PRIMARY, PaletteIndices.SECONDARY, toneText = true)
 
         layoutRow(renderer, strings.testFocusLabel)
         renderer.drawButton(strings.testFocusLabel, ctrlX, ctrlY, ctrlW, rowH, isClicked = false)
@@ -2537,7 +2539,7 @@ object SettingsScene : Scene {
         return 0
     }
 
-    private fun drawStepper(renderer: ScaledProceduralRenderer, valueText: String, x: Float, y: Float, h: Float, width: Float, primaryColorIndex: Int, accentColorIndex: Int) {
+    private fun drawStepper(renderer: ScaledProceduralRenderer, valueText: String, x: Float, y: Float, h: Float, width: Float, primaryColorIndex: Int, accentColorIndex: Int, toneText: Boolean = false) {
         val localArrowW = minOf(h, (U * 2).toFloat())
         renderer.drawButton("<", x, y, localArrowW, h, isClicked = false)
         renderer.drawButton(">", x + width - localArrowW, y, localArrowW, h, isClicked = false)
@@ -2545,11 +2547,13 @@ object SettingsScene : Scene {
         val spaceW = maxOf(U.toFloat(), width - localArrowW * 2f)
         val textPad = (U / 4).toFloat()
         val availableTextW = maxOf(U.toFloat(), spaceW - textPad * 2f)
-        val textLen = ScaledProceduralRenderer.measureTextWidth(valueText)
+        val textLen = (valueText.length * if (toneText) U / 2 else U).toFloat()
         val startX = x + localArrowW + textPad + maxOf(0f, (availableTextW - textLen) / 2f)
-        val startY = y + (h - U.toFloat()) / 2f
-        renderer.drawText(valueText, startX, startY, primaryColorIndex, scale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, startX = x + localArrowW, startY = y, clipWidth = spaceW.toInt(), clipHeight = h.toInt())
+        val startY = y + (h - (if (toneText) U / 2 else U).toFloat()) / 2f
+        if (toneText) drawToneText(renderer, valueText, startX, startY, primaryColorIndex) else renderer.drawText(valueText, startX, startY, primaryColorIndex, scale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, startX = x + localArrowW, startY = y, clipWidth = spaceW.toInt(), clipHeight = h.toInt())
     }
+
+    private fun drawToneText(renderer: ScaledProceduralRenderer, text: String, x: Float, y: Float, color: Int) { val cell = U / 2; val baseX = x.roundToInt(); val baseY = y.roundToInt(); var i = 0; while (i < text.length) { val glyph = com.example.timeboxvibe.engine.ShinonomeFont.glyphFor(text[i]); var gy = 0; while (gy < U) { val bits = glyph[gy] or glyph[gy + 1]; var gx = 0; while (gx < U) { val bit = 0x8000 ushr gx; if ((bits and (bit or (bit ushr 1))) != 0) renderer.canvas.drawRect((baseX + i * cell + gx / 2).toFloat(), (baseY + gy / 2).toFloat(), 1f, 1f, color); gx += 2 }; gy += 2 }; i++ } }
 
     private fun drawBarStepper(renderer: ScaledProceduralRenderer, percent: Int, maxBlocks: Int, x: Float, y: Float, h: Float, width: Float, primaryColorIndex: Int, accentColorIndex: Int) {
         val localArrowW = minOf(h, (U * 2).toFloat())

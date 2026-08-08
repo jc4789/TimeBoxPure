@@ -78,6 +78,47 @@ object ProceduralTextRenderer {
         }
     }
 
+    fun drawClipped(
+        renderer: ScaledProceduralRenderer,
+        text: String,
+        x: Float,
+        y: Float,
+        color: Int,
+        scale: Int,
+        clipX: Float,
+        clipY: Float,
+        clipW: Float,
+        clipH: Float
+    ) {
+        val charW = U * scale
+        val charH = U * scale
+        val clipWidth = clipW.toInt()
+        val clipHeight = clipH.toInt()
+        val clipRight = clipX + clipWidth
+        val clipBottom = clipY + clipHeight
+        if (y < clipY || y + charH > clipBottom) return
+
+        var i = 0
+        while (i < text.length) {
+            val drawX = x + i * charW
+            if (drawX + charW > clipRight) return
+            if (drawX >= clipX) {
+                renderer.drawGlyph(
+                    text[i],
+                    drawX,
+                    y,
+                    color,
+                    scale = scale,
+                    startX = clipX,
+                    startY = clipY,
+                    clipWidth = clipWidth,
+                    clipHeight = clipHeight
+                )
+            }
+            i++
+        }
+    }
+
     fun drawUpperClipped(
         renderer: ScaledProceduralRenderer,
         text: String,
@@ -97,7 +138,7 @@ object ProceduralTextRenderer {
             if (drawX + charW > clipX + clipW) return
             val c = text[i]
             renderer.drawGlyph(
-                upperAscii(c),
+                toUpperCase(c),
                 drawX,
                 y,
                 color,
@@ -132,7 +173,7 @@ object ProceduralTextRenderer {
             val drawX = x + outIdx * charW
             if (drawX + charW > clipX + clipW) return
             renderer.drawGlyph(
-                upperAscii(id[sourceIdx]),
+                toUpperCase(id[sourceIdx]),
                 drawX,
                 y,
                 color,
@@ -147,7 +188,9 @@ object ProceduralTextRenderer {
         }
     }
 
-    private fun upperAscii(c: Char): Char {
-        return if (c in 'a'..'z') (c.code - 32).toChar() else c
+    private fun toUpperCase(c: Char): Char {
+        if (c in 'a'..'z') return (c.code - 32).toChar()
+        if (c in '\uFF41'..'\uFF5A') return (c.code - 32).toChar()
+        return c
     }
 }

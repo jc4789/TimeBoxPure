@@ -30,6 +30,17 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
             return (U * scale).toFloat()
         }
 
+        fun calculateTextScaleDownToFit(text: String, maxWidth: Float, maxHeight: Float, maxScale: Int): Int {
+            var scale = maxScale
+            while (scale > 1) {
+                if (measureTextWidth(text, scale) <= maxWidth && measureTextHeight(scale) <= maxHeight) {
+                    return scale
+                }
+                scale--
+            }
+            return 1
+        }
+
     }
 
     init {
