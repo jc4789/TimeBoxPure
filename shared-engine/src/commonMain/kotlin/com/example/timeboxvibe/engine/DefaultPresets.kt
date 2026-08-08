@@ -16,68 +16,68 @@ fun getDefaultPresets(lang: String): List<TimerPreset> = when (lang) {
             dualMidDuration = 900,
             dualSmallDuration = 300,
             alarmBehavior = "alarm",
-            description = "60分钟总览，15分钟闹钟循环，5分钟秒表节拍。"
+            description = "60分鐘総覧，15分鐘鬧鐘循環，5分鐘秒表節拍。"
         ),
         TimerPreset(
             id = "dual_box",
-            name = "经典双重时间箱",
+            name = "経典双重時間箱",
             mode = "dual",
             dualBigDuration = 3600,
             dualSmallDuration = 90,
             alarmBehavior = "auto",
-            description = "60分钟宏观时间箱，内含90秒一轮的微观循环。"
+            description = "60分鐘宏観時間箱，内含90秒一輪的微観循環。"
         ),
         TimerPreset(
             id = "down_spiral",
-            name = "递减收缩螺旋",
+            name = "逓減收縮螺旋",
             mode = "sequence",
             sequence = intArrayOf(600, 540, 480, 420, 360, 300, 240, 180, 120, 60),
             alarmBehavior = "alarm",
-            description = "从10分钟逐渐缩减到1分钟。对抗专注力递减。"
+            description = "从10分鐘逐漸縮減到1分鐘。対抗専注力逓減。"
         ),
         TimerPreset(
             id = "up_climb",
-            name = "递增起步攀登",
+            name = "逓増起歩攀登",
             mode = "sequence",
             sequence = intArrayOf(60, 120, 180, 300, 480),
             alarmBehavior = "alarm",
-            description = "从1分钟起步逐渐拉长到8分钟。打破开始做事的惰性。"
+            description = "从1分鐘起歩逐漸拉長到8分鐘。打破開始做事的惰性。"
         ),
         TimerPreset(
             id = "vibe_wave",
-            name = "抛物线波浪律动",
+            name = "抛物線波浪律動",
             mode = "sequence",
             sequence = intArrayOf(60, 180, 300, 180, 60),
             alarmBehavior = "alarm",
-            description = "起步预热、峰值聚焦、逐步放松。"
+            description = "起歩預熱、峰値聚焦、逐歩放松。"
         ),
         TimerPreset(
             id = "spiral_dual",
-            name = "双重收缩螺旋",
+            name = "双重收縮螺旋",
             mode = "dual-sequence",
             sequence = intArrayOf(600, 300, 180, 120, 60),
             dualSmallDuration = 60,
             alarmBehavior = "alarm",
-            description = "不断缩短的大时间段内，包含重复60秒的行动循环。"
+            description = "不断縮短的大時間段内，包含重復60秒的行動循環。"
         ),
         TimerPreset(
             id = "classic_pom",
-            name = "经典番茄箱",
+            name = "経典番茄箱",
             mode = "sequence",
             sequence = intArrayOf(1500, 300, 1500, 300),
-            sequenceLabels = arrayOf("专注 1", "休息 1", "专注 2", "休息 2"),
+            sequenceLabels = arrayOf("専注 1", "休息 1", "専注 2", "休息 2"),
             alarmBehavior = "alarm",
-            description = "番茄钟：25分工作、5分休息、25分工作、5分休息（60分一轮）。"
+            description = "番茄鐘：25分工作、5分休息、25分工作、5分休息（60分一輪）。"
         ),
         TimerPreset(
             id = "default_calendar",
-            name = "时空日程 (Calendar)",
+            name = "時空日程 (Calendar)",
             mode = "calendar",
             sequence = intArrayOf(1500, 300, 1500, 900),
             sequenceTypes = arrayOf("focus", "relax", "focus", "relax"),
-            sequenceLabels = arrayOf("第一轮专注", "课间休整", "第二轮冲刺", "长假小憩"),
+            sequenceLabels = arrayOf("第一輪専注", "課間休整", "第二輪冲刺", "長假小憩"),
             alarmBehavior = "alarm",
-            description = "25分钟专注、5分钟放松、25分钟专注、15分钟大休息。"
+            description = "25分鐘専注、5分鐘放松、25分鐘専注、15分鐘大休息。"
         )
     )
     "ja" -> listOf(

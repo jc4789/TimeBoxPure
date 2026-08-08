@@ -27,7 +27,7 @@ object SongCatalog {
     private const val DEFAULT_PREVIEW_MS = 7000L
 
     val all: Array<SongDefinition> = arrayOf(
-        SongDefinition(MmlSongBank.SENBONZAKURA_DEMO_KEY, "BAD APPLE！！", SongKind.MML, DEFAULT_PREVIEW_MS) { volume ->
+        SongDefinition(MmlSongBank.SENBONZAKURA_DEMO_KEY, "ＢＡＤ　ＡＰＰＬＥ！！", SongKind.MML, DEFAULT_PREVIEW_MS) { volume ->
             val arrangement = MmlSongBank.getArrangement(MmlSongBank.SENBONZAKURA_DEMO_KEY, volume)
             if (arrangement == null) null else SongPlayback.Arrangement(arrangement)
         }

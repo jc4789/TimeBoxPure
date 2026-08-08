@@ -2545,15 +2545,13 @@ object SettingsScene : Scene {
         renderer.drawButton(">", x + width - localArrowW, y, localArrowW, h, isClicked = false)
 
         val spaceW = maxOf(U.toFloat(), width - localArrowW * 2f)
-        val textPad = (U / 4).toFloat()
+        val textPad = if (toneText) 0f else (U / 4).toFloat()
         val availableTextW = maxOf(U.toFloat(), spaceW - textPad * 2f)
-        val textLen = (valueText.length * if (toneText) U / 2 else U).toFloat()
+        val textLen = ScaledProceduralRenderer.measureTextWidth(valueText)
         val startX = x + localArrowW + textPad + maxOf(0f, (availableTextW - textLen) / 2f)
-        val startY = y + (h - (if (toneText) U / 2 else U).toFloat()) / 2f
-        if (toneText) drawToneText(renderer, valueText, startX, startY, primaryColorIndex) else renderer.drawText(valueText, startX, startY, primaryColorIndex, scale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, startX = x + localArrowW, startY = y, clipWidth = spaceW.toInt(), clipHeight = h.toInt())
+        val startY = y + (h - U.toFloat()) / 2f
+        renderer.drawText(valueText, startX, startY, primaryColorIndex)
     }
-
-    private fun drawToneText(renderer: ScaledProceduralRenderer, text: String, x: Float, y: Float, color: Int) { val cell = U / 2; val baseX = x.roundToInt(); val baseY = y.roundToInt(); var i = 0; while (i < text.length) { val glyph = com.example.timeboxvibe.engine.ShinonomeFont.glyphFor(text[i]); var gy = 0; while (gy < U) { val bits = glyph[gy] or glyph[gy + 1]; var gx = 0; while (gx < U) { val bit = 0x8000 ushr gx; if ((bits and (bit or (bit ushr 1))) != 0) renderer.canvas.drawRect((baseX + i * cell + gx / 2).toFloat(), (baseY + gy / 2).toFloat(), 1f, 1f, color); gx += 2 }; gy += 2 }; i++ } }
 
     private fun drawBarStepper(renderer: ScaledProceduralRenderer, percent: Int, maxBlocks: Int, x: Float, y: Float, h: Float, width: Float, primaryColorIndex: Int, accentColorIndex: Int) {
         val localArrowW = minOf(h, (U * 2).toFloat())
