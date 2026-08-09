@@ -37,7 +37,7 @@ import kotlin.math.roundToInt
  */
 class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRenderer) {
     companion object {
-        private const val U = 16
+        private const val U = CANONICAL_UI_UNIT
         private const val GUIDE_ALPHA = 0x66
         private const val MECHANICAL_ALPHA = 0xAA
         private const val SCRIPTURE_ALPHA = 0x88
@@ -437,15 +437,15 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         if (showNestedMacro) {
             if (activeMode == "dual.5") {
                 if (sequenceLength > 1) {
-                    drawStageLabelCentered(centerX, stageLabel, centerY - (U * 3 + U / 2).toFloat(), secondary, maxTextWidth)
+                    drawStageLabelCentered(centerX, stageLabel, centerY - (U * 3 + U / 2).toFloat(), secondary, maxTextWidth, true)
                 }
                 drawTimeCentered(centerX, timeRemaining, centerY - (U + U / 2).toFloat(), 2, primary)
                 drawAlarmTimeCentered(centerX, midTimeRemaining, centerY + (U / 2).toFloat(), primary)
                 drawTimeCentered(centerX, bigTimeRemaining, centerY + (U * 2).toFloat(), 1, primary)
-                drawStaticTextCentered(centerX, strings.sessionLimitLabel, centerY + (U * 3).toFloat(), secondary)
+                drawStaticTextCentered(centerX, strings.sessionLimitLabel, centerY + (U * 3).toFloat(), secondary, maxTextWidth)
             } else {
                 if (sequenceLength > 1 || activeMode == "calendar" || activeMode == "sequence") {
-                    drawStageLabelCentered(centerX, stageLabel, centerY - (U * 2 + U / 2).toFloat(), secondary, maxTextWidth)
+                    drawStageLabelCentered(centerX, stageLabel, centerY - (U * 2 + U / 2).toFloat(), secondary, maxTextWidth, true)
                 }
                 drawTimeCentered(centerX, timeRemaining, centerY - (U / 2).toFloat(), 2, primary)
                 drawTimeCentered(centerX, bigTimeRemaining, centerY + (U + U / 2).toFloat(), 1, primary)
@@ -454,7 +454,7 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
                 } else {
                     strings.sessionLimitLabel
                 }
-                drawStaticTextCentered(centerX, label, centerY + (U * 3).toFloat(), secondary)
+                drawStaticTextCentered(centerX, label, centerY + (U * 3).toFloat(), secondary, maxTextWidth)
             }
             return
         }
@@ -462,21 +462,16 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         drawTimeCentered(centerX, timeRemaining, centerY - (U / 2).toFloat(), 2, primary)
         val isSequence = activeMode == "sequence" || activeMode == "calendar"
         if (isSequence && sequenceLength > 1) {
-            drawStageLabelCentered(centerX, stageLabel, centerY + (U + U / 2).toFloat(), secondary, maxTextWidth)
+            drawStageLabelCentered(centerX, stageLabel, centerY + (U + U / 2).toFloat(), secondary, maxTextWidth, false)
         } else if (activeMode != "sequence") {
             val label = if (isBreak) strings.unwindingLabel else strings.focusingLabel
-            drawStaticTextCentered(centerX, label, centerY + (U + U / 2).toFloat(), secondary)
+            drawStaticTextCentered(centerX, label, centerY + (U + U / 2).toFloat(), secondary, maxTextWidth)
         }
     }
 
-    private fun drawStaticTextCentered(centerX: Float, text: String, centerY: Float, colorIndex: Int) {
-        val startX = centerX - ScaledProceduralRenderer.measureTextWidth(text) / 2f
-        val startY = centerY - (U / 2).toFloat()
-        var index = 0
-        while (index < text.length) {
-            drawGlyph(toFullwidthDisplayChar(text[index]), startX + (index * U).toFloat(), startY, colorIndex)
-            index++
-        }
+    private fun drawStaticTextCentered(centerX: Float, text: String, centerY: Float, colorIndex: Int, maxWidth: Float) {
+        val textHeight = ProceduralTextRenderer.measureWrappedHeight(text, maxWidth)
+        ProceduralTextRenderer.drawWrapped(renderer, text, centerX - maxWidth / 2f, centerY - textHeight / 2f, maxWidth, colorIndex, alignment = ProceduralTextRenderer.ALIGN_CENTER)
     }
 
     private fun drawStageLabelCentered(
@@ -484,17 +479,13 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         text: String,
         centerY: Float,
         colorIndex: Int,
-        maxWidth: Float
+        maxWidth: Float,
+        placeAbove: Boolean
     ) {
         if (text.isEmpty()) return
-        val cellCount = minOf(text.length, maxOf(1, (maxWidth / U.toFloat()).toInt()))
-        val startX = centerX - (cellCount * U / 2).toFloat()
-        val startY = centerY - (U / 2).toFloat()
-        var index = 0
-        while (index < cellCount) {
-            drawGlyph(toFullwidthDisplayChar(text[index]), startX + (index * U).toFloat(), startY, colorIndex)
-            index++
-        }
+        val textHeight = ProceduralTextRenderer.measureWrappedHeight(text, maxWidth)
+        val startY = if (placeAbove) centerY + (U / 2).toFloat() - textHeight else centerY - (U / 2).toFloat()
+        ProceduralTextRenderer.drawWrapped(renderer, text, centerX - maxWidth / 2f, startY, maxWidth, colorIndex, alignment = ProceduralTextRenderer.ALIGN_CENTER)
     }
 
     private fun drawTimeCentered(centerX: Float, seconds: Int, centerY: Float, scale: Int, colorIndex: Int) {

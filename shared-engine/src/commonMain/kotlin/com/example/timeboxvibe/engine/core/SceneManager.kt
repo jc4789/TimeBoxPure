@@ -23,8 +23,14 @@ object SceneManager {
     private var pendingScene: Scene? = null
     private var pendingPayload: Any? = null
     private var isDrainingInput = false
-    private var logicalWidth = 0f
-    private var logicalHeight = 0f
+    var logicalWidth = 0f
+        private set
+    var logicalHeight = 0f
+        private set
+    private var playAreaX = 0
+    private var playAreaY = 0
+    private var playAreaWidth = 0
+    private var playAreaHeight = 0
     private var inputDrainOverflowLogCooldownSeconds = 0f
     private var debugLogUpdateThisFrame = false
     private var debugRenderAfterSwitch = false
@@ -151,6 +157,7 @@ object SceneManager {
     }
 
     fun render(renderer: ScaledProceduralRenderer, logicalWidth: Float, logicalHeight: Float) {
+        setLogicalBounds(logicalWidth, logicalHeight)
         renderer.drawRect(0f, 0f, logicalWidth, logicalHeight, PaletteIndices.BG)
         val logThisFrame = debugRenderAfterSwitch
         if (logThisFrame) {
@@ -164,11 +171,7 @@ object SceneManager {
             }
             return
         }
-        val playX = RetroHudComponent.playAreaStartX(logicalWidth).toInt()
-        val playY = 0
-        val playW = RetroHudComponent.playAreaWidth(logicalWidth).toInt()
-        val playH = RetroHudComponent.playAreaHeight(logicalWidth, logicalHeight).toInt()
-        scene.render(renderer, playX, playY, playW, playH)
+        scene.render(renderer, playAreaX, playAreaY, playAreaWidth, playAreaHeight)
         if (logThisFrame) {
             println("RENDER_AFTER scene=${currentSceneName()}")
             debugRenderAfterSwitch = false
@@ -178,6 +181,10 @@ object SceneManager {
     fun setLogicalBounds(width: Float, height: Float) {
         logicalWidth = width
         logicalHeight = height
+        playAreaX = RetroHudComponent.playAreaStartX(width, height).toInt()
+        playAreaY = 0
+        playAreaWidth = RetroHudComponent.playAreaWidth(width, height).toInt()
+        playAreaHeight = RetroHudComponent.playAreaHeight(width, height).toInt()
     }
 
     fun currentSceneName(): String {
@@ -218,11 +225,7 @@ object SceneManager {
             ENGINE_TOUCH_CANCEL -> TouchAction.CANCEL
             else -> return
         }
-        val playX = RetroHudComponent.playAreaStartX(logicalWidth).toInt()
-        val playY = 0
-        val playW = RetroHudComponent.playAreaWidth(logicalWidth).toInt()
-        val playH = RetroHudComponent.playAreaHeight(logicalWidth, logicalHeight).toInt()
-        scene.onTouch(x, y, sceneAction, playX, playY, playW, playH)
+        scene.onTouch(x, y, sceneAction, playAreaX, playAreaY, playAreaWidth, playAreaHeight)
     }
 
     fun onInput(inputCode: Int) {
@@ -258,13 +261,9 @@ object SceneManager {
                 val logicalY = touchBuffer[offset + TOUCH_SLOT_LOGICAL_Y]
                 val actionCode = touchBuffer[offset + TOUCH_SLOT_ACTION]
                 val sceneBefore = currentSceneName()
-                val playX = RetroHudComponent.playAreaStartX(logicalWidth).toInt()
-                val playY = 0
-                val playW = RetroHudComponent.playAreaWidth(logicalWidth).toInt()
-                val playH = RetroHudComponent.playAreaHeight(logicalWidth, logicalHeight).toInt()
-                RetroHudComponent.onTouch(logicalX, logicalY, playX, playY, playW, playH)
+                RetroHudComponent.onTouch(logicalX, logicalY, playAreaX, playAreaY, playAreaWidth, playAreaHeight)
                 if (DEBUG_TOUCH_MODE == TOUCH_MODE_HUD_ONLY) {
-                    RetroHudComponent.onTouchEvent(logicalX, logicalY, engineTouchAction(actionCode), playX, playY, playW, playH)
+                    RetroHudComponent.onTouchEvent(logicalX, logicalY, engineTouchAction(actionCode), playAreaX, playAreaY, playAreaWidth, playAreaHeight)
                 } else if (!DEBUG_DISABLE_SCENE_TOUCH_DISPATCH && (DEBUG_TOUCH_MODE == TOUCH_MODE_SCENE_NO_TIMER_ACTIONS || DEBUG_TOUCH_MODE == TOUCH_MODE_FULL)) {
                     dispatchTouch(logicalX, logicalY, actionCode)
                 }

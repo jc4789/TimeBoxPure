@@ -1,5 +1,54 @@
 package com.example.timeboxvibe.engine.core
 
+import kotlin.math.abs
+
+const val CANONICAL_UI_UNIT = 16
+
+object DisplayScalePolicy {
+    const val MIN_SAFE_LOGICAL_WIDTH = 320f
+    const val MAX_SAFE_LOGICAL_WIDTH = 1200f
+    const val MIN_SCALE = 1
+
+    private const val MIN_TRUSTED_DENSITY = 0.5f
+    private const val MAX_TRUSTED_DENSITY = 8f
+    private const val FAKE_DENSITY = 1f
+    private const val FAKE_DENSITY_EPSILON = 0.01f
+    private const val PHYSICAL_SCALE_PER_DENSITY = 2f
+    private const val FALLBACK_MIN_SPAN_CELLS = 20
+
+    fun deriveScale(
+        physicalWidth: Float,
+        physicalHeight: Float,
+        platformDensity: Float
+    ): Int {
+        if (!physicalWidth.isFinite() || !physicalHeight.isFinite() || physicalWidth <= 0f || physicalHeight <= 0f) {
+            return MIN_SCALE
+        }
+
+        var scale = if (isTrustedDensity(platformDensity)) {
+            (platformDensity * PHYSICAL_SCALE_PER_DENSITY).toInt().coerceAtLeast(MIN_SCALE)
+        } else {
+            val shortSpan = minOf(physicalWidth, physicalHeight)
+            val fallbackLogicalSpan = (CANONICAL_UI_UNIT * FALLBACK_MIN_SPAN_CELLS).toFloat()
+            (shortSpan / fallbackLogicalSpan).toInt().coerceAtLeast(MIN_SCALE)
+        }
+        while (scale > MIN_SCALE && physicalWidth / scale < MIN_SAFE_LOGICAL_WIDTH) {
+            scale--
+        }
+        while (physicalWidth / scale > MAX_SAFE_LOGICAL_WIDTH) {
+            scale++
+        }
+        return scale
+    }
+
+    private fun isTrustedDensity(platformDensity: Float): Boolean {
+        return platformDensity.isFinite() &&
+            platformDensity > MIN_TRUSTED_DENSITY &&
+            platformDensity < MAX_TRUSTED_DENSITY &&
+            abs(platformDensity - FAKE_DENSITY) > FAKE_DENSITY_EPSILON
+    }
+}
+
 /**
  * Platform-agnostic interface for rendering geometric primitives and retro graphics.
  * This represents the "Disciplinary Purity" boundary; no Android imports are allowed here.

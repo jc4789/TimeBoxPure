@@ -11,11 +11,11 @@ import kotlin.math.roundToInt
  */
 class ScaledProceduralRenderer(val canvas: EngineCanvas) {
     companion object {
-        private const val U = 16
+        private const val U = CANONICAL_UI_UNIT
         private const val GLYPH_CELL_COUNT = 16
         const val TEXT_SCALE_IDENTITY = 1
         const val TEXT_SCALE_HEADER = 2
-        const val ACTIVE_INDICATOR_GLYPH = '>'
+        const val ACTIVE_INDICATOR_GLYPH = '＞'
         private const val BUTTON_BORDER_CELLS_DEN = 8f
 
         fun measureTextCells(text: String): Int {
@@ -30,15 +30,10 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
             return (U * scale).toFloat()
         }
 
-        fun calculateTextScaleDownToFit(text: String, maxWidth: Float, maxHeight: Float, maxScale: Int): Int {
-            var scale = maxScale
-            while (scale > 1) {
-                if (measureTextWidth(text, scale) <= maxWidth && measureTextHeight(scale) <= maxHeight) {
-                    return scale
-                }
-                scale--
-            }
-            return 1
+        fun measureButtonHeight(text: String, width: Float, minimumHeight: Float): Float {
+            val textAreaWidth = maxOf(U.toFloat(), width - U.toFloat())
+            val textHeight = ProceduralTextRenderer.measureWrappedHeight(text, textAreaWidth, TEXT_SCALE_IDENTITY)
+            return maxOf(minimumHeight, textHeight + U.toFloat())
         }
 
     }
@@ -161,7 +156,7 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         val fScale = scale.toFloat()
         var i = 0
         while (i < text.length) {
-            drawGlyph(text[i], currentX, destY, colorIndex, shadowColorIndex, scale, startX, startY, clipWidth, clipHeight)
+            drawGlyph(toFullwidthDisplayChar(text[i]), currentX, destY, colorIndex, shadowColorIndex, scale, startX, startY, clipWidth, clipHeight)
             currentX += (U * fScale) + (charSpacing * fScale)
             i++
         }
@@ -700,9 +695,9 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         fillRectDither(x + border, y + border, x + w - border, y + h - border, bgColor, bgColor, SoftDitherPattern.SOLID)
 
         val textScale = TEXT_SCALE_IDENTITY
-        val textWidth = measureTextWidth(text, textScale)
-        val textHeight = measureTextHeight(textScale)
-        val textX = x + (w - textWidth) / 2f
+        val textAreaX = x + U / 2f
+        val textAreaWidth = maxOf(U.toFloat(), w - U.toFloat())
+        val textHeight = ProceduralTextRenderer.measureWrappedHeight(text, textAreaWidth, textScale)
         val textY = y + (h - textHeight) / 2f
         if (isClicked || isHovered) {
             drawGlyph(
@@ -710,23 +705,19 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
                 x + U / 2f,
                 y + (h - U) / 2f,
                 textColor,
-                scale = TEXT_SCALE_IDENTITY,
-                startX = x,
-                startY = y,
-                clipWidth = w.toInt(),
-                clipHeight = h.toInt()
+                scale = TEXT_SCALE_IDENTITY
             )
         }
-        drawText(
+        ProceduralTextRenderer.drawWrapped(
+            renderer = this,
             text = text,
-            destX = textX,
-            destY = textY,
-            colorIndex = textColor,
+            x = textAreaX,
+            y = textY,
+            maxWidth = textAreaWidth,
+            color = textColor,
             scale = textScale,
-            startX = x,
-            startY = y,
-            clipWidth = w.toInt(),
-            clipHeight = h.toInt()
+            alignment = ProceduralTextRenderer.ALIGN_CENTER
         )
     }
+
 }

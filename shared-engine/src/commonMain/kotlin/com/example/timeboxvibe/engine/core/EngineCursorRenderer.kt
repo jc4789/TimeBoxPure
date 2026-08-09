@@ -13,7 +13,7 @@ package com.example.timeboxvibe.engine.core
 class EngineCursorRenderer {
     companion object {
         /** Canonical ROM glyph cell size (Int). */
-        const val U = 16
+        const val U = CANONICAL_UI_UNIT
         /** Thin PC-98 caret width — U/8 micro-detail law for UI carets. */
         const val CURSOR_WIDTH = U / 8
         /** Full glyph-cell height at text scale 1. */

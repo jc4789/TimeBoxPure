@@ -14,6 +14,7 @@ import com.example.timeboxvibe.engine.core.ENGINE_TOUCH_CANCEL
 import com.example.timeboxvibe.engine.core.ENGINE_TOUCH_DOWN
 import com.example.timeboxvibe.engine.core.ENGINE_TOUCH_MOVE
 import com.example.timeboxvibe.engine.core.ENGINE_TOUCH_UP
+import com.example.timeboxvibe.engine.core.DisplayScalePolicy
 import com.example.timeboxvibe.engine.core.ScaledProceduralRenderer
 import com.example.timeboxvibe.engine.core.SceneManager
 import com.example.timeboxvibe.platform.android.AndroidEngineCanvas
@@ -28,7 +29,7 @@ class Pc98SurfaceView @JvmOverloads constructor(
 ) : SurfaceView(context, attrs), SurfaceHolder.Callback {
 
     private var renderThread: RenderThread? = null
-    @Volatile var currentScaleFactor: Int = MIN_SCALE
+    @Volatile var currentScaleFactor: Int = DisplayScalePolicy.MIN_SCALE
 
     // THE FIX: No Magic Numbers. These must be dynamically calculated in surfaceChanged.
     @Volatile private var dynamicLogicalWidth: Float = 0f
@@ -64,8 +65,9 @@ class Pc98SurfaceView @JvmOverloads constructor(
 
         val physicalWidth = width.toFloat()
         val physicalHeight = height.toFloat()
-        val osDensity = safeDensity(context.resources.displayMetrics.density)
-        val scale = deriveScale(physicalWidth, osDensity)
+        val platformDensity = context.resources.displayMetrics.density
+        val presentationDensity = safePresentationDensity(platformDensity)
+        val scale = DisplayScalePolicy.deriveScale(physicalWidth, physicalHeight, platformDensity)
         val logW = physicalWidth / scale
         val logH = physicalHeight / scale
 
@@ -86,7 +88,7 @@ class Pc98SurfaceView @JvmOverloads constructor(
             holder,
             renderer,
             engineCanvas,
-            osDensity,
+            presentationDensity,
             this
         ).apply {
             setScanlineSettings(scanlinesEnabled, scanlineIntensity)
@@ -365,14 +367,10 @@ class Pc98SurfaceView @JvmOverloads constructor(
     }
 
     companion object {
-        private const val MIN_SAFE_LOGICAL_WIDTH = 320f
-        private const val MAX_SAFE_LOGICAL_WIDTH = 1200f
-        private const val MIN_SCALE = 1
         private const val LOGICAL_ENGINE_DENSITY = 1f
-        private const val MIN_VALID_DENSITY = 0.1f
-        private const val MAX_VALID_DENSITY = 10.0f
+        private const val MIN_PRESENTATION_DENSITY = 0.1f
+        private const val MAX_PRESENTATION_DENSITY = 10.0f
         private const val DEFAULT_DENSITY = 1.0f
-        private const val DENSITY_SCALE_MULTIPLIER = 2.0
         private const val DEFAULT_SCANLINE_INTENSITY = 0.3f
         private const val SCANLINE_STROKE_WIDTH = 1.0f
         private const val SCANLINE_ALPHA_MULTIPLIER = 180f
@@ -393,27 +391,16 @@ class Pc98SurfaceView @JvmOverloads constructor(
         private const val TOUCH_SLOT_RAW_Y = 3
         private const val TOUCH_SLOT_ACTION = 4
         private const val LOG_TAG = "Pc98SurfaceView"
-        private fun safeDensity(displayDensity: Float): Float {
+        private fun safePresentationDensity(displayDensity: Float): Float {
             return if (
                 displayDensity.isFinite() &&
-                displayDensity > MIN_VALID_DENSITY &&
-                displayDensity < MAX_VALID_DENSITY
+                displayDensity > MIN_PRESENTATION_DENSITY &&
+                displayDensity < MAX_PRESENTATION_DENSITY
             ) {
                 displayDensity
             } else {
                 DEFAULT_DENSITY
             }
-        }
-
-        private fun deriveScale(physicalWidth: Float, displayDensity: Float): Int {
-            var scale = Math.floor(displayDensity * DENSITY_SCALE_MULTIPLIER).toInt().coerceAtLeast(MIN_SCALE)
-            while (scale > MIN_SCALE && (physicalWidth / scale) < MIN_SAFE_LOGICAL_WIDTH) {
-                scale--
-            }
-            while ((physicalWidth / scale) > MAX_SAFE_LOGICAL_WIDTH) {
-                scale++
-            }
-            return scale
         }
     }
 }
