@@ -5,10 +5,10 @@ package com.example.timeboxvibe.engine.core
  *
  * Ownership:
  * - This widget owns blink phase only.
- * - The scene owns placement from display-derived field rects and integer [U] glyph cells.
+ * - The scene owns placement from display-derived field rects and presented [U] glyph cells.
  * - Color is a palette index 0..15 (4-bit on-screen); 12-bit RGB lives in Pc98GraphicsHardware.
  *
- * Geometry uses Int [U] only (canonical glyph cell). No orientation or fixed-resolution assumptions.
+ * Geometry uses Int [U] source units; the common text raster transform presents them.
  */
 class EngineCursorRenderer {
     companion object {
@@ -16,7 +16,7 @@ class EngineCursorRenderer {
         const val U = CANONICAL_UI_UNIT
         /** Thin PC-98 caret width — U/8 micro-detail law for UI carets. */
         const val CURSOR_WIDTH = U / 8
-        /** Full glyph-cell height at text scale 1. */
+        /** Full source glyph-cell height at text scale 1. */
         const val CURSOR_HEIGHT = U
         /** Half-period of blink cycle (seconds on, then seconds off). */
         private const val BLINK_HALF_PERIOD_SEC = 0.5f
@@ -61,16 +61,6 @@ class EngineCursorRenderer {
         if (!isFocused) return
         if (blinkAccumulator >= BLINK_HALF_PERIOD_SEC) return
 
-        val w = width.toFloat()
-        val h = height.toFloat()
-        renderer.fillRectDither(
-            x0 = x,
-            y0 = y,
-            x1 = x + w,
-            y1 = y + h,
-            primaryIndex = colorIndex,
-            secondaryIndex = colorIndex,
-            pattern = SoftDitherPattern.SOLID
-        )
+        renderer.drawTextRasterRect(x, y, width, height, colorIndex)
     }
 }

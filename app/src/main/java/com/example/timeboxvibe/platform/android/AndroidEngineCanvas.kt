@@ -20,8 +20,11 @@ class AndroidEngineCanvas(
     private var nativeCanvas: Canvas,
     override var width: Float,
     override var height: Float,
-    override var density: Float
+    override var density: Float,
+    override val presentationScale: Int
 ) : EngineCanvas {
+
+    private val inversePresentationScale = 1f / presentationScale
 
     private val paint = Paint().apply {
         isAntiAlias = false
@@ -102,6 +105,19 @@ class AndroidEngineCanvas(
         val rw = w.roundToInt().toFloat()
         val rh = h.roundToInt().toFloat()
         nativeCanvas.drawRect(rx, ry, rx + rw, ry + rh, paint)
+    }
+
+    override fun drawPhysicalRect(x: Int, y: Int, w: Int, h: Int, colorIndex: Int) {
+        if (w <= 0 || h <= 0) return
+        paint.color = getNativeColor(colorIndex)
+        paint.style = Paint.Style.FILL
+        nativeCanvas.drawRect(
+            x * inversePresentationScale,
+            y * inversePresentationScale,
+            (x + w) * inversePresentationScale,
+            (y + h) * inversePresentationScale,
+            paint
+        )
     }
 
     override fun drawCircle(centerX: Float, centerY: Float, radius: Float, colorIndex: Int, strokeWidth: Float, dashed: Boolean) {

@@ -81,7 +81,13 @@ class Pc98SurfaceView @JvmOverloads constructor(
         
         // Pass a dummy canvas for initialization; RenderThread will pass the locked hardware canvas during draw
         val dummyCanvas = Canvas()
-        val engineCanvas = AndroidEngineCanvas(dummyCanvas, dynamicLogicalWidth, dynamicLogicalHeight, LOGICAL_ENGINE_DENSITY)
+        val engineCanvas = AndroidEngineCanvas(
+            dummyCanvas,
+            dynamicLogicalWidth,
+            dynamicLogicalHeight,
+            LOGICAL_ENGINE_DENSITY,
+            scale
+        )
         val renderer = ScaledProceduralRenderer(engineCanvas)
 
         renderThread = RenderThread(

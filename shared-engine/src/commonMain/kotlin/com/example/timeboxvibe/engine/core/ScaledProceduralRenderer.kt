@@ -23,22 +23,27 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         }
 
         fun measureTextWidth(text: String, scale: Int = TEXT_SCALE_IDENTITY): Float {
-            return (measureTextCells(text) * U * scale).toFloat()
+            return measureTextCells(text) * TextRasterScale.logicalCellSize(scale)
         }
 
         fun measureTextHeight(scale: Int = TEXT_SCALE_IDENTITY): Float {
-            return (U * scale).toFloat()
+            return TextRasterScale.logicalCellSize(scale)
         }
 
-        fun measureButtonHeight(text: String, width: Float, minimumHeight: Float): Float {
+        fun measureButtonHeight(text: String, width: Float, minimumHeight: Float, allowTextStacking: Boolean): Float {
             val textAreaWidth = maxOf(U.toFloat(), width - U.toFloat())
-            val textHeight = ProceduralTextRenderer.measureWrappedHeight(text, textAreaWidth, TEXT_SCALE_IDENTITY)
+            val textHeight = if (allowTextStacking) {
+                ProceduralTextRenderer.measureWrappedHeight(text, textAreaWidth, TEXT_SCALE_IDENTITY)
+            } else {
+                measureTextHeight(TEXT_SCALE_IDENTITY)
+            }
             return maxOf(minimumHeight, textHeight + U.toFloat())
         }
 
     }
 
     init {
+        TextRasterScale.configure(canvas.presentationScale)
         ShinonomeFont.initCache()
     }
 
@@ -57,6 +62,22 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
 
     fun drawRect(x: Float, y: Float, w: Float, h: Float, colorIndex: Int) {
         canvas.drawRect(x, y, w, h, colorIndex)
+    }
+
+    fun drawTextRasterRect(
+        x: Float,
+        y: Float,
+        sourceWidth: Int,
+        sourceHeight: Int,
+        colorIndex: Int,
+        scale: Int = TEXT_SCALE_IDENTITY
+    ) {
+        val presentationScale = canvas.presentationScale.coerceAtLeast(DisplayScalePolicy.MIN_SCALE)
+        val physicalX = (x * presentationScale).roundToInt()
+        val physicalY = (y * presentationScale).roundToInt()
+        val physicalWidth = TextRasterScale.physicalSourceSize(sourceWidth, scale)
+        val physicalHeight = TextRasterScale.physicalSourceSize(sourceHeight, scale)
+        canvas.drawPhysicalRect(physicalX, physicalY, physicalWidth, physicalHeight, colorIndex)
     }
 
     /**
@@ -81,7 +102,7 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
 
     /**
      * Plots a single 16x16 Shinonome Font Glyph.
-     * Upscales automatically according to canvas density.
+     * Uses the common text raster transform while UI geometry keeps the display scale.
      */
     fun drawGlyph(
         char: Char,
@@ -97,11 +118,11 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
     ) {
         val glyph = ShinonomeFont.glyphFor(char)
         
-        val fScale = scale.toFloat()
+        val logicalPixelSize = TextRasterScale.logicalPixelSize(scale)
 
-        // Render retro shadow first if specified (offset 1 logical pixel)
+        // Render retro shadow first if specified (offset one presented source pixel).
         if (shadowColorIndex != EngineCanvas.COLOR_TRANSPARENT) {
-            drawGlyphRaw(glyph, destX + (1f * fScale), destY + (1f * fScale), shadowColorIndex, scale, startX, startY, clipWidth, clipHeight)
+            drawGlyphRaw(glyph, destX + logicalPixelSize, destY + logicalPixelSize, shadowColorIndex, scale, startX, startY, clipWidth, clipHeight)
         }
         drawGlyphRaw(glyph, destX, destY, colorIndex, scale, startX, startY, clipWidth, clipHeight)
     }
@@ -117,9 +138,14 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         clipWidth: Int,
         clipHeight: Int
     ) {
-        val fScale = scale.toFloat()
-        val clipRight = startX + clipWidth
-        val clipBottom = startY + clipHeight
+        val presentationScale = canvas.presentationScale.coerceAtLeast(DisplayScalePolicy.MIN_SCALE)
+        val physicalPixelSize = TextRasterScale.physicalPixelSize(scale)
+        val originX = (destX * presentationScale).roundToInt()
+        val originY = (destY * presentationScale).roundToInt()
+        val clipLeft = (startX * presentationScale).roundToInt()
+        val clipTop = (startY * presentationScale).roundToInt()
+        val clipRight = ((startX + clipWidth) * presentationScale).roundToInt()
+        val clipBottom = ((startY + clipHeight) * presentationScale).roundToInt()
         var y = 0
         while (y < U.toInt()) {
             val rowBits = glyph[y]
@@ -127,10 +153,20 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
             while (x < U.toInt()) {
                 val bitMask = 0x8000 ushr x
                 if ((rowBits and bitMask) != 0) {
-                    val drawX = destX + (x * scale)
-                    val drawY = destY + (y * scale)
-                    if (drawX >= startX && drawY >= startY && drawX < clipRight && drawY < clipBottom) {
-                        canvas.drawRect(drawX, drawY, fScale, fScale, colorIndex)
+                    val drawX = originX + x * physicalPixelSize
+                    val drawY = originY + y * physicalPixelSize
+                    val clippedLeft = maxOf(drawX, clipLeft)
+                    val clippedTop = maxOf(drawY, clipTop)
+                    val clippedRight = minOf(drawX + physicalPixelSize, clipRight)
+                    val clippedBottom = minOf(drawY + physicalPixelSize, clipBottom)
+                    if (clippedLeft < clippedRight && clippedTop < clippedBottom) {
+                        canvas.drawPhysicalRect(
+                            clippedLeft,
+                            clippedTop,
+                            clippedRight - clippedLeft,
+                            clippedBottom - clippedTop,
+                            colorIndex
+                        )
                     }
                 }
                 x++
@@ -153,11 +189,12 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         clipHeight: Int = canvas.height.toInt()
     ) {
         var currentX = destX
-        val fScale = scale.toFloat()
+        val charWidth = TextRasterScale.logicalCellSize(scale)
+        val spacing = charSpacing * TextRasterScale.logicalPixelSize(scale)
         var i = 0
         while (i < text.length) {
             drawGlyph(toFullwidthDisplayChar(text[i]), currentX, destY, colorIndex, shadowColorIndex, scale, startX, startY, clipWidth, clipHeight)
-            currentX += (U * fScale) + (charSpacing * fScale)
+            currentX += charWidth + spacing
             i++
         }
     }
@@ -208,8 +245,8 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
 
         if (!tangent) {
             val fScale = scale.toFloat()
-            drawGlyph(
-                char,
+            drawCanonicalGlyph(
+                glyph,
                 polarX - U * 0.5f * fScale,
                 polarY - U * 0.5f * fScale,
                 colorIndex,
@@ -254,6 +291,51 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
             y++
         }
         emitRotatedGlyph(polarX, polarY, colorIndex, shadowColorIndex, scale)
+    }
+
+    /** Keeps ornamental polar glyphs in the canonical UI transform. */
+    private fun drawCanonicalGlyph(
+        glyph: IntArray,
+        destX: Float,
+        destY: Float,
+        colorIndex: Int,
+        shadowColorIndex: Int,
+        scale: Int
+    ) {
+        val fScale = scale.toFloat()
+        if (shadowColorIndex != EngineCanvas.COLOR_TRANSPARENT) {
+            drawCanonicalGlyphRaw(glyph, destX + fScale, destY + fScale, shadowColorIndex, scale)
+        }
+        drawCanonicalGlyphRaw(glyph, destX, destY, colorIndex, scale)
+    }
+
+    private fun drawCanonicalGlyphRaw(
+        glyph: IntArray,
+        destX: Float,
+        destY: Float,
+        colorIndex: Int,
+        scale: Int
+    ) {
+        val fScale = scale.toFloat()
+        val clipRight = canvas.width
+        val clipBottom = canvas.height
+        var y = 0
+        while (y < GLYPH_CELL_COUNT) {
+            val rowBits = glyph[y]
+            var x = 0
+            while (x < GLYPH_CELL_COUNT) {
+                val bitMask = 0x8000 ushr x
+                if ((rowBits and bitMask) != 0) {
+                    val drawX = destX + x * scale
+                    val drawY = destY + y * scale
+                    if (drawX >= 0f && drawY >= 0f && drawX < clipRight && drawY < clipBottom) {
+                        canvas.drawRect(drawX, drawY, fScale, fScale, colorIndex)
+                    }
+                }
+                x++
+            }
+            y++
+        }
     }
 
     private fun emitRotatedGlyph(
@@ -681,7 +763,8 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         w: Float,
         h: Float,
         isClicked: Boolean,
-        isHovered: Boolean = false
+        isHovered: Boolean = false,
+        allowTextStacking: Boolean = false
     ) {
         val pc98White = PaletteIndices.WHITE
         val pc98Black = PaletteIndices.BLACK
@@ -695,29 +778,50 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         fillRectDither(x + border, y + border, x + w - border, y + h - border, bgColor, bgColor, SoftDitherPattern.SOLID)
 
         val textScale = TEXT_SCALE_IDENTITY
-        val textAreaX = x + U / 2f
-        val textAreaWidth = maxOf(U.toFloat(), w - U.toFloat())
-        val textHeight = ProceduralTextRenderer.measureWrappedHeight(text, textAreaWidth, textScale)
-        val textY = y + (h - textHeight) / 2f
         if (isClicked || isHovered) {
+            val indicatorHeight = measureTextHeight(TEXT_SCALE_IDENTITY)
             drawGlyph(
                 ACTIVE_INDICATOR_GLYPH,
                 x + U / 2f,
-                y + (h - U) / 2f,
+                y + (h - indicatorHeight) / 2f,
                 textColor,
-                scale = TEXT_SCALE_IDENTITY
+                scale = TEXT_SCALE_IDENTITY,
+                startX = x,
+                startY = y,
+                clipWidth = w.toInt(),
+                clipHeight = h.toInt()
             )
         }
-        ProceduralTextRenderer.drawWrapped(
-            renderer = this,
-            text = text,
-            x = textAreaX,
-            y = textY,
-            maxWidth = textAreaWidth,
-            color = textColor,
-            scale = textScale,
-            alignment = ProceduralTextRenderer.ALIGN_CENTER
-        )
+        if (allowTextStacking) {
+            val textAreaX = x + U / 2f
+            val textAreaWidth = maxOf(U.toFloat(), w - U.toFloat())
+            val textHeight = ProceduralTextRenderer.measureWrappedHeight(text, textAreaWidth, textScale)
+            val textY = y + (h - textHeight) / 2f
+            ProceduralTextRenderer.drawWrapped(
+                renderer = this,
+                text = text,
+                x = textAreaX,
+                y = textY,
+                maxWidth = textAreaWidth,
+                color = textColor,
+                scale = textScale,
+                alignment = ProceduralTextRenderer.ALIGN_CENTER
+            )
+        } else {
+            val textWidth = measureTextWidth(text, textScale)
+            val textHeight = measureTextHeight(textScale)
+            drawText(
+                text = text,
+                destX = x + (w - textWidth) / 2f,
+                destY = y + (h - textHeight) / 2f,
+                colorIndex = textColor,
+                scale = textScale,
+                startX = x,
+                startY = y,
+                clipWidth = w.toInt(),
+                clipHeight = h.toInt()
+            )
+        }
     }
 
 }

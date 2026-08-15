@@ -442,7 +442,7 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
                 drawTimeCentered(centerX, timeRemaining, centerY - (U + U / 2).toFloat(), 2, primary)
                 drawAlarmTimeCentered(centerX, midTimeRemaining, centerY + (U / 2).toFloat(), primary)
                 drawTimeCentered(centerX, bigTimeRemaining, centerY + (U * 2).toFloat(), 1, primary)
-                drawStaticTextCentered(centerX, strings.sessionLimitLabel, centerY + (U * 3).toFloat(), secondary, maxTextWidth)
+                drawStaticTextCenteredAtTop(centerX, strings.sessionLimitLabel, centerY + (U * 3).toFloat(), secondary, maxTextWidth)
             } else {
                 if (sequenceLength > 1 || activeMode == "calendar" || activeMode == "sequence") {
                     drawStageLabelCentered(centerX, stageLabel, centerY - (U * 2 + U / 2).toFloat(), secondary, maxTextWidth, true)
@@ -454,7 +454,7 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
                 } else {
                     strings.sessionLimitLabel
                 }
-                drawStaticTextCentered(centerX, label, centerY + (U * 3).toFloat(), secondary, maxTextWidth)
+                drawStaticTextCenteredAtTop(centerX, label, centerY + (U * 2 + U / 2).toFloat(), secondary, maxTextWidth)
             }
             return
         }
@@ -465,13 +465,12 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
             drawStageLabelCentered(centerX, stageLabel, centerY + (U + U / 2).toFloat(), secondary, maxTextWidth, false)
         } else if (activeMode != "sequence") {
             val label = if (isBreak) strings.unwindingLabel else strings.focusingLabel
-            drawStaticTextCentered(centerX, label, centerY + (U + U / 2).toFloat(), secondary, maxTextWidth)
+            drawStaticTextCenteredAtTop(centerX, label, centerY + U.toFloat(), secondary, maxTextWidth)
         }
     }
 
-    private fun drawStaticTextCentered(centerX: Float, text: String, centerY: Float, colorIndex: Int, maxWidth: Float) {
-        val textHeight = ProceduralTextRenderer.measureWrappedHeight(text, maxWidth)
-        ProceduralTextRenderer.drawWrapped(renderer, text, centerX - maxWidth / 2f, centerY - textHeight / 2f, maxWidth, colorIndex, alignment = ProceduralTextRenderer.ALIGN_CENTER)
+    private fun drawStaticTextCenteredAtTop(centerX: Float, text: String, topY: Float, colorIndex: Int, maxWidth: Float) {
+        ProceduralTextRenderer.drawWrapped(renderer, text, centerX - maxWidth / 2f, topY, maxWidth, colorIndex, alignment = ProceduralTextRenderer.ALIGN_CENTER)
     }
 
     private fun drawStageLabelCentered(
@@ -492,7 +491,7 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         val safeSeconds = maxOf(0, seconds)
         val minutes = safeSeconds / 60
         val remainder = safeSeconds % 60
-        val cellWidth = (U * scale).toFloat()
+        val cellWidth = ScaledProceduralRenderer.measureTextHeight(scale)
         val startX = centerX - cellWidth * 2.5f
         val startY = centerY - cellWidth / 2f
         drawGlyph(FULLWIDTH_DIGITS[(minutes / 10) % 10], startX, startY, colorIndex, scale)
@@ -508,20 +507,21 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         val remainder = safeSeconds % 60
         val prefix = "［　ＡＬＡＲＭ：　"
         val totalCells = prefix.length + 7
-        var drawX = centerX - (totalCells * U / 2).toFloat()
-        val drawY = centerY - (U / 2).toFloat()
+        val cellWidth = ScaledProceduralRenderer.measureTextHeight()
+        var drawX = centerX - totalCells * cellWidth / 2f
+        val drawY = centerY - cellWidth / 2f
         var index = 0
         while (index < prefix.length) {
             drawGlyph(prefix[index], drawX, drawY, colorIndex)
-            drawX += U.toFloat()
+            drawX += cellWidth
             index++
         }
-        drawGlyph(FULLWIDTH_DIGITS[(minutes / 10) % 10], drawX, drawY, colorIndex); drawX += U.toFloat()
-        drawGlyph(FULLWIDTH_DIGITS[minutes % 10], drawX, drawY, colorIndex); drawX += U.toFloat()
-        drawGlyph('：', drawX, drawY, colorIndex); drawX += U.toFloat()
-        drawGlyph(FULLWIDTH_DIGITS[remainder / 10], drawX, drawY, colorIndex); drawX += U.toFloat()
-        drawGlyph(FULLWIDTH_DIGITS[remainder % 10], drawX, drawY, colorIndex); drawX += U.toFloat()
-        drawGlyph('　', drawX, drawY, colorIndex); drawX += U.toFloat()
+        drawGlyph(FULLWIDTH_DIGITS[(minutes / 10) % 10], drawX, drawY, colorIndex); drawX += cellWidth
+        drawGlyph(FULLWIDTH_DIGITS[minutes % 10], drawX, drawY, colorIndex); drawX += cellWidth
+        drawGlyph('：', drawX, drawY, colorIndex); drawX += cellWidth
+        drawGlyph(FULLWIDTH_DIGITS[remainder / 10], drawX, drawY, colorIndex); drawX += cellWidth
+        drawGlyph(FULLWIDTH_DIGITS[remainder % 10], drawX, drawY, colorIndex); drawX += cellWidth
+        drawGlyph('　', drawX, drawY, colorIndex); drawX += cellWidth
         drawGlyph('］', drawX, drawY, colorIndex)
     }
 

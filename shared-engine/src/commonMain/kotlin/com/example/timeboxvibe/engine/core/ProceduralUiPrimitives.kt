@@ -75,7 +75,6 @@ internal fun toFullwidthDisplayChar(char: Char): Char {
 object ProceduralTextRenderer {
     const val ALIGN_LEFT = 0
     const val ALIGN_CENTER = 1
-    private const val U = CANONICAL_UI_UNIT
     private const val CUSTOM_ID_SUFFIX_CHARS = 6
     private const val SYS_ID_PREFIX_CHARS = 8
     private const val SYS_ID_PREFIX = "ＳＹＳ＿ＩＤ：　"
@@ -88,7 +87,7 @@ object ProceduralTextRenderer {
         color: Int,
         scale: Int = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
     ) {
-        val charW = U * scale
+        val charW = TextRasterScale.logicalCellSize(scale)
         var i = 0
         while (i < text.length) {
             renderer.drawGlyph(toFullwidthDisplayChar(text[i]), x + i * charW, y, color, scale = scale)
@@ -118,19 +117,11 @@ object ProceduralTextRenderer {
         maxWidth: Float,
         scale: Int = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
     ): Float {
-        return (measureWrappedLineCount(text, maxWidth, scale) * U * scale).toFloat()
+        return measureWrappedLineCount(text, maxWidth, scale) * TextRasterScale.logicalCellSize(scale)
     }
 
-    fun headingScale(text: String, maxWidth: Float): Int {
-        return if (ScaledProceduralRenderer.measureTextWidth(text, ScaledProceduralRenderer.TEXT_SCALE_HEADER) <= maxWidth) {
-            ScaledProceduralRenderer.TEXT_SCALE_HEADER
-        } else {
-            ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
-        }
-    }
-
-    fun measureHeadingHeight(text: String, maxWidth: Float): Float {
-        return measureWrappedHeight(text, maxWidth, headingScale(text, maxWidth))
+    fun measureHeadingHeight(text: String, maxWidth: Float, scale: Int): Float {
+        return measureWrappedHeight(text, maxWidth, scale)
     }
 
     fun drawHeading(
@@ -140,10 +131,11 @@ object ProceduralTextRenderer {
         y: Float,
         maxWidth: Float,
         color: Int,
+        scale: Int,
         alignment: Int = ALIGN_LEFT,
         shadowColor: Int = EngineCanvas.COLOR_TRANSPARENT
     ) {
-        drawWrapped(renderer, text, x, y, maxWidth, color, headingScale(text, maxWidth), alignment, shadowColor = shadowColor)
+        drawWrapped(renderer, text, x, y, maxWidth, color, scale, alignment, shadowColor = shadowColor)
     }
 
     fun measurePresetIdHeight(
@@ -154,7 +146,7 @@ object ProceduralTextRenderer {
         val suffixLength = minOf(CUSTOM_ID_SUFFIX_CHARS, id.length)
         val maxCells = cellsPerLine(maxWidth, scale)
         val lineCount = (SYS_ID_PREFIX_CHARS + suffixLength + maxCells - 1) / maxCells
-        return (lineCount * U * scale).toFloat()
+        return lineCount * TextRasterScale.logicalCellSize(scale)
     }
 
     fun drawPresetIdWrapped(
@@ -169,7 +161,7 @@ object ProceduralTextRenderer {
         val suffixStart = if (id.length > CUSTOM_ID_SUFFIX_CHARS) id.length - CUSTOM_ID_SUFFIX_CHARS else 0
         val suffixLength = id.length - suffixStart
         val maxCells = cellsPerLine(maxWidth, scale)
-        val charSize = (U * scale).toFloat()
+        val charSize = TextRasterScale.logicalCellSize(scale)
         val cellCount = SYS_ID_PREFIX_CHARS + suffixLength
         var cell = 0
         while (cell < cellCount) {
@@ -214,7 +206,7 @@ object ProceduralTextRenderer {
         maxWidth: Float,
         scale: Int = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
     ): Float {
-        return (measureWrappedLineCount(buffer, offset, length, maxWidth, scale) * U * scale).toFloat()
+        return measureWrappedLineCount(buffer, offset, length, maxWidth, scale) * TextRasterScale.logicalCellSize(scale)
     }
 
     fun locateWrappedCursor(
@@ -264,7 +256,7 @@ object ProceduralTextRenderer {
     ) {
         if (text.isEmpty()) return
         val maxCells = cellsPerLine(maxWidth, scale)
-        val charSize = (U * scale).toFloat()
+        val charSize = TextRasterScale.logicalCellSize(scale)
         var start = 0
         var line = 0
         while (start < text.length) {
@@ -306,7 +298,7 @@ object ProceduralTextRenderer {
         if (offset < 0 || length <= 0 || offset >= buffer.size) return
         val endExclusive = minOf(buffer.size, offset + length)
         val maxCells = cellsPerLine(maxWidth, scale)
-        val charSize = (U * scale).toFloat()
+        val charSize = TextRasterScale.logicalCellSize(scale)
         var start = offset
         var line = 0
         while (start < endExclusive) {
@@ -334,7 +326,7 @@ object ProceduralTextRenderer {
 
     private fun cellsPerLine(maxWidth: Float, scale: Int): Int {
         val safeScale = maxOf(ScaledProceduralRenderer.TEXT_SCALE_IDENTITY, scale)
-        return maxOf(1, (maxWidth / (U * safeScale)).toInt())
+        return maxOf(1, (maxWidth / TextRasterScale.logicalCellSize(safeScale)).toInt())
     }
 
     private fun stringLineEnd(text: String, start: Int, maxCells: Int): Int {
