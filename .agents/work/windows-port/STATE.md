@@ -1,30 +1,29 @@
 # Objective
-Fix Windows dummy-terminal runtime bugs without changing commonMain scale policy.
+Replace choppy Win32 waveOut playback with miniaudio WASAPI output. Keep synthesis in commonMain.
 
 # Constraints
-- Platform wrappers stay dumb terminals.
-- Window client size is the display geometry. No fixed resolution.
-- Do not change `DisplayScalePolicy` / commonMain until user reviews the overview.
-- No tests. Japanese user-facing report.
+- Platform wrapper is a dummy audio terminal only.
+- Do not change commonMain audio/MML/OPNA.
+- No C interop in commonMain.
+- ma_device / userdata follow c-interop ownership laws.
+- No tests.
 
 # Plan
-- [x] Diagnose scanlines, text, scale, scroll, settings
-- [x] Remove opaque Win32 scanline overlay; present 1:1 from physical DIB
-- [x] Physical framebuffer + integer presentation scale (match Android canvas.scale)
-- [x] WM_MOUSEWHEEL as synthetic play-area drag
-- [x] Persist settings to %APPDATA%\TimeBox
-- [x] Report commonMain scale overview; do not edit it
+- [x] Thin C wrapper around provided miniaudio.h (WASAPI only)
+- [x] Gradle compile + cinterop + link
+- [x] Rewrite Win32Audio to callback render
+- [x] Link debug executable
 
 # Confirmed
-- `compileKotlinWin` + `linkDebugExecutableWin` succeeded after these winMain edits.
-- Geometry source remains `GetClientRect` (window client), not a fixed desktop mode.
+- `compileMiniaudioWin` + `compileKotlinWin` + `linkDebugExecutableWin` succeeded.
+- waveOut 2x1024 + timeout skip was the previous underrun path.
 
 # Rejected
-- Changing `DisplayScalePolicy` this turn.
-- Inventing a fixed desktop resolution.
+- cinterop of the full miniaudio.h
+- Changing OPNA/MML
 
 # Unverified
-- Human click/wheel/alarm/settings-reload after rebuild.
+- Human listen of preview/alarm after rebuild
 
 # Next
-User review of commonMain scale overview. Runtime check of EXE.
+User listen check of preview and alarm.

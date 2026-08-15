@@ -1,0 +1,3 @@
+headers = timebox_miniaudio.h
+headerFilter = timebox_miniaudio.h
+package = miniaudio

@@ -293,6 +293,7 @@ internal fun runWin32Terminal() {
             if (canvas != null && renderer != null && host.logicalWidth > 0f && host.logicalHeight > 0f) {
                 val touches = host.drainTouches()
                 host.actions.pump(frameStart)
+                host.audio.pump()
                 SceneManager.setLogicalBounds(host.logicalWidth, host.logicalHeight)
                 SceneManager.update(dt, host.drainQueue, touches)
                 SceneManager.render(renderer, host.logicalWidth, host.logicalHeight)

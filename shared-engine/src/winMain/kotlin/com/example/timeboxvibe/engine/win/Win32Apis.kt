@@ -25,11 +25,6 @@ internal const val WM_DPICHANGED_VALUE: Int = 0x02E0
 internal const val USER_DEFAULT_SCREEN_DPI: Int = 96
 internal const val FLASHW_ALL: UInt = 0x00000003u
 internal const val FLASHW_TIMERNOFG: UInt = 0x0000000Cu
-internal const val CALLBACK_EVENT: UInt = 0x00050000u
-internal const val WAVE_MAPPER: UInt = 0xFFFFFFFFu
-internal const val WAVE_FORMAT_PCM: UShort = 1u
-internal const val WHDR_DONE: UInt = 0x00000001u
-internal const val MMSYSERR_NOERROR: UInt = 0u
 internal const val POWER_REQUEST_CONTEXT_VERSION_VALUE: UInt = 0u
 internal const val POWER_REQUEST_CONTEXT_SIMPLE_STRING_VALUE: UInt = 1u
 
@@ -49,8 +44,9 @@ internal const val WHEEL_DELTA_STANDARD = 120
 internal const val WHEEL_NOTCH_CELLS = 3
 internal const val MK_LBUTTON_FLAG = 0x0001
 internal const val AUDIO_SAMPLE_RATE = 48000
-internal const val AUDIO_CHUNK_FRAMES = 1024
-internal const val AUDIO_HEADER_COUNT = 2
+internal const val AUDIO_PERIOD_FRAMES = 2048
+internal const val AUDIO_PERIOD_COUNT = 4
+internal const val AUDIO_CALLBACK_MAX_FRAMES = 4096
 internal const val GENTLE_REMINDER_MS = 5000L
 internal const val FILETIME_TICKS_PER_MILLISECOND = 10_000L
 
