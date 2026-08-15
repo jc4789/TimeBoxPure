@@ -28,7 +28,7 @@ kotlin {
     mingwX64("win") {
         binaries.executable {
             entryPoint = "main"
-            // C-interop definitions for Win32 and miniaudio will go here later
+            linkerOpts("-lwinmm")
         }
     }
 
