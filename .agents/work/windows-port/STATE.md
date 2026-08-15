@@ -1,42 +1,30 @@
 # Objective
-Create a Windows dummy-terminal build equivalent to the existing Android wrappers, without turning Win32 into an app framework.
+Fix Windows dummy-terminal runtime bugs without changing commonMain scale policy.
 
 # Constraints
-- Platform wrappers are dumb terminals only (display, input, audio, timing, DPI, lifecycle).
-- No Compose / SwiftUI / Electron / other UI frameworks.
-- No `java.*` in `commonMain`.
-- C interop stays in platform source sets.
-- Existing Android app must keep working.
-- If commonMain must change, stop and report.
+- Platform wrappers stay dumb terminals.
+- Window client size is the display geometry. No fixed resolution.
+- Do not change `DisplayScalePolicy` / commonMain until user reviews the overview.
+- No tests. Japanese user-facing report.
 
 # Plan
-- [x] Inventory this Windows 11 PC against Kotlin/Native `mingwX64("win")` needs
-- [x] Confirm `:shared-engine:compileKotlinWin` actually compiles current sources
-- [x] Design Win32 dummy terminal (HWND, framebuffer present, input, waitable timer, waveOut)
-- [x] Implement `winMain` wrappers + `main` entry
-- [x] Link debug executable and smoke-launch
+- [x] Diagnose scanlines, text, scale, scroll, settings
+- [x] Remove opaque Win32 scanline overlay; present 1:1 from physical DIB
+- [x] Physical framebuffer + integer presentation scale (match Android canvas.scale)
+- [x] WM_MOUSEWHEEL as synthetic play-area drag
+- [x] Persist settings to %APPDATA%\TimeBox
+- [x] Report commonMain scale overview; do not edit it
 
 # Confirmed
-- `commonMain` compiled for `mingwX64` with no source changes (`compileKotlinWin` success).
-- Linked `shared-engine/build/bin/win/debugExecutable/shared-engine.exe` (linkDebugExecutableWin success).
-- Process stayed alive for 3s after Start-Process (pid 30752), then was stopped.
-- Alarm path: `CreateWaitableTimerExW` + `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION` + `SetWaitableTimer` + `WM_APP_ALARM`.
-- Display: `StretchDIBits` of a 32-bit DIB; scale from `DisplayScalePolicy`.
-- Audio: PCM16 mono 48 kHz `waveOut` streaming of `CompiledOpnaPlayer`.
-- Power: `SetThreadExecutionState`.
-- Time: `GetSystemTimeAsFileTime` and `QueryPerformanceCounter`.
+- `compileKotlinWin` + `linkDebugExecutableWin` succeeded after these winMain edits.
+- Geometry source remains `GetClientRect` (window client), not a fixed desktop mode.
 
 # Rejected
-- Changing `commonMain` for this port: not required.
-- Compose Desktop / JavaFX / Electron.
-- Vendoring miniaudio.
+- Changing `DisplayScalePolicy` this turn.
+- Inventing a fixed desktop resolution.
 
 # Unverified
-- Human click/type through every scene.
-- Alarm fire after a real countdown, including deep sleep/lid-close.
-- waveOut on every audio device.
-- Android assemble after this change (only `winMain` + linker opts).
-- EXE contents (binary law: not inspected).
+- Human click/wheel/alarm/settings-reload after rebuild.
 
 # Next
-Wait for user runtime feedback. Later slices: WASAPI, Task Scheduler for process-dead alarms, persistence, PowerCreateRequest if KN bindings expose the enum.
+User review of commonMain scale overview. Runtime check of EXE.

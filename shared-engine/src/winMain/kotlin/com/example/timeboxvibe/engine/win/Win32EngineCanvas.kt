@@ -15,7 +15,9 @@ class Win32EngineCanvas(
     override var width: Float,
     override var height: Float,
     override var density: Float,
-    override var presentationScale: Int
+    override var presentationScale: Int,
+    physicalWidth: Int,
+    physicalHeight: Int
 ) : EngineCanvas {
 
     private val cachedNativePalette = IntArray(Pc98GraphicsHardware.PALETTE_SIZE)
@@ -29,20 +31,27 @@ class Win32EngineCanvas(
         private set
 
     init {
-        resizeFramebuffer(width, height)
+        resizeFramebuffer(width, height, physicalWidth, physicalHeight)
     }
 
-    fun resizeFramebuffer(logicalWidth: Float, logicalHeight: Float) {
+    fun resizeFramebuffer(
+        logicalWidth: Float,
+        logicalHeight: Float,
+        physicalWidth: Int,
+        physicalHeight: Int
+    ) {
         width = logicalWidth
         height = logicalHeight
-        val nextW = logicalWidth.roundToInt().coerceAtLeast(1)
-        val nextH = logicalHeight.roundToInt().coerceAtLeast(1)
+        val nextW = physicalWidth.coerceAtLeast(1)
+        val nextH = physicalHeight.coerceAtLeast(1)
         if (nextW != pixelWidth || nextH != pixelHeight) {
             pixelWidth = nextW
             pixelHeight = nextH
             pixels = IntArray(pixelWidth * pixelHeight)
         }
     }
+
+    private fun scale(): Int = presentationScale.coerceAtLeast(1)
 
     override fun setDrawAlpha(alphaByte: Int) {
         drawAlpha = alphaByte.coerceIn(0, 0xFF)
@@ -59,7 +68,7 @@ class Win32EngineCanvas(
     }
 
     override fun setPixel(x: Float, y: Float, colorIndex: Int) {
-        plot(x.roundToInt(), y.roundToInt(), nativeColor(colorIndex))
+        fillLogicalCell(x.roundToInt(), y.roundToInt(), nativeColor(colorIndex))
     }
 
     override fun drawLine(
@@ -71,12 +80,13 @@ class Win32EngineCanvas(
         strokeWidth: Float
     ) {
         val color = nativeColor(colorIndex)
-        val radius = ((strokeWidth - 1f) * 0.5f).roundToInt().coerceAtLeast(0)
+        val s = scale()
+        val radius = ((strokeWidth * s - 1f) * 0.5f).roundToInt().coerceAtLeast(0)
         bresenham(
-            x0.roundToInt(),
-            y0.roundToInt(),
-            x1.roundToInt(),
-            y1.roundToInt()
+            x0.roundToInt() * s,
+            y0.roundToInt() * s,
+            x1.roundToInt() * s,
+            y1.roundToInt() * s
         ) { px, py ->
             if (radius <= 0) {
                 plot(px, py, color)
@@ -87,19 +97,19 @@ class Win32EngineCanvas(
     }
 
     override fun drawRect(x: Float, y: Float, w: Float, h: Float, colorIndex: Int) {
+        val s = scale()
         fillRectSnapped(
-            x.roundToInt(),
-            y.roundToInt(),
-            w.roundToInt(),
-            h.roundToInt(),
+            x.roundToInt() * s,
+            y.roundToInt() * s,
+            w.roundToInt() * s,
+            h.roundToInt() * s,
             nativeColor(colorIndex)
         )
     }
 
     override fun drawPhysicalRect(x: Int, y: Int, w: Int, h: Int, colorIndex: Int) {
         if (w <= 0 || h <= 0) return
-        val inv = 1f / presentationScale.coerceAtLeast(1).toFloat()
-        drawRect(x * inv, y * inv, w * inv, h * inv, colorIndex)
+        fillRectSnapped(x, y, w, h, nativeColor(colorIndex))
     }
 
     override fun drawCircle(
@@ -111,11 +121,12 @@ class Win32EngineCanvas(
         dashed: Boolean
     ) {
         val color = nativeColor(colorIndex)
-        val cx = centerX.roundToInt()
-        val cy = centerY.roundToInt()
-        val r = radius.roundToInt().coerceAtLeast(0)
-        val thickness = strokeWidth.roundToInt().coerceAtLeast(1)
-        val dashLen = (8f * density).roundToInt().coerceAtLeast(1)
+        val s = scale()
+        val cx = centerX.roundToInt() * s
+        val cy = centerY.roundToInt() * s
+        val r = (radius.roundToInt() * s).coerceAtLeast(0)
+        val thickness = (strokeWidth.roundToInt() * s).coerceAtLeast(1)
+        val dashLen = (8f * density * s).roundToInt().coerceAtLeast(1)
         midpointCircle(cx, cy, r, dashed, dashLen) { px, py ->
             if (thickness <= 1) {
                 plot(px, py, color)
@@ -141,7 +152,8 @@ class Win32EngineCanvas(
         val primary = nativeColor(primaryIndex)
         val secondary = nativeColor(secondaryIndex)
         if (pattern == SoftDitherPattern.SOLID) {
-            fillRectSnapped(left, top, right - left, bottom - top, primary)
+            val s = scale()
+            fillRectSnapped(left * s, top * s, (right - left) * s, (bottom - top) * s, primary)
             return
         }
         var y = top
@@ -156,7 +168,7 @@ class Win32EngineCanvas(
                     SoftDitherPattern.SPARSE_DOTS -> (x and 3) == 0 && (y and 3) == 0
                     SoftDitherPattern.SOLID -> true
                 }
-                plot(x, y, if (usePrimary) primary else secondary)
+                fillLogicalCell(x, y, if (usePrimary) primary else secondary)
                 x++
             }
             y++
@@ -189,6 +201,11 @@ class Win32EngineCanvas(
         val g8 = (g4 shl 4) or g4
         val b8 = (b4 shl 4) or b4
         return b8 or (g8 shl 8) or (r8 shl 16)
+    }
+
+    private fun fillLogicalCell(logicalX: Int, logicalY: Int, color: Int) {
+        val s = scale()
+        fillRectSnapped(logicalX * s, logicalY * s, s, s, color)
     }
 
     private fun plot(x: Int, y: Int, color: Int) {

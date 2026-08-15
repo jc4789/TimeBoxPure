@@ -2,6 +2,7 @@
 package com.example.timeboxvibe.engine.win
 
 import com.example.timeboxvibe.engine.core.ActiveTimerScene
+import com.example.timeboxvibe.engine.core.CANONICAL_UI_UNIT
 import com.example.timeboxvibe.engine.core.DisplayScalePolicy
 import com.example.timeboxvibe.engine.core.ENGINE_TOUCH_DOWN
 import com.example.timeboxvibe.engine.core.ENGINE_TOUCH_MOVE
@@ -46,6 +47,7 @@ import platform.windows.MSG
 import platform.windows.MsgWaitForMultipleObjects
 import platform.windows.PeekMessageW
 import platform.windows.PM_REMOVE
+import platform.windows.POINT
 import platform.windows.PostQuitMessage
 import platform.windows.QS_ALLINPUT
 import platform.windows.RECT
@@ -53,6 +55,8 @@ import platform.windows.RegisterClassExW
 import platform.windows.ReleaseDC
 import platform.windows.SRCCOPY
 import platform.windows.SW_SHOW
+import platform.windows.ScreenToClient
+import platform.windows.SetStretchBltMode
 import platform.windows.SetWaitableTimer
 import platform.windows.ShowWindow
 import platform.windows.StretchDIBits
@@ -77,7 +81,6 @@ import platform.windows.WPARAM
 import platform.windows.WS_OVERLAPPEDWINDOW
 import platform.windows.WS_VISIBLE
 import kotlin.concurrent.Volatile
-import kotlin.math.roundToInt
 
 private const val WINDOW_CLASS_NAME = "TimeBoxWin32Terminal"
 
@@ -150,13 +153,13 @@ internal class Win32Host {
         logicalHeight = logH
         val existing = canvas
         if (existing == null) {
-            val next = Win32EngineCanvas(logW, logH, LOGICAL_ENGINE_DENSITY, scale)
+            val next = Win32EngineCanvas(logW, logH, LOGICAL_ENGINE_DENSITY, scale, width, height)
             canvas = next
             renderer = ScaledProceduralRenderer(next)
         } else {
             existing.presentationScale = scale
             existing.density = LOGICAL_ENGINE_DENSITY
-            existing.resizeFramebuffer(logW, logH)
+            existing.resizeFramebuffer(logW, logH, width, height)
             renderer = ScaledProceduralRenderer(existing)
         }
     }
@@ -174,13 +177,14 @@ internal class Win32Host {
                 info.bmiHeader.biPlanes = 1u
                 info.bmiHeader.biBitCount = 32u
                 info.bmiHeader.biCompression = BI_RGB.toUInt()
+                SetStretchBltMode(dc, COLORONCOLOR_MODE)
                 fb.pixels.usePinned { pinned ->
                     StretchDIBits(
                         dc,
                         0,
                         0,
-                        physicalWidth,
-                        physicalHeight,
+                        fb.pixelWidth,
+                        fb.pixelHeight,
                         0,
                         0,
                         fb.pixelWidth,
@@ -192,24 +196,9 @@ internal class Win32Host {
                     )
                 }
             }
-            drawScanlines(dc)
         } finally {
             ReleaseDC(window, dc)
         }
-    }
-
-    private fun drawScanlines(dc: platform.windows.HDC?) {
-        if (dc == null || physicalHeight <= 0) return
-        val step = maxOf(MIN_SCANLINE_STEP, presentationDensity.roundToInt())
-        val brush = CreateSolidBrush(rgbColor(0, 0, 0)) ?: return
-        val previous = platform.windows.SelectObject(dc, brush)
-        var y = 0
-        while (y < physicalHeight) {
-            platform.windows.PatBlt(dc, 0, y, physicalWidth, 1, platform.windows.PATCOPY)
-            y += step
-        }
-        platform.windows.SelectObject(dc, previous)
-        platform.windows.DeleteObject(brush)
     }
 
     fun shutdown() {
@@ -378,6 +367,10 @@ private fun win32WndProc(hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: LPA
             host?.enqueueTouch(lowWord(lParam), highWord(lParam), ENGINE_TOUCH_UP)
             return 0
         }
+        WM_MOUSEWHEEL_VALUE -> {
+            if (host != null) enqueueWheelScroll(host, hwnd, wParam, lParam)
+            return 0
+        }
         WM_KEYDOWN -> {
             when (wParam.toInt()) {
                 VK_BACK.toInt() -> SceneManager.enqueueInput(EngineInputCodes.CMD_BACKSPACE)
@@ -407,5 +400,27 @@ private fun win32WndProc(hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: LPA
     return DefWindowProcW(hwnd, message, wParam, lParam)
 }
 
+private fun enqueueWheelScroll(host: Win32Host, hwnd: HWND?, wParam: WPARAM, lParam: LPARAM) {
+    if ((wParam.toInt() and MK_LBUTTON_FLAG) != 0) return
+    val notches = signedHighWord(wParam.toLong()) / WHEEL_DELTA_STANDARD
+    if (notches == 0) return
+    val physicalDelta = notches * WHEEL_NOTCH_CELLS * CANONICAL_UI_UNIT * host.scaleFactor
+    if (physicalDelta == 0) return
+    memScoped {
+        val point = alloc<POINT>()
+        point.x = signedLowWord(lParam)
+        point.y = signedHighWord(lParam)
+        ScreenToClient(hwnd, point.ptr)
+        val x = point.x
+        val y = point.y
+        host.enqueueTouch(x, y, ENGINE_TOUCH_DOWN)
+        host.enqueueTouch(x, y + physicalDelta, ENGINE_TOUCH_MOVE)
+        host.enqueueTouch(x, y + physicalDelta, ENGINE_TOUCH_UP)
+    }
+}
+
 private fun lowWord(value: LPARAM): Int = value.toInt() and 0xFFFF
 private fun highWord(value: LPARAM): Int = (value.toInt() ushr 16) and 0xFFFF
+
+private fun signedLowWord(value: Long): Int = value.toInt().toShort().toInt()
+private fun signedHighWord(value: Long): Int = (value.toInt() shr 16).toShort().toInt()

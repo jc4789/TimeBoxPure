@@ -50,9 +50,11 @@ class Win32TimerActions(
     @Volatile
     private var lastTickQpc: Long = 0L
     private var qpcFrequency: Long = 1L
+    private val settingsStore = Win32SettingsStore()
 
     init {
         qpcFrequency = queryPerformanceFrequency()
+        applyPersisted(settingsStore.load())
         rebuildIdleEngine()
     }
 
@@ -143,6 +145,7 @@ class Win32TimerActions(
 
     override fun updateTask(task: String) {
         currentTask = task
+        persistSettings()
     }
 
     override fun updateSettings(strictMode: Boolean, tickEnabled: Boolean, sound: String, vibeIntensity: Float) {
@@ -150,23 +153,28 @@ class Win32TimerActions(
         this.tickEnabled = tickEnabled
         this.vibeIntensity = vibeIntensity
         selectedFocusSound = catalogOrDefault(sound, SongCatalog.DEFAULT_FOCUS_ID)
+        persistSettings()
     }
 
     override fun updateFocusSound(sound: String) {
         selectedFocusSound = catalogOrDefault(sound, SongCatalog.DEFAULT_FOCUS_ID)
+        persistSettings()
     }
 
     override fun updateRelaxSound(sound: String) {
         selectedRelaxSound = catalogOrDefault(sound, SongCatalog.DEFAULT_RELAX_ID)
+        persistSettings()
     }
 
     override fun updateLanguage(code: String) {
         language = code
         rebuildIdleEngine(keepRunning = true)
+        persistSettings()
     }
 
     override fun updateTheme(themeName: String) {
         appTheme = themeName
+        persistSettings()
     }
 
     override fun selectPreset(id: String) {
@@ -175,6 +183,7 @@ class Win32TimerActions(
         power.releaseAll()
         activePresetId = id
         rebuildIdleEngine()
+        persistSettings()
     }
 
     override fun addCustomPreset(preset: TimerPreset) {
@@ -201,6 +210,7 @@ class Win32TimerActions(
         if (engine?.isActive != true) {
             rebuildIdleEngine()
         }
+        persistSettings()
     }
 
     override fun deletePreset(id: String) {
@@ -211,6 +221,7 @@ class Win32TimerActions(
                 rebuildIdleEngine()
             }
         }
+        persistSettings()
     }
 
     override fun previewSound(key: String) {
@@ -223,6 +234,7 @@ class Win32TimerActions(
 
     override fun updateVolume(vol: Float) {
         volume = vol
+        persistSettings()
     }
 
     override fun getUiState(): EngineUiState {
@@ -369,6 +381,38 @@ class Win32TimerActions(
 
     private fun catalogOrDefault(id: String, defaultId: String): String {
         return if (SongCatalog.byId(id) != null) id else defaultId
+    }
+
+    private fun applyPersisted(saved: PersistedWin32Settings) {
+        language = saved.language
+        appTheme = saved.appTheme
+        currentTask = saved.currentTask
+        strictMode = saved.strictMode
+        tickEnabled = saved.tickEnabled
+        vibeIntensity = saved.vibeIntensity
+        volume = saved.volume
+        selectedFocusSound = catalogOrDefault(saved.selectedFocusSound, SongCatalog.DEFAULT_FOCUS_ID)
+        selectedRelaxSound = catalogOrDefault(saved.selectedRelaxSound, SongCatalog.DEFAULT_RELAX_ID)
+        customPresets = saved.customPresets
+        activePresetId = saved.activePresetId
+    }
+
+    private fun persistSettings() {
+        settingsStore.save(
+            PersistedWin32Settings(
+                language = language,
+                appTheme = appTheme,
+                currentTask = currentTask,
+                strictMode = strictMode,
+                tickEnabled = tickEnabled,
+                vibeIntensity = vibeIntensity,
+                volume = volume,
+                selectedFocusSound = selectedFocusSound,
+                selectedRelaxSound = selectedRelaxSound,
+                activePresetId = activePresetId,
+                customPresets = customPresets
+            )
+        )
     }
 }
 
