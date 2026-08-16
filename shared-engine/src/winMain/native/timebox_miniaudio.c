@@ -48,13 +48,13 @@ int tb_audio_device_init(
     ma_result result;
 
     if (ppDevice == NULL || renderProc == NULL || sampleRate == 0 || periodFrames == 0 || periodCount == 0) {
-        return MA_INVALID_ARGS;
+        return -1;
     }
     *ppDevice = NULL;
 
     self = (tb_audio_device*)calloc(1, sizeof(*self));
     if (self == NULL) {
-        return MA_OUT_OF_MEMORY;
+        return -1;
     }
     self->renderProc = renderProc;
     self->pUserData = pUserData;
@@ -73,7 +73,7 @@ int tb_audio_device_init(
     result = ma_device_init(NULL, &config, &self->device);
     if (result != MA_SUCCESS) {
         free(self);
-        return result;
+        return -1;
     }
     *ppDevice = self;
     return 0;
@@ -82,13 +82,11 @@ int tb_audio_device_init(
 int tb_audio_device_start(void* pDevice)
 {
     tb_audio_device* self = (tb_audio_device*)pDevice;
-    ma_result result;
     if (self == NULL) {
-        return MA_INVALID_ARGS;
+        return -1;
     }
-    result = ma_device_start(&self->device);
-    if (result != MA_SUCCESS) {
-        return result;
+    if (ma_device_start(&self->device) != MA_SUCCESS) {
+        return -1;
     }
     return 0;
 }
@@ -96,13 +94,11 @@ int tb_audio_device_start(void* pDevice)
 int tb_audio_device_stop(void* pDevice)
 {
     tb_audio_device* self = (tb_audio_device*)pDevice;
-    ma_result result;
     if (self == NULL) {
-        return MA_INVALID_ARGS;
+        return -1;
     }
-    result = ma_device_stop(&self->device);
-    if (result != MA_SUCCESS) {
-        return result;
+    if (ma_device_stop(&self->device) != MA_SUCCESS) {
+        return -1;
     }
     return 0;
 }

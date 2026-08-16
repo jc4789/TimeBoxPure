@@ -4,18 +4,12 @@ package com.example.timeboxvibe.engine.win
 import kotlinx.cinterop.CFunction
 import kotlinx.cinterop.COpaquePointer
 import kotlinx.cinterop.CPointed
-import kotlinx.cinterop.alloc
 import kotlinx.cinterop.invoke
-import kotlinx.cinterop.memScoped
-import kotlinx.cinterop.ptr
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.toCPointer
 import platform.windows.GetModuleHandleW
 import platform.windows.GetProcAddress
 import platform.windows.HWND
-import platform.windows.LARGE_INTEGER
-import platform.windows.QueryPerformanceCounter
-import platform.windows.QueryPerformanceFrequency
 import platform.windows.SetProcessDPIAware
 import platform.windows.UINT
 import platform.windows.WINBOOL
@@ -55,10 +49,6 @@ internal const val AUDIO_PERIOD_COUNT = 4
 internal const val AUDIO_CALLBACK_MAX_FRAMES = 4096
 internal const val GENTLE_REMINDER_MS = 5000L
 internal const val FILETIME_TICKS_PER_MILLISECOND = 10_000L
-internal const val MESSAGE_BEEP_WARNING: UInt = 0x00000030u
-internal const val NANOSECONDS_PER_SECOND = 1_000_000_000L
-internal const val HUNDRED_NANOSECOND_NANOS = 100L
-internal const val MILLISECONDS_PER_SECOND = 1000L
 
 internal fun rgbColor(r: Int, g: Int, b: Int): UInt {
     return (r or (g shl 8) or (b shl 16)).toUInt()
@@ -91,14 +81,4 @@ internal fun windowDpi(hwnd: HWND?): Int {
 internal fun platformDensityFromDpi(dpi: Int): Float {
     if (dpi <= 0) return 1f
     return dpi.toFloat() / USER_DEFAULT_SCREEN_DPI.toFloat()
-}
-
-internal fun queryPerformanceFrequency(): Long = memScoped {
-    val frequency = alloc<LARGE_INTEGER>()
-    if (QueryPerformanceFrequency(frequency.ptr) == 0) 1L else frequency.QuadPart.coerceAtLeast(1L)
-}
-
-internal fun queryPerformanceCounter(): Long = memScoped {
-    val counter = alloc<LARGE_INTEGER>()
-    if (QueryPerformanceCounter(counter.ptr) == 0) 0L else counter.QuadPart
 }
