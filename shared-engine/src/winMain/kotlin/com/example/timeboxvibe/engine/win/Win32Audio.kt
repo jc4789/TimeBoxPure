@@ -53,27 +53,27 @@ class Win32Audio {
     /* STABLE_REF: callback userdata. Dispose only after uninit. */
     private var stableSelf: StableRef<Win32Audio>? = null
 
-    fun playPreview(soundKey: String, volume: Float) {
-        val song = SongCatalog.byId(soundKey) ?: return
-        when (val playback = song.buildPlayback(volume)) {
+    fun playPreview(soundKey: String, volume: Float): Boolean {
+        val song = SongCatalog.byId(soundKey) ?: return false
+        return when (val playback = song.buildPlayback(volume)) {
             is SongPlayback.Arrangement -> start(playback.lanes, shouldLoop = false, stopAfterMs = song.previewDurationMs)
-            null -> return
+            null -> false
         }
     }
 
-    fun playAlarm(soundKey: String, volume: Float) {
-        val song = SongCatalog.byId(soundKey) ?: return
-        when (val playback = song.buildPlayback(volume)) {
+    fun playAlarm(soundKey: String, volume: Float): Boolean {
+        val song = SongCatalog.byId(soundKey) ?: return false
+        return when (val playback = song.buildPlayback(volume)) {
             is SongPlayback.Arrangement -> start(playback.lanes, shouldLoop = true, stopAfterMs = -1L)
-            null -> return
+            null -> false
         }
     }
 
-    fun playGentleReminder(soundKey: String, volume: Float) {
-        val song = SongCatalog.byId(soundKey) ?: return
-        when (val playback = song.buildPlayback(volume)) {
+    fun playGentleReminder(soundKey: String, volume: Float): Boolean {
+        val song = SongCatalog.byId(soundKey) ?: return false
+        return when (val playback = song.buildPlayback(volume)) {
             is SongPlayback.Arrangement -> start(playback.lanes, shouldLoop = false, stopAfterMs = GENTLE_REMINDER_MS)
-            null -> return
+            null -> false
         }
     }
 
@@ -147,12 +147,12 @@ class Win32Audio {
         currentSampleOffset = sampleOffset
     }
 
-    private fun start(arrangement: ArrangementLanes, shouldLoop: Boolean, stopAfterMs: Long) {
+    private fun start(arrangement: ArrangementLanes, shouldLoop: Boolean, stopAfterMs: Long): Boolean {
         stop()
-        if (arrangement.routing != ArrangementRouting.MML_LOGICAL_TRACKS) return
+        if (arrangement.routing != ArrangementRouting.MML_LOGICAL_TRACKS) return false
         val compiled = arrangement.compiledOpnaSong
         val durationMs = compiled.durationMilliseconds()
-        if (durationMs <= 0L) return
+        if (durationMs <= 0L) return false
 
         val nextSynth = OpnaLikeSynthesizer(AUDIO_SAMPLE_RATE)
         nextSynth.enableOutputFilter = true
@@ -174,6 +174,7 @@ class Win32Audio {
 
         val ref = StableRef.create(this)
         stableSelf = ref
+        var initResult = 0
         val opened = memScoped {
             val slot = alloc<COpaquePointerVar>()
             val rc = tb_audio_device_init(
@@ -184,6 +185,7 @@ class Win32Audio {
                 staticCFunction(::win32AudioRenderThunk),
                 ref.asCPointer()
             )
+            initResult = rc
             if (rc != 0) {
                 null
             } else {
@@ -195,14 +197,19 @@ class Win32Audio {
             stableSelf = null
             this.player = null
             this.synth = null
-            return
+            println("Win32 audio device initialization failed: $initResult")
+            return false
         }
         device = opened
         running = true
-        if (tb_audio_device_start(opened) != 0) {
+        val startResult = tb_audio_device_start(opened)
+        if (startResult != 0) {
             running = false
             teardownDevice()
+            println("Win32 audio device start failed: $startResult")
+            return false
         }
+        return true
     }
 
     private fun teardownDevice() {

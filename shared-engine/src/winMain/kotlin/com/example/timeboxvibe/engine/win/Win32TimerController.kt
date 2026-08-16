@@ -1,37 +1,25 @@
-@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
 package com.example.timeboxvibe.engine.win
 
 import com.example.timeboxvibe.engine.SongCatalog
 import com.example.timeboxvibe.engine.core.EngineUiState
-import com.example.timeboxvibe.engine.core.PlatformInputTrigger
 import com.example.timeboxvibe.engine.core.SessionMacroDisplay
 import com.example.timeboxvibe.engine.core.TimerActions
 import com.example.timeboxvibe.engine.core.TimerEngine
 import com.example.timeboxvibe.engine.core.TimerPreset
 import com.example.timeboxvibe.engine.getDefaultPresets
-import kotlinx.cinterop.alloc
-import kotlinx.cinterop.memScoped
-import kotlinx.cinterop.ptr
-import kotlinx.cinterop.sizeOf
-import platform.windows.FLASHWINFO
-import platform.windows.FlashWindowEx
-import platform.windows.HWND
-import platform.windows.LARGE_INTEGER
-import platform.windows.MessageBeep
-import platform.windows.QueryPerformanceCounter
-import platform.windows.QueryPerformanceFrequency
-import kotlin.concurrent.Volatile
 
 /**
- * In-process TimerActions for the Win32 terminal.
- * Scene logic stays in commonMain; this only owns OS-side scheduling and audio.
+ * Windows application coordinator. Native calls stay in the injected dummy
+ * terminals; this class only coordinates the shared timer contract.
  */
-class Win32TimerActions(
+internal class Win32TimerController(
     private val alarmScheduler: Win32AlarmScheduler,
     private val audio: Win32Audio,
-    private val power: Win32Power
-) : TimerActions, PlatformInputTrigger {
-
+    private val power: Win32Power,
+    private val feedback: Win32Feedback,
+    private val settingsStore: Win32SettingsStore,
+    private val qpcFrequency: Long
+) : TimerActions {
     private var language = "en"
     private var appTheme = "reimu"
     private var currentTask = ""
@@ -42,28 +30,20 @@ class Win32TimerActions(
     private var selectedFocusSound = SongCatalog.DEFAULT_FOCUS_ID
     private var selectedRelaxSound = SongCatalog.DEFAULT_RELAX_ID
     private var customPresets = emptyList<TimerPreset>()
+    private var presets = emptyList<TimerPreset>()
     private var activePresetId = "dual_box"
     private var engine: TimerEngine? = null
-    @Volatile
-    var hwnd: HWND? = null
-
-    @Volatile
-    private var lastTickQpc: Long = 0L
-    private var qpcFrequency: Long = 1L
-    private val settingsStore = Win32SettingsStore()
+    private var lastTickQpc = 0L
+    private var lastObservedQpc = 0L
 
     init {
-        qpcFrequency = queryPerformanceFrequency()
         applyPersisted(settingsStore.load())
+        rebuildPresetCache()
         rebuildIdleEngine()
     }
 
-    fun attachWindow(target: HWND?) {
-        hwnd = target
-        alarmScheduler.targetHwnd = target
-    }
-
     fun pump(nowQpc: Long) {
+        lastObservedQpc = nowQpc
         val eng = engine ?: return
         if (eng.hasSyncInterruption) {
             val event = eng.processSyncInterruption()
@@ -89,11 +69,11 @@ class Win32TimerActions(
         }
     }
 
-    fun onOsAlarm() {
+    fun onOsAlarm(nowQpc: Long) {
         val eng = engine ?: return
         if (!eng.isActive || eng.isRinging) return
         eng.hasSyncInterruption = true
-        pump(queryPerformanceCounter())
+        pump(nowQpc)
     }
 
     override fun startTimer() {
@@ -101,7 +81,7 @@ class Win32TimerActions(
         val preset = presetById(activePresetId) ?: return
         val existing = engine
         if (existing != null && existing.preset.id == preset.id && !existing.isRinging) {
-            lastTickQpc = queryPerformanceCounter()
+            lastTickQpc = lastObservedQpc
             existing.start()
             power.acquireSession()
             return
@@ -109,7 +89,7 @@ class Win32TimerActions(
         val next = TimerEngine(preset)
         next.alarmScheduler = alarmScheduler
         engine = next
-        lastTickQpc = queryPerformanceCounter()
+        lastTickQpc = lastObservedQpc
         next.start()
         power.acquireSession()
     }
@@ -128,24 +108,26 @@ class Win32TimerActions(
     }
 
     override fun skipTimer() {
-        engine?.skip()
+        val eng = engine ?: return
+        if (eng.isRinging) {
+            audio.stop()
+            eng.dismissAlarm()
+        } else {
+            eng.skip()
+        }
+        synchronizeRuntimeState(eng)
     }
 
     override fun dismissAlarm() {
         audio.stop()
         val eng = engine ?: return
         eng.dismissAlarm()
-        if (eng.isActive) {
-            lastTickQpc = queryPerformanceCounter()
-            power.acquireSession()
-        } else {
-            power.releaseAll()
-        }
+        synchronizeRuntimeState(eng)
     }
 
     override fun updateTask(task: String) {
         currentTask = task
-        persistSettings()
+        requestSettingsSave()
     }
 
     override fun updateSettings(strictMode: Boolean, tickEnabled: Boolean, sound: String, vibeIntensity: Float) {
@@ -153,28 +135,29 @@ class Win32TimerActions(
         this.tickEnabled = tickEnabled
         this.vibeIntensity = vibeIntensity
         selectedFocusSound = catalogOrDefault(sound, SongCatalog.DEFAULT_FOCUS_ID)
-        persistSettings()
+        requestSettingsSave()
     }
 
     override fun updateFocusSound(sound: String) {
         selectedFocusSound = catalogOrDefault(sound, SongCatalog.DEFAULT_FOCUS_ID)
-        persistSettings()
+        requestSettingsSave()
     }
 
     override fun updateRelaxSound(sound: String) {
         selectedRelaxSound = catalogOrDefault(sound, SongCatalog.DEFAULT_RELAX_ID)
-        persistSettings()
+        requestSettingsSave()
     }
 
     override fun updateLanguage(code: String) {
         language = code
+        rebuildPresetCache()
         rebuildIdleEngine(keepRunning = true)
-        persistSettings()
+        requestSettingsSave()
     }
 
     override fun updateTheme(themeName: String) {
         appTheme = themeName
-        persistSettings()
+        requestSettingsSave()
     }
 
     override fun selectPreset(id: String) {
@@ -183,7 +166,7 @@ class Win32TimerActions(
         power.releaseAll()
         activePresetId = id
         rebuildIdleEngine()
-        persistSettings()
+        requestSettingsSave()
     }
 
     override fun addCustomPreset(preset: TimerPreset) {
@@ -207,25 +190,29 @@ class Win32TimerActions(
         if (!replaced) next.add(normalized)
         customPresets = next
         activePresetId = normalized.id
+        rebuildPresetCache()
         if (engine?.isActive != true) {
             rebuildIdleEngine()
         }
-        persistSettings()
+        requestSettingsSave()
     }
 
     override fun deletePreset(id: String) {
         customPresets = customPresets.filter { it.id != id }
+        rebuildPresetCache()
         if (activePresetId == id) {
             activePresetId = "dual_box"
             if (engine?.isActive != true) {
                 rebuildIdleEngine()
             }
         }
-        persistSettings()
+        requestSettingsSave()
     }
 
     override fun previewSound(key: String) {
-        audio.playPreview(key, volume)
+        if (!audio.playPreview(key, volume)) {
+            feedback.reportAudioFailure(isAlarm = false)
+        }
     }
 
     override fun requestExactAlarmPermission() {
@@ -234,11 +221,10 @@ class Win32TimerActions(
 
     override fun updateVolume(vol: Float) {
         volume = vol
-        persistSettings()
+        requestSettingsSave()
     }
 
     override fun getUiState(): EngineUiState {
-        val presets = currentPresets()
         val eng = engine
         if (eng == null) {
             return EngineUiState(
@@ -296,16 +282,6 @@ class Win32TimerActions(
         )
     }
 
-    override fun triggerKeyboard() {
-        // Hardware keyboard is already routed through WM_CHAR / WM_KEYDOWN.
-    }
-
-    override fun performHapticFeedback(type: Int) {
-        if (type == com.example.timeboxvibe.engine.core.EngineHaptics.IMPACT) {
-            MessageBeep(0u)
-        }
-    }
-
     fun shutdown() {
         audio.stop()
         engine?.pause()
@@ -316,15 +292,12 @@ class Win32TimerActions(
         when (event) {
             is TimerEngine.TickEvent.IntervalComplete,
             is TimerEngine.TickEvent.SequenceComplete -> {
-                alarmScheduler.cancelAlarm()
                 if (eng.isRinging) {
                     startPersistentAlarm(eng)
-                } else if (event !is TimerEngine.TickEvent.None) {
-                    val key = alarmSoundKey(eng)
-                    audio.playGentleReminder(key, volume)
-                    if (!eng.isActive) {
-                        power.releaseAll()
-                    }
+                } else {
+                    val played = audio.playGentleReminder(alarmSoundKey(eng), volume)
+                    if (!played) feedback.reportAudioFailure(isAlarm = false)
+                    if (!eng.isActive) power.releaseAll()
                 }
             }
             else -> {}
@@ -332,45 +305,64 @@ class Win32TimerActions(
     }
 
     private fun startPersistentAlarm(eng: TimerEngine) {
-        audio.playAlarm(alarmSoundKey(eng), volume)
+        val played = audio.playAlarm(alarmSoundKey(eng), volume)
+        if (!played) feedback.reportAudioFailure(isAlarm = true)
         power.acquireAlarmDisplay()
-        flashWindow()
+        feedback.flashAlarm()
+    }
+
+    private fun synchronizeRuntimeState(eng: TimerEngine) {
+        if (eng.isRinging) {
+            startPersistentAlarm(eng)
+        } else if (eng.isActive) {
+            lastTickQpc = lastObservedQpc
+            power.acquireSession()
+        } else {
+            power.releaseAll()
+        }
     }
 
     private fun alarmSoundKey(eng: TimerEngine): String {
         return if (eng.mode == "calendar" && eng.isBreak) selectedRelaxSound else selectedFocusSound
     }
 
-    private fun flashWindow() {
-        val target = hwnd ?: return
-        memScopedFlash(target)
-    }
-
     private fun rebuildIdleEngine(keepRunning: Boolean = false) {
         val running = engine?.isActive == true && keepRunning
         if (running) return
-        val preset = presetById(activePresetId) ?: currentPresets().firstOrNull() ?: return
+        val preset = presetById(activePresetId) ?: presets.firstOrNull() ?: return
         val next = TimerEngine(preset)
         next.alarmScheduler = alarmScheduler
         engine = next
         lastTickQpc = 0L
     }
 
-    private fun currentPresets(): List<TimerPreset> {
-        val defaults = getDefaultPresets(language).map { it.normalized(logFailures = true) }
-        val emergency = TimerPreset(
-            id = "emergency",
-            name = if (language == "zh") "紧急专注" else if (language == "ja") "緊急セッション" else "Emergency Session",
-            mode = "classic",
-            sequence = intArrayOf(25 * 60),
-            alarmBehavior = "alarm",
-            description = "SYS.OVERRIDE // EMERGENCY"
-        ).normalized(logFailures = true)
-        return defaults + customPresets + emergency
+    private fun rebuildPresetCache() {
+        val defaults = getDefaultPresets(language)
+        val next = ArrayList<TimerPreset>(defaults.size + customPresets.size + 1)
+        var i = 0
+        while (i < defaults.size) {
+            next.add(defaults[i].normalized(logFailures = true))
+            i++
+        }
+        i = 0
+        while (i < customPresets.size) {
+            next.add(customPresets[i])
+            i++
+        }
+        next.add(
+            TimerPreset(
+                id = "emergency",
+                name = if (language == "zh") "紧急专注" else if (language == "ja") "緊急セッション" else "Emergency Session",
+                mode = "classic",
+                sequence = intArrayOf(25 * 60),
+                alarmBehavior = "alarm",
+                description = "SYS.OVERRIDE // EMERGENCY"
+            ).normalized(logFailures = true)
+        )
+        presets = next
     }
 
     private fun presetById(id: String): TimerPreset? {
-        val presets = currentPresets()
         var i = 0
         while (i < presets.size) {
             if (presets[i].id == id) return presets[i]
@@ -397,49 +389,19 @@ class Win32TimerActions(
         activePresetId = saved.activePresetId
     }
 
-    private fun persistSettings() {
-        settingsStore.save(
-            PersistedWin32Settings(
-                language = language,
-                appTheme = appTheme,
-                currentTask = currentTask,
-                strictMode = strictMode,
-                tickEnabled = tickEnabled,
-                vibeIntensity = vibeIntensity,
-                volume = volume,
-                selectedFocusSound = selectedFocusSound,
-                selectedRelaxSound = selectedRelaxSound,
-                activePresetId = activePresetId,
-                customPresets = customPresets
-            )
+    private fun requestSettingsSave() {
+        settingsStore.requestSave(
+            language,
+            appTheme,
+            currentTask,
+            strictMode,
+            tickEnabled,
+            vibeIntensity,
+            volume,
+            selectedFocusSound,
+            selectedRelaxSound,
+            activePresetId,
+            customPresets
         )
-    }
-}
-
-private fun memScopedFlash(hwnd: HWND) {
-    memScoped {
-        val info = alloc<FLASHWINFO>()
-        info.cbSize = sizeOf<FLASHWINFO>().toUInt()
-        info.hwnd = hwnd
-        info.dwFlags = FLASHW_ALL or FLASHW_TIMERNOFG
-        info.uCount = 5u
-        info.dwTimeout = 0u
-        FlashWindowEx(info.ptr)
-    }
-}
-
-internal fun queryPerformanceFrequency(): Long {
-    memScoped {
-        val freq = alloc<LARGE_INTEGER>()
-        QueryPerformanceFrequency(freq.ptr)
-        return freq.QuadPart
-    }
-}
-
-internal fun queryPerformanceCounter(): Long {
-    memScoped {
-        val now = alloc<LARGE_INTEGER>()
-        QueryPerformanceCounter(now.ptr)
-        return now.QuadPart
     }
 }

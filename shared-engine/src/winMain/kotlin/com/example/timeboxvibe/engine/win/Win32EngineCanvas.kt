@@ -188,8 +188,7 @@ class Win32EngineCanvas(
 
     private fun nativeColor(colorIndex: Int): Int {
         syncPalette()
-        val rgb = cachedNativePalette[colorIndex and 0x0F]
-        return (drawAlpha shl 24) or (rgb and 0x00FFFFFF)
+        return cachedNativePalette[colorIndex and 0x0F] and 0x00FFFFFF
     }
 
     private fun convert12BitToDib(color12: Color12Bit): Int {
@@ -210,7 +209,13 @@ class Win32EngineCanvas(
 
     private fun plot(x: Int, y: Int, color: Int) {
         if (x < 0 || y < 0 || x >= pixelWidth || y >= pixelHeight) return
-        pixels[y * pixelWidth + x] = color
+        val index = y * pixelWidth + x
+        val alpha = drawAlpha
+        if (alpha >= 0xFF) {
+            pixels[index] = color
+        } else if (alpha > 0) {
+            pixels[index] = blendRgb(color, pixels[index], alpha)
+        }
     }
 
     private fun fillRectSnapped(x: Int, y: Int, w: Int, h: Int, color: Int) {
@@ -220,16 +225,34 @@ class Win32EngineCanvas(
         val right = (x + w).coerceAtMost(pixelWidth)
         val bottom = (y + h).coerceAtMost(pixelHeight)
         if (left >= right || top >= bottom) return
+        val alpha = drawAlpha
+        if (alpha <= 0) return
         var row = top
         while (row < bottom) {
             var col = left
             val rowOffset = row * pixelWidth
-            while (col < right) {
-                pixels[rowOffset + col] = color
-                col++
+            if (alpha >= 0xFF) {
+                while (col < right) {
+                    pixels[rowOffset + col] = color
+                    col++
+                }
+            } else {
+                while (col < right) {
+                    val index = rowOffset + col
+                    pixels[index] = blendRgb(color, pixels[index], alpha)
+                    col++
+                }
             }
             row++
         }
+    }
+
+    private fun blendRgb(source: Int, destination: Int, alpha: Int): Int {
+        val inverse = 0xFF - alpha
+        val blue = (((source and 0xFF) * alpha) + ((destination and 0xFF) * inverse) + 0x7F) / 0xFF
+        val green = ((((source ushr 8) and 0xFF) * alpha) + (((destination ushr 8) and 0xFF) * inverse) + 0x7F) / 0xFF
+        val red = ((((source ushr 16) and 0xFF) * alpha) + (((destination ushr 16) and 0xFF) * inverse) + 0x7F) / 0xFF
+        return blue or (green shl 8) or (red shl 16)
     }
 
     private fun fillDisk(cx: Int, cy: Int, radius: Int, color: Int) {

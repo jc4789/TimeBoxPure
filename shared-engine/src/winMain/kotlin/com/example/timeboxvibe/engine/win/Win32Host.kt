@@ -4,6 +4,7 @@ package com.example.timeboxvibe.engine.win
 import com.example.timeboxvibe.engine.core.ActiveTimerScene
 import com.example.timeboxvibe.engine.core.CANONICAL_UI_UNIT
 import com.example.timeboxvibe.engine.core.DisplayScalePolicy
+import com.example.timeboxvibe.engine.core.ENGINE_TOUCH_CANCEL
 import com.example.timeboxvibe.engine.core.ENGINE_TOUCH_DOWN
 import com.example.timeboxvibe.engine.core.ENGINE_TOUCH_MOVE
 import com.example.timeboxvibe.engine.core.ENGINE_TOUCH_UP
@@ -15,9 +16,11 @@ import kotlinx.cinterop.alloc
 import kotlinx.cinterop.allocArray
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
+import kotlinx.cinterop.pointed
 import kotlinx.cinterop.sizeOf
 import kotlinx.cinterop.set
 import kotlinx.cinterop.staticCFunction
+import kotlinx.cinterop.toCPointer
 import kotlinx.cinterop.usePinned
 import kotlinx.cinterop.wcstr
 import platform.windows.BI_RGB
@@ -32,6 +35,7 @@ import platform.windows.DIB_RGB_COLORS
 import platform.windows.DefWindowProcW
 import platform.windows.DispatchMessageW
 import platform.windows.FALSE
+import platform.windows.GetCapture
 import platform.windows.GetClientRect
 import platform.windows.GetDC
 import platform.windows.GetModuleHandleW
@@ -53,11 +57,15 @@ import platform.windows.QS_ALLINPUT
 import platform.windows.RECT
 import platform.windows.RegisterClassExW
 import platform.windows.ReleaseDC
+import platform.windows.ReleaseCapture
 import platform.windows.SRCCOPY
+import platform.windows.SIZE_MINIMIZED
 import platform.windows.SW_SHOW
 import platform.windows.ScreenToClient
 import platform.windows.SetStretchBltMode
+import platform.windows.SetCapture
 import platform.windows.SetWaitableTimer
+import platform.windows.SetWindowPos
 import platform.windows.ShowWindow
 import platform.windows.StretchDIBits
 import platform.windows.TranslateMessage
@@ -68,6 +76,8 @@ import platform.windows.VK_LEFT
 import platform.windows.VK_RETURN
 import platform.windows.VK_RIGHT
 import platform.windows.WM_CHAR
+import platform.windows.WM_CANCELMODE
+import platform.windows.WM_CAPTURECHANGED
 import platform.windows.WM_DESTROY
 import platform.windows.WM_KEYDOWN
 import platform.windows.WM_LBUTTONDOWN
@@ -80,6 +90,9 @@ import platform.windows.WNDCLASSEXW
 import platform.windows.WPARAM
 import platform.windows.WS_OVERLAPPEDWINDOW
 import platform.windows.WS_VISIBLE
+import platform.windows.SWP_NOACTIVATE
+import platform.windows.SWP_NOZORDER
+import platform.windows.WAIT_OBJECT_0
 import kotlin.concurrent.Volatile
 
 private const val WINDOW_CLASS_NAME = "TimeBoxWin32Terminal"
@@ -88,7 +101,10 @@ internal class Win32Host {
     val alarm = Win32AlarmScheduler()
     val audio = Win32Audio()
     val power = Win32Power()
-    val actions = Win32TimerActions(alarm, audio, power)
+    val feedback = Win32Feedback()
+    val settings = Win32SettingsStore()
+    val qpcFrequency = queryPerformanceFrequency()
+    val actions = Win32TimerController(alarm, audio, power, feedback, settings, qpcFrequency)
     val frameTimer: HANDLE? = CreateWaitableTimerExW(
         null,
         null,
@@ -108,6 +124,10 @@ internal class Win32Host {
     private val touchQueue = IntArray(TOUCH_QUEUE_CAPACITY * TOUCH_EVENT_SLOT_COUNT)
     val drainQueue = IntArray(TOUCH_QUEUE_CAPACITY * TOUCH_EVENT_SLOT_COUNT)
     private var touchCount = 0
+    private var pointerDown = false
+    private var lastPointerX = 0
+    private var lastPointerY = 0
+    var minimized = false
     @Volatile
     var running = true
 
@@ -137,6 +157,34 @@ internal class Win32Host {
             touchCount = 0
         }
         return count
+    }
+
+    fun beginPointer(rawX: Int, rawY: Int) {
+        pointerDown = true
+        lastPointerX = rawX
+        lastPointerY = rawY
+        enqueueTouch(rawX, rawY, ENGINE_TOUCH_DOWN)
+    }
+
+    fun movePointer(rawX: Int, rawY: Int) {
+        if (!pointerDown) return
+        lastPointerX = rawX
+        lastPointerY = rawY
+        enqueueTouch(rawX, rawY, ENGINE_TOUCH_MOVE)
+    }
+
+    fun endPointer(rawX: Int, rawY: Int) {
+        if (!pointerDown) return
+        pointerDown = false
+        lastPointerX = rawX
+        lastPointerY = rawY
+        enqueueTouch(rawX, rawY, ENGINE_TOUCH_UP)
+    }
+
+    fun cancelPointer() {
+        if (!pointerDown) return
+        pointerDown = false
+        enqueueTouch(lastPointerX, lastPointerY, ENGINE_TOUCH_CANCEL)
     }
 
     fun applyClientSize(width: Int, height: Int, dpi: Int) {
@@ -204,6 +252,7 @@ internal class Win32Host {
     fun shutdown() {
         running = false
         actions.shutdown()
+        settings.shutdown()
         audio.shutdown()
         alarm.shutdown()
         power.shutdown()
@@ -261,17 +310,20 @@ internal fun runWin32Terminal() {
             return
         }
         host.hwnd = hwnd
-        host.actions.attachWindow(hwnd)
+        host.alarm.targetHwnd = hwnd
+        host.feedback.attachWindow(hwnd)
         ShowWindow(hwnd, SW_SHOW)
         UpdateWindow(hwnd)
         applyResizeFromHwnd(host, hwnd)
 
-        SceneManager.init(host.actions, host.actions)
+        SceneManager.init(host.actions, host.feedback)
         SceneManager.switchScene(ActiveTimerScene)
 
         val msg = alloc<MSG>()
         var lastQpc = queryPerformanceCounter()
-        val freq = queryPerformanceFrequency().coerceAtLeast(1L)
+        val freq = host.qpcFrequency
+        val frameQpc = ((FRAME_NANOS * freq) / NANOSECONDS_PER_SECOND).coerceAtLeast(1L)
+        var nextFrameQpc = lastQpc
         while (host.running) {
             while (PeekMessageW(msg.ptr, null, 0u, 0u, PM_REMOVE.toUInt()) != 0) {
                 if (msg.message.toInt() == WM_QUIT) {
@@ -284,65 +336,90 @@ internal fun runWin32Terminal() {
             if (!host.running) break
 
             val frameStart = queryPerformanceCounter()
+            if (frameStart < nextFrameQpc) {
+                waitUntilFrameOrMessage(host, nextFrameQpc, freq)
+                continue
+            }
             val elapsed = frameStart - lastQpc
             lastQpc = frameStart
             val dt = (elapsed.toDouble() / freq.toDouble()).toFloat().coerceAtMost(MAX_DELTA_SECONDS)
+            nextFrameQpc += frameQpc
+            if (nextFrameQpc <= frameStart) {
+                nextFrameQpc = frameStart + frameQpc
+            }
+
+            host.actions.pump(frameStart)
+            host.audio.pump()
 
             val canvas = host.canvas
             val renderer = host.renderer
-            if (canvas != null && renderer != null && host.logicalWidth > 0f && host.logicalHeight > 0f) {
-                val touches = host.drainTouches()
-                host.actions.pump(frameStart)
-                host.audio.pump()
+            val touches = host.drainTouches()
+            if (!host.minimized && canvas != null && renderer != null && host.logicalWidth > 0f && host.logicalHeight > 0f) {
                 SceneManager.setLogicalBounds(host.logicalWidth, host.logicalHeight)
                 SceneManager.update(dt, host.drainQueue, touches)
                 SceneManager.render(renderer, host.logicalWidth, host.logicalHeight)
                 host.present()
+            } else if (touches > 0) {
+                SceneManager.update(0f, host.drainQueue, touches)
             }
-
-            waitForNextFrame(host, frameStart, freq)
         }
     }
     host.shutdown()
     activeHost = null
 }
 
-private fun applyResizeFromHwnd(host: Win32Host, hwnd: HWND?) {
+private fun applyResizeFromHwnd(host: Win32Host, hwnd: HWND?, dpi: Int = windowDpi(hwnd)) {
     if (hwnd == null) return
     memScoped {
         val rect = alloc<RECT>()
         GetClientRect(hwnd, rect.ptr)
         val width = (rect.right - rect.left)
         val height = (rect.bottom - rect.top)
-        host.applyClientSize(width, height, windowDpi(hwnd))
+        host.applyClientSize(width, height, dpi)
     }
 }
 
-private fun waitForNextFrame(host: Win32Host, frameStartQpc: Long, freq: Long) {
+private fun waitUntilFrameOrMessage(host: Win32Host, deadlineQpc: Long, freq: Long) {
     val timer = host.frameTimer
-    val elapsedQpc = queryPerformanceCounter() - frameStartQpc
-    val frameQpc = (FRAME_NANOS * freq) / 1_000_000_000L
-    val remain = frameQpc - elapsedQpc
-    if (remain <= 0L || timer == null) return
-    memScoped {
-        val due = alloc<LARGE_INTEGER>()
-        due.QuadPart = -((remain * 1_000_000_000L) / freq) / 100L
-        SetWaitableTimer(timer, due.ptr, 0, null, null, FALSE)
-        val handles = allocArray<platform.windows.HANDLEVar>(1)
-        handles[0] = timer
-        MsgWaitForMultipleObjects(1u, handles, FALSE, INFINITE, QS_ALLINPUT.toUInt())
+    val remain = deadlineQpc - queryPerformanceCounter()
+    if (remain <= 0L) return
+    if (timer != null) {
+        val waitResult = memScoped {
+            val due = alloc<LARGE_INTEGER>()
+            val remainNanos = (remain * NANOSECONDS_PER_SECOND) / freq
+            due.QuadPart = -(remainNanos / HUNDRED_NANOSECOND_NANOS).coerceAtLeast(1L)
+            if (SetWaitableTimer(timer, due.ptr, 0, null, null, FALSE) == 0) {
+                return@memScoped null
+            }
+            val handles = allocArray<platform.windows.HANDLEVar>(1)
+            handles[0] = timer
+            MsgWaitForMultipleObjects(1u, handles, FALSE, INFINITE, QS_ALLINPUT.toUInt())
+        }
+        if (waitResult == WAIT_OBJECT_0 || waitResult == WAIT_OBJECT_0 + 1u) return
     }
+    val timeoutMillis = ((remain * MILLISECONDS_PER_SECOND + freq - 1L) / freq)
+        .coerceIn(1L, UInt.MAX_VALUE.toLong())
+        .toUInt()
+    MsgWaitForMultipleObjects(0u, null, FALSE, timeoutMillis, QS_ALLINPUT.toUInt())
 }
 
 private fun win32WndProc(hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: LPARAM): LRESULT {
     val host = activeHost
     when (message.toInt()) {
         WM_SIZE -> {
-            if (host != null) applyResizeFromHwnd(host, hwnd)
+            if (host != null) {
+                host.minimized = wParam.toInt() == SIZE_MINIMIZED
+                if (host.minimized) {
+                    host.cancelPointer()
+                    releaseMouseCapture(hwnd)
+                } else {
+                    applyResizeFromHwnd(host, hwnd)
+                }
+            }
             return 0
         }
         WM_DPICHANGED_VALUE -> {
-            if (host != null) applyResizeFromHwnd(host, hwnd)
+            if (host != null) applyDpiSuggestedRect(host, hwnd, wParam, lParam)
             return 0
         }
         WM_PAINT -> {
@@ -355,17 +432,26 @@ private fun win32WndProc(hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: LPA
             return 0
         }
         WM_LBUTTONDOWN -> {
-            host?.enqueueTouch(lowWord(lParam), highWord(lParam), ENGINE_TOUCH_DOWN)
+            if (host != null) {
+                SetCapture(hwnd)
+                host.beginPointer(signedLowWord(lParam.toLong()), signedHighWord(lParam.toLong()))
+            }
             return 0
         }
         WM_MOUSEMOVE -> {
             if ((wParam.toInt() and platform.windows.MK_LBUTTON.toInt()) != 0) {
-                host?.enqueueTouch(lowWord(lParam), highWord(lParam), ENGINE_TOUCH_MOVE)
+                host?.movePointer(signedLowWord(lParam.toLong()), signedHighWord(lParam.toLong()))
             }
             return 0
         }
         WM_LBUTTONUP -> {
-            host?.enqueueTouch(lowWord(lParam), highWord(lParam), ENGINE_TOUCH_UP)
+            host?.endPointer(signedLowWord(lParam.toLong()), signedHighWord(lParam.toLong()))
+            releaseMouseCapture(hwnd)
+            return 0
+        }
+        WM_CAPTURECHANGED, WM_CANCELMODE -> {
+            host?.cancelPointer()
+            releaseMouseCapture(hwnd)
             return 0
         }
         WM_MOUSEWHEEL_VALUE -> {
@@ -389,7 +475,9 @@ private fun win32WndProc(hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: LPA
             return 0
         }
         WM_APP_ALARM_VALUE -> {
-            host?.actions?.onOsAlarm()
+            if (host != null && host.alarm.isCurrentNotification(wParam.toInt())) {
+                host.actions.onOsAlarm(queryPerformanceCounter())
+            }
             return 0
         }
         WM_DESTROY -> {
@@ -399,6 +487,32 @@ private fun win32WndProc(hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: LPA
         }
     }
     return DefWindowProcW(hwnd, message, wParam, lParam)
+}
+
+private fun applyDpiSuggestedRect(host: Win32Host, hwnd: HWND?, wParam: WPARAM, lParam: LPARAM) {
+    if (hwnd == null) return
+    val suggested = lParam.toLong().toCPointer<RECT>() ?: return
+    val left = suggested.pointed.left
+    val top = suggested.pointed.top
+    val width = suggested.pointed.right - left
+    val height = suggested.pointed.bottom - top
+    if (width <= 0 || height <= 0) return
+    SetWindowPos(
+        hwnd,
+        null,
+        left,
+        top,
+        width,
+        height,
+        (SWP_NOZORDER.toInt() or SWP_NOACTIVATE.toInt()).toUInt()
+    )
+    applyResizeFromHwnd(host, hwnd, wParam.toInt() and 0xFFFF)
+}
+
+private fun releaseMouseCapture(hwnd: HWND?) {
+    if (hwnd != null && GetCapture() == hwnd) {
+        ReleaseCapture()
+    }
 }
 
 private fun enqueueWheelScroll(host: Win32Host, hwnd: HWND?, wParam: WPARAM, lParam: LPARAM) {
@@ -419,9 +533,6 @@ private fun enqueueWheelScroll(host: Win32Host, hwnd: HWND?, wParam: WPARAM, lPa
         host.enqueueTouch(x, y + physicalDelta, ENGINE_TOUCH_UP)
     }
 }
-
-private fun lowWord(value: LPARAM): Int = value.toInt() and 0xFFFF
-private fun highWord(value: LPARAM): Int = (value.toInt() ushr 16) and 0xFFFF
 
 private fun signedLowWord(value: Long): Int = value.toInt().toShort().toInt()
 private fun signedHighWord(value: Long): Int = (value.toInt() shr 16).toShort().toInt()
