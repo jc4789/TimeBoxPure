@@ -78,6 +78,20 @@ Every important claim must cite a file, symbol, commit, command, or specificatio
 
 The root verifies load-bearing claims before acting. Agent agreement is not evidence.
 
+
+## What this skill is not
+- A reason to do an audit, when not asked.
+- A reason to reverify claims in an implementation plan.  Any implementation plan you are given is verifyed and reflects the current state of the code in its scope.
+- A reason to reverify, something that has been verified.
+- A reason to reject a an implementation plan or what the user asked of you.
+- A reason to not respect the current codebases coding style.
+
+## What this skill
+
+This skill is just to help you stay on track of what the user asked of you and the task at-hand.
+Its core Purpose is to make sure you do not exeperiance context drift over long large tasks given to you, by the User.
+
+
 ## Resume After Compaction
 
 Before continuing:

@@ -56,6 +56,8 @@ Platform wrappers must not own:
 - asset loading
 - UI framework state
 
+
+
 ## Required Shape
 
 Platform code should forward facts into core:
@@ -75,6 +77,17 @@ Platform code should not decide what UI looks like.
 - `commonMain`: engine logic and platform-agnostic math
 - platform source sets: OS wrappers only
 - C interop: platform source sets only
+
+## Additional clarification
+
+Vendor-recommended application architecture does not override the engine firewall.
+
+For a mechanical platform port, compare the supplied reference wrapper first.
+The platform may report OS facts, but must not adopt OS layout, scaling,
+navigation, timing, or alarm policy when commonMain already owns that policy.
+
+A difference from conventional Win32 style is not a finding by itself.
+PASS with zero recommendations is a complete result.
 
 ## Output Format
 
