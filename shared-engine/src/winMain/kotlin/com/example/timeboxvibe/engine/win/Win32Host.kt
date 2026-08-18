@@ -3,13 +3,15 @@ package com.example.timeboxvibe.engine.win
 
 import com.example.timeboxvibe.engine.core.ActiveTimerScene
 import com.example.timeboxvibe.engine.core.CANONICAL_UI_UNIT
-import com.example.timeboxvibe.engine.core.DisplayScalePolicy
 import com.example.timeboxvibe.engine.core.ENGINE_TOUCH_DOWN
 import com.example.timeboxvibe.engine.core.ENGINE_TOUCH_MOVE
 import com.example.timeboxvibe.engine.core.ENGINE_TOUCH_UP
 import com.example.timeboxvibe.engine.core.EngineInputCodes
+import com.example.timeboxvibe.engine.core.PresentationTransform
+import com.example.timeboxvibe.engine.core.PrimitiveDisplayProfile
 import com.example.timeboxvibe.engine.core.ScaledProceduralRenderer
 import com.example.timeboxvibe.engine.core.SceneManager
+import com.example.timeboxvibe.engine.core.SoftwareEngineCanvas
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.allocArray
@@ -22,10 +24,7 @@ import kotlinx.cinterop.usePinned
 import kotlinx.cinterop.wcstr
 import platform.windows.BI_RGB
 import platform.windows.BITMAPINFO
-import platform.windows.CS_HREDRAW
 import platform.windows.CS_OWNDC
-import platform.windows.CS_VREDRAW
-import platform.windows.CreateSolidBrush
 import platform.windows.CreateWaitableTimerExW
 import platform.windows.CreateWindowExW
 import platform.windows.DIB_RGB_COLORS
@@ -36,6 +35,7 @@ import platform.windows.GetClientRect
 import platform.windows.GetDC
 import platform.windows.GetModuleHandleW
 import platform.windows.HANDLE
+import platform.windows.HDC
 import platform.windows.HWND
 import platform.windows.IDC_ARROW
 import platform.windows.INFINITE
@@ -69,6 +69,7 @@ import platform.windows.VK_RETURN
 import platform.windows.VK_RIGHT
 import platform.windows.WM_CHAR
 import platform.windows.WM_DESTROY
+import platform.windows.WM_ERASEBKGND
 import platform.windows.WM_KEYDOWN
 import platform.windows.WM_LBUTTONDOWN
 import platform.windows.WM_LBUTTONUP
@@ -97,14 +98,17 @@ internal class Win32Host {
     ) ?: CreateWaitableTimerExW(null, null, 0u, TIMER_ALL_ACCESS)
 
     var hwnd: HWND? = null
-    var canvas: Win32EngineCanvas? = null
+    var canvas: SoftwareEngineCanvas? = null
     var renderer: ScaledProceduralRenderer? = null
-    var scaleFactor: Int = DisplayScalePolicy.MIN_SCALE
+    var presenter: Win32FramebufferPresenter? = null
+    val presentationTransform = PresentationTransform()
     var logicalWidth = 0f
     var logicalHeight = 0f
     var physicalWidth = 0
     var physicalHeight = 0
-    var presentationDensity = 1f
+    private var pendingPhysicalWidth = 0
+    private var pendingPhysicalHeight = 0
+    var frameReady = false
     private val touchQueue = IntArray(TOUCH_QUEUE_CAPACITY * TOUCH_EVENT_SLOT_COUNT)
     val drainQueue = IntArray(TOUCH_QUEUE_CAPACITY * TOUCH_EVENT_SLOT_COUNT)
     private var touchCount = 0
@@ -112,9 +116,13 @@ internal class Win32Host {
     var running = true
 
     fun enqueueTouch(rawX: Int, rawY: Int, action: Int) {
-        if (scaleFactor <= 0) return
-        val logicalX = rawX / scaleFactor
-        val logicalY = rawY / scaleFactor
+        val logicalX = presentationTransform.primitiveX(rawX)
+        val logicalY = presentationTransform.primitiveY(rawY)
+        if (logicalX == PresentationTransform.OUTSIDE || logicalY == PresentationTransform.OUTSIDE) return
+        enqueuePrimitiveTouch(logicalX, logicalY, rawX, rawY, action)
+    }
+
+    fun enqueuePrimitiveTouch(logicalX: Int, logicalY: Int, rawX: Int, rawY: Int, action: Int) {
         if (touchCount >= TOUCH_QUEUE_CAPACITY) return
         val offset = touchCount * TOUCH_EVENT_SLOT_COUNT
         touchQueue[offset + TOUCH_SLOT_LOGICAL_X] = logicalX
@@ -139,65 +147,84 @@ internal class Win32Host {
         return count
     }
 
-    fun applyClientSize(width: Int, height: Int, dpi: Int) {
+    fun queueClientSize(width: Int, height: Int) {
+        if (width <= 0 || height <= 0) return
+        pendingPhysicalWidth = width
+        pendingPhysicalHeight = height
+        if (width != physicalWidth || height != physicalHeight) frameReady = false
+    }
+
+    fun applyPendingClientSize() {
+        val width = pendingPhysicalWidth
+        val height = pendingPhysicalHeight
+        if (width <= 0 || height <= 0) return
+        pendingPhysicalWidth = 0
+        pendingPhysicalHeight = 0
+        applyClientSize(width, height)
+    }
+
+    private fun applyClientSize(width: Int, height: Int) {
         if (width <= 0 || height <= 0) return
         physicalWidth = width
         physicalHeight = height
-        val density = platformDensityFromDpi(dpi)
-        presentationDensity = if (density.isFinite() && density > 0.1f && density < 10f) density else 1f
-        val scale = DisplayScalePolicy.deriveScale(width.toFloat(), height.toFloat(), presentationDensity)
-        val logW = width.toFloat() / scale
-        val logH = height.toFloat() / scale
-        scaleFactor = scale
-        logicalWidth = logW
-        logicalHeight = logH
+        val primitiveWidth = PrimitiveDisplayProfile.primitiveWidth(width, height)
+        val primitiveHeight = PrimitiveDisplayProfile.primitiveHeight(width, height)
+        logicalWidth = primitiveWidth.toFloat()
+        logicalHeight = primitiveHeight.toFloat()
+        presentationTransform.configure(primitiveWidth, primitiveHeight, width, height)
         val existing = canvas
         if (existing == null) {
-            val next = Win32EngineCanvas(logW, logH, LOGICAL_ENGINE_DENSITY, scale, width, height)
+            val next = SoftwareEngineCanvas(primitiveWidth, primitiveHeight)
             canvas = next
             renderer = ScaledProceduralRenderer(next)
+            presenter = Win32FramebufferPresenter(primitiveWidth, primitiveHeight)
         } else {
-            existing.presentationScale = scale
-            existing.density = LOGICAL_ENGINE_DENSITY
-            existing.resizeFramebuffer(logW, logH, width, height)
-            renderer = ScaledProceduralRenderer(existing)
+            existing.resize(primitiveWidth, primitiveHeight)
         }
     }
 
     fun present() {
         val window = hwnd ?: return
-        val fb = canvas ?: return
+        if (!frameReady) return
         val dc = GetDC(window) ?: return
         try {
-            memScoped {
-                val info = alloc<BITMAPINFO>()
-                info.bmiHeader.biSize = sizeOf<platform.windows.BITMAPINFOHEADER>().toUInt()
-                info.bmiHeader.biWidth = fb.pixelWidth
-                info.bmiHeader.biHeight = -fb.pixelHeight
-                info.bmiHeader.biPlanes = 1u
-                info.bmiHeader.biBitCount = 32u
-                info.bmiHeader.biCompression = BI_RGB.toUInt()
-                SetStretchBltMode(dc, COLORONCOLOR_MODE)
-                fb.pixels.usePinned { pinned ->
-                    StretchDIBits(
-                        dc,
-                        0,
-                        0,
-                        fb.pixelWidth,
-                        fb.pixelHeight,
-                        0,
-                        0,
-                        fb.pixelWidth,
-                        fb.pixelHeight,
-                        pinned.addressOf(0),
-                        info.ptr,
-                        DIB_RGB_COLORS.toUInt(),
-                        SRCCOPY
-                    )
-                }
-            }
+            presentTo(dc)
         } finally {
             ReleaseDC(window, dc)
+        }
+    }
+
+    fun presentTo(dc: HDC?) {
+        if (!frameReady || dc == null) return
+        val softwareCanvas = canvas ?: return
+        val framePresenter = presenter ?: return
+        framePresenter.expand(softwareCanvas.framebuffer)
+        memScoped {
+            val info = alloc<BITMAPINFO>()
+            info.bmiHeader.biSize = sizeOf<platform.windows.BITMAPINFOHEADER>().toUInt()
+            info.bmiHeader.biWidth = framePresenter.pixelWidth
+            info.bmiHeader.biHeight = -framePresenter.pixelHeight
+            info.bmiHeader.biPlanes = 1u
+            info.bmiHeader.biBitCount = 32u
+            info.bmiHeader.biCompression = BI_RGB.toUInt()
+            SetStretchBltMode(dc, COLORONCOLOR_MODE)
+            framePresenter.pixels.usePinned { pinned ->
+                StretchDIBits(
+                    dc,
+                    presentationTransform.viewportX,
+                    presentationTransform.viewportY,
+                    presentationTransform.viewportWidth,
+                    presentationTransform.viewportHeight,
+                    0,
+                    0,
+                    framePresenter.pixelWidth,
+                    framePresenter.pixelHeight,
+                    pinned.addressOf(0),
+                    info.ptr,
+                    DIB_RGB_COLORS.toUInt(),
+                    SRCCOPY
+                )
+            }
         }
     }
 
@@ -224,14 +251,14 @@ internal fun runWin32Terminal() {
         val className = WINDOW_CLASS_NAME.wcstr
         val wc = alloc<WNDCLASSEXW>()
         wc.cbSize = sizeOf<WNDCLASSEXW>().toUInt()
-        wc.style = (CS_OWNDC.toInt() or CS_HREDRAW.toInt() or CS_VREDRAW.toInt()).toUInt()
+        wc.style = CS_OWNDC.toUInt()
         wc.lpfnWndProc = staticCFunction(::win32WndProc)
         wc.cbClsExtra = 0
         wc.cbWndExtra = 0
         wc.hInstance = module
         wc.hIcon = null
         wc.hCursor = LoadCursorW(null, IDC_ARROW)
-        wc.hbrBackground = CreateSolidBrush(rgbColor(0, 0, 0))
+        wc.hbrBackground = null
         wc.lpszMenuName = null
         wc.lpszClassName = className.ptr
         wc.hIconSm = null
@@ -265,6 +292,7 @@ internal fun runWin32Terminal() {
         ShowWindow(hwnd, SW_SHOW)
         UpdateWindow(hwnd)
         applyResizeFromHwnd(host, hwnd)
+        host.applyPendingClientSize()
 
         SceneManager.init(host.actions, host.actions)
         SceneManager.switchScene(ActiveTimerScene)
@@ -282,6 +310,7 @@ internal fun runWin32Terminal() {
                 DispatchMessageW(msg.ptr)
             }
             if (!host.running) break
+            host.applyPendingClientSize()
 
             val frameStart = queryPerformanceCounter()
             val elapsed = frameStart - lastQpc
@@ -297,6 +326,7 @@ internal fun runWin32Terminal() {
                 SceneManager.setLogicalBounds(host.logicalWidth, host.logicalHeight)
                 SceneManager.update(dt, host.drainQueue, touches)
                 SceneManager.render(renderer, host.logicalWidth, host.logicalHeight)
+                host.frameReady = true
                 host.present()
             }
 
@@ -314,7 +344,7 @@ private fun applyResizeFromHwnd(host: Win32Host, hwnd: HWND?) {
         GetClientRect(hwnd, rect.ptr)
         val width = (rect.right - rect.left)
         val height = (rect.bottom - rect.top)
-        host.applyClientSize(width, height, windowDpi(hwnd))
+        host.queueClientSize(width, height)
     }
 }
 
@@ -345,11 +375,12 @@ private fun win32WndProc(hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: LPA
             if (host != null) applyResizeFromHwnd(host, hwnd)
             return 0
         }
+        WM_ERASEBKGND -> return 1
         WM_PAINT -> {
-            host?.present()
             memScoped {
                 val ps = alloc<platform.windows.PAINTSTRUCT>()
-                platform.windows.BeginPaint(hwnd, ps.ptr)
+                val dc = platform.windows.BeginPaint(hwnd, ps.ptr)
+                host?.presentTo(dc)
                 platform.windows.EndPaint(hwnd, ps.ptr)
             }
             return 0
@@ -405,8 +436,8 @@ private fun enqueueWheelScroll(host: Win32Host, hwnd: HWND?, wParam: WPARAM, lPa
     if ((wParam.toInt() and MK_LBUTTON_FLAG) != 0) return
     val notches = signedHighWord(wParam.toLong()) / WHEEL_DELTA_STANDARD
     if (notches == 0) return
-    val physicalDelta = notches * WHEEL_NOTCH_CELLS * CANONICAL_UI_UNIT * host.scaleFactor
-    if (physicalDelta == 0) return
+    val primitiveDelta = notches * WHEEL_NOTCH_CELLS * CANONICAL_UI_UNIT
+    if (primitiveDelta == 0) return
     memScoped {
         val point = alloc<POINT>()
         point.x = signedLowWord(lParam)
@@ -414,9 +445,12 @@ private fun enqueueWheelScroll(host: Win32Host, hwnd: HWND?, wParam: WPARAM, lPa
         ScreenToClient(hwnd, point.ptr)
         val x = point.x
         val y = point.y
-        host.enqueueTouch(x, y, ENGINE_TOUCH_DOWN)
-        host.enqueueTouch(x, y + physicalDelta, ENGINE_TOUCH_MOVE)
-        host.enqueueTouch(x, y + physicalDelta, ENGINE_TOUCH_UP)
+        val primitiveX = host.presentationTransform.primitiveX(x)
+        val primitiveY = host.presentationTransform.primitiveY(y)
+        if (primitiveX == PresentationTransform.OUTSIDE || primitiveY == PresentationTransform.OUTSIDE) return@memScoped
+        host.enqueuePrimitiveTouch(primitiveX, primitiveY, x, y, ENGINE_TOUCH_DOWN)
+        host.enqueuePrimitiveTouch(primitiveX, primitiveY + primitiveDelta, x, y, ENGINE_TOUCH_MOVE)
+        host.enqueuePrimitiveTouch(primitiveX, primitiveY + primitiveDelta, x, y, ENGINE_TOUCH_UP)
     }
 }
 

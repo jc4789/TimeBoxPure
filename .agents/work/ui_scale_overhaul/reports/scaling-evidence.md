@@ -1,21 +1,19 @@
 # Scope
-Current production scaling and layout call paths relevant to the requested guide.
+Visual comparison of the supplied reverted-baseline, failed-overhaul, and landscape screenshots.
 
 # Confirmed
-- `CANONICAL_UI_UNIT = 16`: `shared-engine/src/commonMain/.../core/EngineCanvas.kt:5`.
-- Density/width-derived `DisplayScalePolicy`: `EngineCanvas.kt:7-50`.
-- Independent capped `TextRasterScale`: `EngineCanvas.kt:53-87`.
-- Text measurements and raster writes depend on that cap: `ScaledProceduralRenderer.kt:25-30, 45-46, 104-199` and `ProceduralUiPrimitives.kt:80-329`.
-- Android scale path: `Pc98SurfaceView.surfaceChanged`, `onTouchEvent`, and `RenderThread.drawFrame`.
-- Win32 scale path: `Win32Host.applyClientSize`, `enqueueTouch`, and `Win32EngineCanvas` primitive scaling.
-- Shared layout authority: `SceneManager.setLogicalBounds` and `RetroHudComponent.layoutMode`.
+- All eight Android screenshots are 1080x2424 image files; four are before and four are after the reverted overhaul.
+- The failed overhaul did not merely correct scale: Template cards were collapsed so substantially more rows appeared; Entropy task rows collapsed and left a large empty region; Settings rows compressed and top content collided with the system status area.
+- `Landscape.png` is 2559x1439 and confirms that the landscape UI scale remained too large. The procedural timer artwork is outside this UI task and supplies no authorized edit target.
+- The old guide's broad fixed-cell scene rewrites caused the portrait regressions and did not solve the landscape UI scale.
 
 # Rejected
-- Palette conversion as a scaling root cause: native conversion is downstream of layout and scale selection.
-- HUD placement as a platform bug: shared layout intentionally selects the left HUD when that cell allocation scores better.
+- Rewriting Template, Entropy, or Settings layout as part of the scale fix: the supplied after images show this creates regressions.
+- Treating the landscape UI issue as a platform-wrapper problem: current shared `DisplayScalePolicy` and HUD orientation logic already contain the authorized UI decisions.
+- Editing `ActiveTimerScene`, `timerRadius`, or procedural artwork: those systems are not UI and are outside scope.
 
 # Unknown
-- None that block writing the guide.
+- None that block rewriting the guide.
 
 # Recommendation
-Specify a common cell-grid result derived from physical W/H and a single integer S; remove all text-only scale behavior; require both platform adapters to consume the same result mechanically.
+Limit the plan to the existing `DisplayScalePolicy.deriveScale` body/constants and the existing shared HUD orientation decision; preserve every scene, artwork, renderer, API, and platform file.

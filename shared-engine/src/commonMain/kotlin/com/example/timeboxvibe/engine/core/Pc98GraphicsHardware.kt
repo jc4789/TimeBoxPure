@@ -31,6 +31,8 @@ object PaletteIndices {
 
 object Pc98GraphicsHardware {
     const val PALETTE_SIZE = 16
+    const val COLOR_SPACE_SIZE = 4096
+    const val MAX_COLOR_VALUE = COLOR_SPACE_SIZE - 1
     val onScreenPalette = ShortArray(16)
     var paletteRevision = 0
 
@@ -41,10 +43,17 @@ object Pc98GraphicsHardware {
     }
 
     fun setupPalette(palette: ShortArray) {
+        if (palette.size < PALETTE_SIZE) {
+            throw IllegalArgumentException("Palette must contain 16 active colors")
+        }
         var changed = false
         var i = 0
         while (i < PALETTE_SIZE) {
             val color = palette[i]
+            val colorValue = color.toInt()
+            if (colorValue < 0 || colorValue > MAX_COLOR_VALUE) {
+                throw IllegalArgumentException("Palette color must be a 12-bit RGB value")
+            }
             if (onScreenPalette[i] != color) {
                 onScreenPalette[i] = color
                 changed = true

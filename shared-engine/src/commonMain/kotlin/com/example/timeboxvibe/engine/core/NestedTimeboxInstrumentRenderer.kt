@@ -128,7 +128,7 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         // (dual modes, or calendar/classic pomodoro with remaining-block total).
         // Does not alter TimerEngine.isDual — display-only.
         val showNestedMacro = isDual || bigTotalDuration > 0
-        val thin = renderer.canvas.density
+        val thin = 1f
 
         // Continuous rotation angles (degrees per second × elapsed seconds).
         // The angle grows unbounded; FastMath handles mod 360 internally.

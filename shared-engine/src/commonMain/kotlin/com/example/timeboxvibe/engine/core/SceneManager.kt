@@ -54,7 +54,7 @@ object SceneManager {
         when (cmd) {
             is SceneCommand.GoTo -> {
                 val scene = sceneRegistry[cmd.sceneId] ?: return
-                performSceneSwitch(scene)
+                switchScene(scene)
             }
             SceneCommand.None -> {}
         }
@@ -129,10 +129,6 @@ object SceneManager {
         } finally {
             isDrainingInput = false
         }
-        val hudCmd = RetroHudComponent.consumeSceneCommand()
-        if (hudCmd !is SceneCommand.None) {
-            executeCommand(hudCmd)
-        }
         if (debugLogUpdateThisFrame) {
             println("BEFORE APPLY_PENDING_SCENE")
         }
@@ -172,6 +168,8 @@ object SceneManager {
             return
         }
         scene.render(renderer, playAreaX, playAreaY, playAreaWidth, playAreaHeight)
+        RetroHudComponent.render(renderer, scene)
+        scene.renderOverlay(renderer, playAreaX, playAreaY, playAreaWidth, playAreaHeight)
         if (logThisFrame) {
             println("RENDER_AFTER scene=${currentSceneName()}")
             debugRenderAfterSwitch = false
@@ -181,10 +179,11 @@ object SceneManager {
     fun setLogicalBounds(width: Float, height: Float) {
         logicalWidth = width
         logicalHeight = height
-        playAreaX = RetroHudComponent.playAreaStartX(width, height).toInt()
-        playAreaY = 0
-        playAreaWidth = RetroHudComponent.playAreaWidth(width, height).toInt()
-        playAreaHeight = RetroHudComponent.playAreaHeight(width, height).toInt()
+        UiShellLayout.resolve(width, height)
+        playAreaX = UiShellLayout.contentX.toInt()
+        playAreaY = UiShellLayout.contentY.toInt()
+        playAreaWidth = UiShellLayout.contentWidth.toInt()
+        playAreaHeight = UiShellLayout.contentHeight.toInt()
     }
 
     fun currentSceneName(): String {
@@ -260,11 +259,12 @@ object SceneManager {
                 val logicalX = touchBuffer[offset + TOUCH_SLOT_LOGICAL_X]
                 val logicalY = touchBuffer[offset + TOUCH_SLOT_LOGICAL_Y]
                 val actionCode = touchBuffer[offset + TOUCH_SLOT_ACTION]
-                val sceneBefore = currentSceneName()
-                RetroHudComponent.onTouch(logicalX, logicalY, playAreaX, playAreaY, playAreaWidth, playAreaHeight)
-                if (DEBUG_TOUCH_MODE == TOUCH_MODE_HUD_ONLY) {
-                    RetroHudComponent.onTouchEvent(logicalX, logicalY, engineTouchAction(actionCode), playAreaX, playAreaY, playAreaWidth, playAreaHeight)
-                } else if (!DEBUG_DISABLE_SCENE_TOUCH_DISPATCH && (DEBUG_TOUCH_MODE == TOUCH_MODE_SCENE_NO_TIMER_ACTIONS || DEBUG_TOUCH_MODE == TOUCH_MODE_FULL)) {
+                val sceneAction = engineTouchAction(actionCode)
+                val hudConsumed = handleHudTouch(logicalX, logicalY, sceneAction)
+                if (!hudConsumed &&
+                    !DEBUG_DISABLE_SCENE_TOUCH_DISPATCH &&
+                    (DEBUG_TOUCH_MODE == TOUCH_MODE_SCENE_NO_TIMER_ACTIONS || DEBUG_TOUCH_MODE == TOUCH_MODE_FULL)
+                ) {
                     dispatchTouch(logicalX, logicalY, actionCode)
                 }
             } catch (e: Throwable) {
@@ -273,6 +273,19 @@ object SceneManager {
             offset += TOUCH_EVENT_SLOT_COUNT
             index++
         }
+    }
+
+    private fun handleHudTouch(x: Int, y: Int, action: Int): Boolean {
+        val hudAction = RetroHudComponent.hitTest(x, y)
+        if (hudAction == HudAction.NONE) return UiShellLayout.containsHud(x, y)
+        if (action == TouchAction.UP) {
+            val command = RetroHudComponent.commandFor(hudAction, activeScene)
+            if (command !is SceneCommand.None) {
+                performHapticFeedback(EngineHaptics.CLICK)
+                executeCommand(command)
+            }
+        }
+        return true
     }
 
     private fun engineTouchAction(actionCode: Int): Int {

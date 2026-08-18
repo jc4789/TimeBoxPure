@@ -2,8 +2,6 @@ package com.example.timeboxvibe.ui.main
 
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
 import android.util.AttributeSet
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -14,26 +12,23 @@ import com.example.timeboxvibe.engine.core.ENGINE_TOUCH_CANCEL
 import com.example.timeboxvibe.engine.core.ENGINE_TOUCH_DOWN
 import com.example.timeboxvibe.engine.core.ENGINE_TOUCH_MOVE
 import com.example.timeboxvibe.engine.core.ENGINE_TOUCH_UP
-import com.example.timeboxvibe.engine.core.DisplayScalePolicy
+import com.example.timeboxvibe.engine.core.PresentationTransform
+import com.example.timeboxvibe.engine.core.PrimitiveDisplayProfile
 import com.example.timeboxvibe.engine.core.ScaledProceduralRenderer
 import com.example.timeboxvibe.engine.core.SceneManager
-import com.example.timeboxvibe.platform.android.AndroidEngineCanvas
+import com.example.timeboxvibe.engine.core.SoftwareEngineCanvas
+import com.example.timeboxvibe.platform.android.AndroidFramebufferPresenter
 
-/**
- * A highly optimized, 100% crash-proof SurfaceView utilizing direct background Math
- * rendering and scene routing.
- */
+/** Android terminal for the common indexed framebuffer. */
 class Pc98SurfaceView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
 ) : SurfaceView(context, attrs), SurfaceHolder.Callback {
 
     private var renderThread: RenderThread? = null
-    @Volatile var currentScaleFactor: Int = DisplayScalePolicy.MIN_SCALE
-
-    // THE FIX: No Magic Numbers. These must be dynamically calculated in surfaceChanged.
-    @Volatile private var dynamicLogicalWidth: Float = 0f
-    @Volatile private var dynamicLogicalHeight: Float = 0f
+    private val presentationTransform = PresentationTransform()
+    @Volatile private var primitiveWidth = 1
+    @Volatile private var primitiveHeight = 1
     private val queueLock = Any()
     private val touchQueue = IntArray(TOUCH_QUEUE_CAPACITY * TOUCH_EVENT_SLOT_COUNT)
     private var touchCount = 0
@@ -44,60 +39,34 @@ class Pc98SurfaceView @JvmOverloads constructor(
     @Volatile private var touchesQueued = 0L
     @Volatile private var touchesDropped = 0L
     @Volatile private var touchesDrained = 0L
-    private var scanlinesEnabled: Boolean = true
-    private var scanlineIntensity: Float = DEFAULT_SCANLINE_INTENSITY
     
     init {
         holder.addCallback(this)
         isFocusable = true
         isFocusableInTouchMode = true
-        // Keep transparent to allow Compose UI to sandwich if needed, 
-        // BUT remember the engine must draw a solid rect to clear the frame!
     }
 
-    override fun surfaceCreated(holder: SurfaceHolder) {
-        // THE FIX: Do NOT initialize the Renderer here. 
-        // We do not know the screen dimensions yet. Wait for surfaceChanged.
-    }
+    override fun surfaceCreated(holder: SurfaceHolder) {}
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         if (width <= 0 || height <= 0) return
-
-        val physicalWidth = width.toFloat()
-        val physicalHeight = height.toFloat()
-        val platformDensity = context.resources.displayMetrics.density
-        val presentationDensity = safePresentationDensity(platformDensity)
-        val scale = DisplayScalePolicy.deriveScale(physicalWidth, physicalHeight, platformDensity)
-        val logW = physicalWidth / scale
-        val logH = physicalHeight / scale
-
-        // Lock in the mathematically correct dimensions
-        currentScaleFactor = scale
-        dynamicLogicalWidth = logW
-        dynamicLogicalHeight = logH
-
-        // 5. Safely Boot the Engine with the correct dynamic bounds
         renderThread?.stopThread()
-        
-        // Pass a dummy canvas for initialization; RenderThread will pass the locked hardware canvas during draw
-        val dummyCanvas = Canvas()
-        val engineCanvas = AndroidEngineCanvas(
-            dummyCanvas,
-            dynamicLogicalWidth,
-            dynamicLogicalHeight,
-            LOGICAL_ENGINE_DENSITY,
-            scale
-        )
+
+        primitiveWidth = PrimitiveDisplayProfile.primitiveWidth(width, height)
+        primitiveHeight = PrimitiveDisplayProfile.primitiveHeight(width, height)
+        presentationTransform.configure(primitiveWidth, primitiveHeight, width, height)
+        val engineCanvas = SoftwareEngineCanvas(primitiveWidth, primitiveHeight)
         val renderer = ScaledProceduralRenderer(engineCanvas)
+        val presenter = AndroidFramebufferPresenter(primitiveWidth, primitiveHeight)
 
         renderThread = RenderThread(
             holder,
             renderer,
             engineCanvas,
-            presentationDensity,
+            presenter,
+            presentationTransform,
             this
         ).apply {
-            setScanlineSettings(scanlinesEnabled, scanlineIntensity)
             startThread()
         }
     }
@@ -116,14 +85,11 @@ class Pc98SurfaceView @JvmOverloads constructor(
             else -> return true
         }
         
-        // Safety check: Don't process touches before the matrix is built
-        if (currentScaleFactor <= 0) return true
-
-        // THE FIX: Reverse the exact scale factor used by the renderer
         val rawX = event.x.toInt()
         val rawY = event.y.toInt()
-        val logicalX = (event.x / currentScaleFactor).toInt()
-        val logicalY = (event.y / currentScaleFactor).toInt()
+        val logicalX = presentationTransform.primitiveX(rawX)
+        val logicalY = presentationTransform.primitiveY(rawY)
+        if (logicalX == PresentationTransform.OUTSIDE || logicalY == PresentationTransform.OUTSIDE) return true
         
         if (enqueueTouchInput(logicalX, logicalY, rawX, rawY, actionCode)) {
             touchesQueued++
@@ -162,38 +128,21 @@ class Pc98SurfaceView @JvmOverloads constructor(
         return super.onKeyDown(keyCode, event)
     }
 
-    fun updateScanlines(enabled: Boolean, intensity: Float) {
-        this.scanlinesEnabled = enabled
-        this.scanlineIntensity = intensity
-        renderThread?.setScanlineSettings(enabled, intensity)
-    }
-
     private class RenderThread(
         private val surfaceHolder: SurfaceHolder,
         private val renderer: ScaledProceduralRenderer,
-        private val engineCanvas: AndroidEngineCanvas,
-        private val displayDensity: Float,
+        private val engineCanvas: SoftwareEngineCanvas,
+        private val presenter: AndroidFramebufferPresenter,
+        private val presentationTransform: PresentationTransform,
         private val viewRef: Pc98SurfaceView
     ) : Thread("Pc98RenderThread") {
 
         @Volatile
         private var running = false
 
-        private val scanlinePaint = Paint().apply {
-            style = Paint.Style.STROKE
-            strokeWidth = SCANLINE_STROKE_WIDTH
-        }
-
-        private var scanlinesEnabled = true
-        private var scanlineIntensity = DEFAULT_SCANLINE_INTENSITY
         private val localTouchQueue = IntArray(TOUCH_QUEUE_CAPACITY * TOUCH_EVENT_SLOT_COUNT)
         private var localTouchCount = 0
         private var lastStatsLogNanos = 0L
-
-        fun setScanlineSettings(enabled: Boolean, intensity: Float) {
-            this.scanlinesEnabled = enabled
-            this.scanlineIntensity = intensity
-        }
 
         fun startThread() {
             running = true
@@ -254,11 +203,8 @@ class Pc98SurfaceView @JvmOverloads constructor(
         }
 
         private fun drawFrame(dt: Float) {
-            val viewWidth = viewRef.width.toFloat()
-            val viewHeight = viewRef.height.toFloat()
-            val scaleFactor = viewRef.currentScaleFactor
-            val logicalWidth = viewRef.dynamicLogicalWidth
-            val logicalHeight = viewRef.dynamicLogicalHeight
+            val logicalWidth = engineCanvas.width
+            val logicalHeight = engineCanvas.height
 
             drainTouchInputFastCopy()
             viewRef.localTouchCountThisFrame = localTouchCount
@@ -278,31 +224,12 @@ class Pc98SurfaceView @JvmOverloads constructor(
                 return
             }
 
+            SceneManager.render(renderer, logicalWidth, logicalHeight)
             var canvas: Canvas? = null
             try {
                 canvas = surfaceHolder.lockCanvas()
                 if (canvas == null) return
-
-                canvas.save()
-                canvas.scale(scaleFactor.toFloat(), scaleFactor.toFloat())
-                engineCanvas.bind(canvas)
-                engineCanvas.width = logicalWidth
-                engineCanvas.height = logicalHeight
-                engineCanvas.density = LOGICAL_ENGINE_DENSITY
-                SceneManager.render(renderer, logicalWidth, logicalHeight)
-                canvas.restore()
-
-                if (scanlinesEnabled && scanlineIntensity > 0f) {
-                    val alpha = (scanlineIntensity * SCANLINE_ALPHA_MULTIPLIER).toInt().coerceIn(0, MAX_ALPHA)
-                    scanlinePaint.color = Color.argb(alpha, 0, 0, 0)
-
-                    val lineStep = maxOf(MIN_SCANLINE_STEP, displayDensity)
-                    var y = 0f
-                    while (y < viewHeight) {
-                        canvas.drawLine(0f, y, viewWidth, y, scanlinePaint)
-                        y += lineStep
-                    }
-                }
+                presenter.present(canvas, engineCanvas.framebuffer, presentationTransform)
             } catch (e: Throwable) {
                 android.util.Log.e("Pc98SurfaceView", "Render thread failure", e)
             } finally {
@@ -352,7 +279,7 @@ class Pc98SurfaceView @JvmOverloads constructor(
             lastStatsLogNanos = nowNanos
             android.util.Log.d(
                 LOG_TAG,
-                "framesRendered=${viewRef.framesRendered} updatesCalled=${viewRef.updatesCalled} physicalWidth=${viewRef.width} physicalHeight=${viewRef.height} scaleFactor=${viewRef.currentScaleFactor} logicalWidth=${viewRef.dynamicLogicalWidth} logicalHeight=${viewRef.dynamicLogicalHeight} engineCanvas.density=${engineCanvas.density} currentSceneName=${SceneManager.currentSceneName()} lastDt=${viewRef.lastDt} localTouchCountThisFrame=${viewRef.localTouchCountThisFrame} totalTouchesQueued=${viewRef.touchesQueued} totalTouchesDrained=${viewRef.touchesDrained} totalTouchesDropped=${viewRef.touchesDropped}"
+                "framesRendered=${viewRef.framesRendered} updatesCalled=${viewRef.updatesCalled} physicalWidth=${viewRef.width} physicalHeight=${viewRef.height} primitiveWidth=${viewRef.primitiveWidth} primitiveHeight=${viewRef.primitiveHeight} currentSceneName=${SceneManager.currentSceneName()} lastDt=${viewRef.lastDt} localTouchCountThisFrame=${viewRef.localTouchCountThisFrame} totalTouchesQueued=${viewRef.touchesQueued} totalTouchesDrained=${viewRef.touchesDrained} totalTouchesDropped=${viewRef.touchesDropped}"
             )
         }
     }
@@ -373,15 +300,6 @@ class Pc98SurfaceView @JvmOverloads constructor(
     }
 
     companion object {
-        private const val LOGICAL_ENGINE_DENSITY = 1f
-        private const val MIN_PRESENTATION_DENSITY = 0.1f
-        private const val MAX_PRESENTATION_DENSITY = 10.0f
-        private const val DEFAULT_DENSITY = 1.0f
-        private const val DEFAULT_SCANLINE_INTENSITY = 0.3f
-        private const val SCANLINE_STROKE_WIDTH = 1.0f
-        private const val SCANLINE_ALPHA_MULTIPLIER = 180f
-        private const val MAX_ALPHA = 255
-        private const val MIN_SCANLINE_STEP = 2f
         private const val FRAME_SLEEP_MS = 16L
         private const val FRAME_NANOS = FRAME_SLEEP_MS * 1_000_000L
         private const val NANOS_PER_MILLI = 1_000_000L
@@ -397,16 +315,5 @@ class Pc98SurfaceView @JvmOverloads constructor(
         private const val TOUCH_SLOT_RAW_Y = 3
         private const val TOUCH_SLOT_ACTION = 4
         private const val LOG_TAG = "Pc98SurfaceView"
-        private fun safePresentationDensity(displayDensity: Float): Float {
-            return if (
-                displayDensity.isFinite() &&
-                displayDensity > MIN_PRESENTATION_DENSITY &&
-                displayDensity < MAX_PRESENTATION_DENSITY
-            ) {
-                displayDensity
-            } else {
-                DEFAULT_DENSITY
-            }
-        }
     }
 }

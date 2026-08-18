@@ -15,19 +15,25 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         private const val GLYPH_CELL_COUNT = 16
         const val TEXT_SCALE_IDENTITY = 1
         const val TEXT_SCALE_HEADER = 2
-        const val ACTIVE_INDICATOR_GLYPH = '＞'
-        private const val BUTTON_BORDER_CELLS_DEN = 8f
 
         fun measureTextCells(text: String): Int {
             return text.length
         }
 
         fun measureTextWidth(text: String, scale: Int = TEXT_SCALE_IDENTITY): Float {
-            return measureTextCells(text) * TextRasterScale.logicalCellSize(scale)
+            return measureTextCells(text) * sourceCellSize(scale)
         }
 
         fun measureTextHeight(scale: Int = TEXT_SCALE_IDENTITY): Float {
-            return TextRasterScale.logicalCellSize(scale)
+            return sourceCellSize(scale)
+        }
+
+        fun sourcePixelSize(scale: Int): Int {
+            return scale.coerceAtLeast(TEXT_SCALE_IDENTITY)
+        }
+
+        fun sourceCellSize(scale: Int): Float {
+            return (CANONICAL_UI_UNIT * sourcePixelSize(scale)).toFloat()
         }
 
         fun measureButtonHeight(text: String, width: Float, minimumHeight: Float, allowTextStacking: Boolean): Float {
@@ -43,7 +49,6 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
     }
 
     init {
-        TextRasterScale.configure(canvas.presentationScale)
         ShinonomeFont.initCache()
     }
 
@@ -72,12 +77,14 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         colorIndex: Int,
         scale: Int = TEXT_SCALE_IDENTITY
     ) {
-        val presentationScale = canvas.presentationScale.coerceAtLeast(DisplayScalePolicy.MIN_SCALE)
-        val physicalX = (x * presentationScale).roundToInt()
-        val physicalY = (y * presentationScale).roundToInt()
-        val physicalWidth = TextRasterScale.physicalSourceSize(sourceWidth, scale)
-        val physicalHeight = TextRasterScale.physicalSourceSize(sourceHeight, scale)
-        canvas.drawPhysicalRect(physicalX, physicalY, physicalWidth, physicalHeight, colorIndex)
+        val sourcePixelSize = sourcePixelSize(scale).toFloat()
+        canvas.drawRect(
+            x,
+            y,
+            sourceWidth * sourcePixelSize,
+            sourceHeight * sourcePixelSize,
+            colorIndex
+        )
     }
 
     /**
@@ -102,7 +109,7 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
 
     /**
      * Plots a single 16x16 Shinonome Font Glyph.
-     * Uses the common text raster transform while UI geometry keeps the display scale.
+     * A ROM bit is one primitive pixel at identity size.
      */
     fun drawGlyph(
         char: Char,
@@ -118,11 +125,11 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
     ) {
         val glyph = ShinonomeFont.glyphFor(char)
         
-        val logicalPixelSize = TextRasterScale.logicalPixelSize(scale)
+        val sourcePixelSize = sourcePixelSize(scale).toFloat()
 
-        // Render retro shadow first if specified (offset one presented source pixel).
+        // Render retro shadow first if specified (offset one source pixel).
         if (shadowColorIndex != EngineCanvas.COLOR_TRANSPARENT) {
-            drawGlyphRaw(glyph, destX + logicalPixelSize, destY + logicalPixelSize, shadowColorIndex, scale, startX, startY, clipWidth, clipHeight)
+            drawGlyphRaw(glyph, destX + sourcePixelSize, destY + sourcePixelSize, shadowColorIndex, scale, startX, startY, clipWidth, clipHeight)
         }
         drawGlyphRaw(glyph, destX, destY, colorIndex, scale, startX, startY, clipWidth, clipHeight)
     }
@@ -138,14 +145,13 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         clipWidth: Int,
         clipHeight: Int
     ) {
-        val presentationScale = canvas.presentationScale.coerceAtLeast(DisplayScalePolicy.MIN_SCALE)
-        val physicalPixelSize = TextRasterScale.physicalPixelSize(scale)
-        val originX = (destX * presentationScale).roundToInt()
-        val originY = (destY * presentationScale).roundToInt()
-        val clipLeft = (startX * presentationScale).roundToInt()
-        val clipTop = (startY * presentationScale).roundToInt()
-        val clipRight = ((startX + clipWidth) * presentationScale).roundToInt()
-        val clipBottom = ((startY + clipHeight) * presentationScale).roundToInt()
+        val sourcePixelSize = sourcePixelSize(scale)
+        val originX = destX.roundToInt()
+        val originY = destY.roundToInt()
+        val clipLeft = startX.roundToInt()
+        val clipTop = startY.roundToInt()
+        val clipRight = (startX + clipWidth).roundToInt()
+        val clipBottom = (startY + clipHeight).roundToInt()
         var y = 0
         while (y < U.toInt()) {
             val rowBits = glyph[y]
@@ -153,18 +159,18 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
             while (x < U.toInt()) {
                 val bitMask = 0x8000 ushr x
                 if ((rowBits and bitMask) != 0) {
-                    val drawX = originX + x * physicalPixelSize
-                    val drawY = originY + y * physicalPixelSize
+                    val drawX = originX + x * sourcePixelSize
+                    val drawY = originY + y * sourcePixelSize
                     val clippedLeft = maxOf(drawX, clipLeft)
                     val clippedTop = maxOf(drawY, clipTop)
-                    val clippedRight = minOf(drawX + physicalPixelSize, clipRight)
-                    val clippedBottom = minOf(drawY + physicalPixelSize, clipBottom)
+                    val clippedRight = minOf(drawX + sourcePixelSize, clipRight)
+                    val clippedBottom = minOf(drawY + sourcePixelSize, clipBottom)
                     if (clippedLeft < clippedRight && clippedTop < clippedBottom) {
-                        canvas.drawPhysicalRect(
-                            clippedLeft,
-                            clippedTop,
-                            clippedRight - clippedLeft,
-                            clippedBottom - clippedTop,
+                        canvas.drawRect(
+                            clippedLeft.toFloat(),
+                            clippedTop.toFloat(),
+                            (clippedRight - clippedLeft).toFloat(),
+                            (clippedBottom - clippedTop).toFloat(),
                             colorIndex
                         )
                     }
@@ -189,8 +195,8 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         clipHeight: Int = canvas.height.toInt()
     ) {
         var currentX = destX
-        val charWidth = TextRasterScale.logicalCellSize(scale)
-        val spacing = charSpacing * TextRasterScale.logicalPixelSize(scale)
+        val charWidth = sourceCellSize(scale)
+        val spacing = charSpacing * sourcePixelSize(scale)
         var i = 0
         while (i < text.length) {
             drawGlyph(toFullwidthDisplayChar(text[i]), currentX, destY, colorIndex, shadowColorIndex, scale, startX, startY, clipWidth, clipHeight)
@@ -408,15 +414,15 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         primaryColorIndex: Int, secondaryColorIndex: Int,
         isDual: Boolean
     ) {
-        val sw = 2f * canvas.density
+        val sw = 2f
         val outerSegments = 60
         val activeOuter = (outerProgress * outerSegments).toInt()
         
         // Outer track: Draw clean segment ticks projecting outwards
         for (i in 0 until outerSegments) {
             val aIdx = FastMath.degreesToIdx(i * (360f / outerSegments) - 90f)
-            val r1 = radius - (4f * canvas.density)
-            val r2 = radius + (4f * canvas.density)
+            val r1 = radius - 4f
+            val r2 = radius + 4f
             val cosVal = FastMath.fastCos(aIdx)
             val sinVal = FastMath.fastSin(aIdx)
             val x1 = centerX + r1 * cosVal
@@ -431,13 +437,13 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         if (isDual) {
             val innerSegments = 60
             val activeInner = (innerProgress * innerSegments).toInt()
-            val rCenter = radius - (24f * canvas.density)
+            val rCenter = radius - 24f
             for (i in 0 until innerSegments) {
                 val aIdx = FastMath.degreesToIdx(i * (360f / innerSegments) - 90f)
                 val isFifth = i % 5 == 0
                 val tickLen = if (isFifth) 4f else 2f
-                val r1 = rCenter - (tickLen * canvas.density)
-                val r2 = rCenter + (tickLen * canvas.density)
+                val r1 = rCenter - tickLen
+                val r2 = rCenter + tickLen
                 
                 val cosVal = FastMath.fastCos(aIdx)
                 val sinVal = FastMath.fastSin(aIdx)
@@ -599,25 +605,25 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
     }
 
     fun drawProceduralPolarDemo(centerX: Float, centerY: Float, baseRadius: Float, timeMs: Long) {
-        val density = canvas.density
+        val sourcePixel = 1f
         // 1. Draw independent rotating circle stroke
-        drawCircleStroke(centerX, centerY, baseRadius, PaletteIndices.HIGHLIGHT, 1f * density)
+        drawCircleStroke(centerX, centerY, baseRadius, PaletteIndices.HIGHLIGHT, sourcePixel)
 
         // 2. Draw rotating star links (5-pointed star rotating counter-clockwise at 8s period)
         val phaseStar = (timeMs % 8000L).toFloat() / 8000f * -360f
-        drawPolarStarLinks(centerX, centerY, baseRadius - U, 5, 2, phaseStar, PaletteIndices.ACCENT_SECONDARY, 1f * density)
+        drawPolarStarLinks(centerX, centerY, baseRadius - U, 5, 2, phaseStar, PaletteIndices.ACCENT_SECONDARY, sourcePixel)
 
         // 3. Draw rotating octagon (rotating clockwise at 12s period)
         val phaseOct = (timeMs % 12000L).toFloat() / 12000f * 360f
-        drawRotatingPolygon(centerX, centerY, baseRadius - U * 2f, 8, phaseOct, PaletteIndices.MAGIC_CIRCLE_PRIMARY, 1f * density)
+        drawRotatingPolygon(centerX, centerY, baseRadius - U * 2f, 8, phaseOct, PaletteIndices.MAGIC_CIRCLE_PRIMARY, sourcePixel)
 
         // 4. Draw active-only bead loop (30 beads, 15 active, rotating slowly)
         val phaseBeads = (timeMs % 20000L).toFloat() / 20000f * 360f
-        drawActivePolarBeadLoop(centerX, centerY, baseRadius + U, 30, 15, phaseBeads, 4f * density, PaletteIndices.BORDER)
+        drawActivePolarBeadLoop(centerX, centerY, baseRadius + U, 30, 15, phaseBeads, 4f, PaletteIndices.BORDER)
 
         // 5. Draw active-only ticks (24 ticks, 12 active, rotating CCW)
         val phaseTicks = (timeMs % 15000L).toFloat() / 15000f * -360f
-        drawActivePolarTickLoop(centerX, centerY, baseRadius - U * 3f, baseRadius - U * 2.5f, 24, 12, phaseTicks, PaletteIndices.HIGHLIGHT, 1f * density)
+        drawActivePolarTickLoop(centerX, centerY, baseRadius - U * 3f, baseRadius - U * 2.5f, 24, 12, phaseTicks, PaletteIndices.HIGHLIGHT, sourcePixel)
     }
 
     fun drawBulletPattern(
@@ -633,7 +639,7 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         val aIdx = FastMath.degreesToIdx(angleDegrees)
         val bx = centerX + radius * FastMath.fastCos(aIdx)
         val by = centerY + radius * FastMath.fastSin(aIdx)
-        val scale = canvas.density * bulletSizeMultiplier
+        val scale = bulletSizeMultiplier
 
         // 1. Draw trailing spark offset by -8 degrees (small single-pixel trail)
         val sparkAngleDegrees = angleDegrees - 8f
@@ -751,77 +757,6 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         colorIndex: Int, strokeWidth: Float = 1f
     ) {
         vector.drawQuadraticBezierDeCasteljau(x0, y0, x1, y1, x2, y2, colorIndex, strokeWidth)
-    }
-
-    /**
-     * Draws a unified retro PC-98 style button with procedural double-border and high contrast styling.
-     */
-    fun drawButton(
-        text: String,
-        x: Float,
-        y: Float,
-        w: Float,
-        h: Float,
-        isClicked: Boolean,
-        isHovered: Boolean = false,
-        allowTextStacking: Boolean = false
-    ) {
-        val pc98White = PaletteIndices.WHITE
-        val pc98Black = PaletteIndices.BLACK
-        val bgColor = if (isClicked || isHovered) pc98White else pc98Black
-        val textColor = if (isClicked || isHovered) pc98Black else pc98White
-
-        // Procedural Border:
-        // First, fillRect(x, y, w, h, PC98_WHITE) (outer border)
-        fillRectDither(x, y, x + w, y + h, pc98White, pc98White, SoftDitherPattern.SOLID)
-        val border = U / BUTTON_BORDER_CELLS_DEN
-        fillRectDither(x + border, y + border, x + w - border, y + h - border, bgColor, bgColor, SoftDitherPattern.SOLID)
-
-        val textScale = TEXT_SCALE_IDENTITY
-        if (isClicked || isHovered) {
-            val indicatorHeight = measureTextHeight(TEXT_SCALE_IDENTITY)
-            drawGlyph(
-                ACTIVE_INDICATOR_GLYPH,
-                x + U / 2f,
-                y + (h - indicatorHeight) / 2f,
-                textColor,
-                scale = TEXT_SCALE_IDENTITY,
-                startX = x,
-                startY = y,
-                clipWidth = w.toInt(),
-                clipHeight = h.toInt()
-            )
-        }
-        if (allowTextStacking) {
-            val textAreaX = x + U / 2f
-            val textAreaWidth = maxOf(U.toFloat(), w - U.toFloat())
-            val textHeight = ProceduralTextRenderer.measureWrappedHeight(text, textAreaWidth, textScale)
-            val textY = y + (h - textHeight) / 2f
-            ProceduralTextRenderer.drawWrapped(
-                renderer = this,
-                text = text,
-                x = textAreaX,
-                y = textY,
-                maxWidth = textAreaWidth,
-                color = textColor,
-                scale = textScale,
-                alignment = ProceduralTextRenderer.ALIGN_CENTER
-            )
-        } else {
-            val textWidth = measureTextWidth(text, textScale)
-            val textHeight = measureTextHeight(textScale)
-            drawText(
-                text = text,
-                destX = x + (w - textWidth) / 2f,
-                destY = y + (h - textHeight) / 2f,
-                colorIndex = textColor,
-                scale = textScale,
-                startX = x,
-                startY = y,
-                clipWidth = w.toInt(),
-                clipHeight = h.toInt()
-            )
-        }
     }
 
 }
