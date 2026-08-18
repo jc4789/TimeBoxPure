@@ -27,10 +27,7 @@ object ActiveTimerScene : Scene {
     private var alarmMarqueeX = 0f
     private var renderedControlRowY = 0f
     private var lastRenderState: EngineUiState? = null
-    // Demoscene manager: 6 Wave oscillators + 1 IkChain2D + Perlin rune drift.
-    // Allocated on first render so we don't run the constructor at class init.
-    private var demoscene: MagicCircleDemoscene? = null
-
+    private val nestedTimebox = NestedTimeboxInstrumentRenderer()
     override fun onEnter(payload: Any?) {
         isTaskFocused = false
         renderedControlRowY = 0f
@@ -44,9 +41,6 @@ object ActiveTimerScene : Scene {
         for (i in 0 until currentTask.length) {
             inputContainer.processPayload(currentTask[i].code)
         }
-        // Allocate the demoscene manager on entry. Reset to deterministic state.
-        val dm = demoscene ?: MagicCircleDemoscene().also { demoscene = it }
-        dm.reset()
     }
 
     override fun onExit() {
@@ -61,14 +55,11 @@ object ActiveTimerScene : Scene {
         } else {
             alarmMarqueeX = 0f
         }
-        // Tick the 6 demoscene Wave oscillators. No-op when
-        // `VisualsStateHolder.demosceneEffectsEnabled` is false.
-        demoscene?.update(dt)
+        nestedTimebox.update(dt)
         taskCursor.update(dt)
     }
 
     override fun render(renderer: ScaledProceduralRenderer, playX: Int, playY: Int, playW: Int, playH: Int) {
-        val logicalWidth = SceneManager.logicalWidth
         val logicalHeight = SceneManager.logicalHeight
         lastRenderState = null
         val state = SceneManager.timerActions?.getUiState() ?: return
@@ -77,12 +68,8 @@ object ActiveTimerScene : Scene {
         EngineThemes.getColors(state.appTheme, state.isBreak)
         val strings = getStrings(state.language)
         
-        // 0. Global Screen Clear to prevent transparent frame smearing
-        renderer.drawRect(0f, 0f, logicalWidth, logicalHeight, PaletteIndices.BG)
-        
         val isPortrait = UiShellLayout.isTallDisplay
         
-        val cx: Float
         val preferredCy: Float
         val playAreaStartX: Float
         val playAreaW: Float
@@ -90,38 +77,16 @@ object ActiveTimerScene : Scene {
         val inputBaseY = timerInputY(logicalHeight)
         val taskInputH = taskInputHeight(state, strings, playW.toFloat())
         
-        // Continuous time source for the magic circle. The renderer uses
-        // `elapsedSeconds * rateDegPerSec` for each layer's rotation, so the
-        // motion is non-cyclic and visibly continues across any time window.
-        val elapsedSeconds = FrameClock.seconds(60f)
-
         if (isPortrait) {
             playAreaStartX = playX.toFloat()
             playAreaW = playW.toFloat()
             playAreaH = playH.toFloat()
-            cx = logicalWidth / 2f
             preferredCy = playAreaH / 2f
-
-            // 1. Draw Play Area background (top 85%). When the user enables
-            //    the "Background Nebula" setting, the clear color slowly
-            //    cycles through BG / BG_ALT / PANEL via a 2-octave Perlin
-            //    fbm sampled at the play-area center and the center-offset.
-            val nebulaColor = nebulaColorIndex(
-                cx, preferredCy, playAreaW, playAreaH, elapsedSeconds
-            )
-            renderer.fillRectDither(0f, 0f, logicalWidth, playAreaH, nebulaColor, nebulaColor, SoftDitherPattern.SOLID)
         } else {
             playAreaStartX = playX.toFloat()
             playAreaW = playW.toFloat()
             playAreaH = playH.toFloat()
-            cx = playAreaStartX + (playAreaW / 2f)
             preferredCy = playAreaH / 2f
-
-            // 1. Draw Play Area background (right 70%) with optional nebula.
-            val nebulaColor = nebulaColorIndex(
-                cx, preferredCy, playAreaW, playAreaH, elapsedSeconds
-            )
-            renderer.fillRectDither(playAreaStartX, 0f, logicalWidth, logicalHeight, nebulaColor, nebulaColor, SoftDitherPattern.SOLID)
         }
         val inputY = inputBaseY
         val reservedBtnY = timerControlRowY(playAreaH)
@@ -152,11 +117,9 @@ object ActiveTimerScene : Scene {
             0f
         }
 
-        // 3. Draw the nested timebox instrument. `elapsedSeconds` (from
-        //    FrameClock) drives each layer's continuous rotation. Demoscene
-        //    manager provides Perlin rune drift + FABRIK comet trail; null
-        //    when demoscene is disabled in settings.
-        val renderedGraphicsBottomY = renderer.nestedTimeboxRenderer.render(
+        // 3. Draw the deterministic nested timebox instrument.
+        val renderedGraphicsBottomY = nestedTimebox.render(
+            renderer = renderer,
             viewportLeft = playAreaStartX,
             viewportTop = inputY + taskInputH + (U * GRAPHICS_TOP_GAP_CELLS).toFloat(),
             viewportRight = playAreaStartX + playAreaW,
@@ -164,7 +127,6 @@ object ActiveTimerScene : Scene {
             preferredCenterY = playY.toFloat() + playAreaH * 0.5f,
             outerProgress = outerProgress,
             innerProgress = innerProgress,
-            elapsedSeconds = elapsedSeconds,
             isDual = state.isDual,
             outerActiveColorIndex = PaletteIndices.HIGHLIGHT,
             innerActiveColorIndex = PaletteIndices.TEXT_SECONDARY,
@@ -179,9 +141,7 @@ object ActiveTimerScene : Scene {
             activeMode = state.activeMode,
             isBreak = state.isBreak,
             sequenceLength = state.sequenceLength,
-            strings = strings,
-            playAreaW = playAreaW,
-            demoscene = demoscene
+            strings = strings
         )
         val btnY = if (state.activeMode == "calendar") {
             reservedBtnY
@@ -750,46 +710,6 @@ object ActiveTimerScene : Scene {
         renderer.drawGlyph('］', curX, startY, colorIndex, shadowColorIndex = PaletteIndices.PANEL_DARK, scale = scale)
     }
 
-    /**
-     * Sample the Perlin nebula at two points in the play area and pick a
-     * palette index for the play-area background.
-     *
-     * When `backgroundNebulaEnabled` is false, returns the standard `BG`
-     * (no modulation). When true, samples Perlin fbm at the play-area
-     * center and at the play-area midpoint-offset, averages the two, and
-     * picks one of three dark colors: `BG` (near-black void), `BG_ALT`
-     * (dark blue-gray mid), or `PANEL` (dark warm brown peak). The time
-     * scale gives a noticeable change every ~12 seconds.
-     */
-    private fun nebulaColorIndex(
-        centerX: Float,
-        centerY: Float,
-        playAreaW: Float,
-        playAreaH: Float,
-        elapsedSeconds: Float
-    ): Int {
-        if (!VisualsStateHolder.backgroundNebulaEnabled) return PaletteIndices.BG
-        val t = elapsedSeconds * NEBULA_TIME_SCALE
-        val n1 = PerlinNoise.fbm(
-            centerX * NEBULA_SPATIAL_SCALE + t,
-            centerY * NEBULA_SPATIAL_SCALE,
-            octaves = 2
-        )
-        val n2 = PerlinNoise.fbm(
-            (centerX + playAreaW * 0.5f) * NEBULA_SPATIAL_SCALE + t,
-            (centerY + playAreaH * 0.5f) * NEBULA_SPATIAL_SCALE,
-            octaves = 2
-        )
-        val avg = (n1 + n2) * 0.5f
-        return when {
-            avg >  0.2f -> PaletteIndices.PANEL
-            avg > -0.1f -> PaletteIndices.BG_ALT
-            else        -> PaletteIndices.BG
-        }
-    }
-
-    private const val NEBULA_SPATIAL_SCALE = 0.005f
-    private const val NEBULA_TIME_SCALE = 0.08f
 }
 
 private fun drawCalendarTimeline(

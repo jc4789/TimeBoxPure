@@ -29,12 +29,7 @@ class IndexedFramebuffer(initialWidth: Int, initialHeight: Int) {
     fun clear(colorIndex: Int) {
         requirePaletteIndex(colorIndex)
         val value = paletteByte(colorIndex)
-        val pixels = indices
-        var offset = 0
-        while (offset < pixels.size) {
-            pixels[offset] = value
-            offset++
-        }
+        indices.fill(value)
     }
 
     fun colorIndexAt(x: Int, y: Int): Int {

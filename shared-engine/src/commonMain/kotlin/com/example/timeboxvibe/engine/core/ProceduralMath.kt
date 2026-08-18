@@ -2,13 +2,6 @@ package com.example.timeboxvibe.engine.core
 
 import kotlin.math.abs
 
-/**
- * A platform-independent vector coordinate representation.
- * Allows math pipelines to compile without any dependency on Jetpack Compose or Native Android types.
- * Kept for demoscene helpers (e.g. IkChain2D); do not use list builders of Point2D in hot paths.
- */
-data class Point2D(val x: Float, val y: Float)
-
 // pure-Kotlin math separated from UI platforms
 fun getPixelColor(
     iconName: String,
@@ -247,6 +240,14 @@ fun getPixelColor(
 object FastMath {
     private const val TABLE_SIZE = 1024
     private const val MASK = TABLE_SIZE - 1
+    // The high bits select a LUT entry; the low bits interpolate to the next entry.
+    // This keeps a 486px-radius orbit below one final pixel per angular quantization step.
+    private const val INDEX_FRACTION_BITS = 8
+    private const val INDEX_FRACTION_SCALE = 1 shl INDEX_FRACTION_BITS
+    private const val INDEX_FRACTION_MASK = INDEX_FRACTION_SCALE - 1
+    private const val INDEX_FRACTION_TO_FLOAT = 1f / INDEX_FRACTION_SCALE
+    private const val DEGREES_TO_FIXED_INDEX =
+        TABLE_SIZE * INDEX_FRACTION_SCALE / 360f
 
     private val sinTable = FloatArray(TABLE_SIZE)
     private val cosTable = FloatArray(TABLE_SIZE)
@@ -260,16 +261,23 @@ object FastMath {
     }
 
     fun fastSin(angleIndex: Int): Float {
-        return sinTable[angleIndex and MASK]
+        val baseIndex = angleIndex ushr INDEX_FRACTION_BITS
+        val fraction = (angleIndex and INDEX_FRACTION_MASK) * INDEX_FRACTION_TO_FLOAT
+        val first = sinTable[baseIndex and MASK]
+        val second = sinTable[(baseIndex + 1) and MASK]
+        return first + (second - first) * fraction
     }
 
     fun fastCos(angleIndex: Int): Float {
-        return cosTable[angleIndex and MASK]
+        val baseIndex = angleIndex ushr INDEX_FRACTION_BITS
+        val fraction = (angleIndex and INDEX_FRACTION_MASK) * INDEX_FRACTION_TO_FLOAT
+        val first = cosTable[baseIndex and MASK]
+        val second = cosTable[(baseIndex + 1) and MASK]
+        return first + (second - first) * fraction
     }
 
     fun degreesToIdx(degrees: Float): Int {
         val normalized = ((degrees % 360f) + 360f) % 360f
-        return (normalized * (TABLE_SIZE / 360f)).toInt() and MASK
+        return (normalized * DEGREES_TO_FIXED_INDEX).toInt()
     }
 }
-

@@ -261,23 +261,6 @@ object SettingsScene : Scene {
             SceneManager.timerActions?.requestExactAlarmPermission()
         }
 
-        // Visuals section toggles. Header row is display-only.
-        layoutRow(null, strings.visualsHeader)
-        // No-op for the header row.
-
-        layoutRow(null, strings.demosceneLabel)
-        if (fx >= ctrlX && fx <= ctrlX + ctrlW && fy >= ctrlY && fy <= ctrlY + rowH) {
-            SceneManager.performHapticFeedback(EngineHaptics.TICK)
-            VisualsStateHolder.demosceneEffectsEnabled = !VisualsStateHolder.demosceneEffectsEnabled
-            return
-        }
-
-        layoutRow(null, strings.nebulaLabel)
-        if (fx >= ctrlX && fx <= ctrlX + ctrlW && fy >= ctrlY && fy <= ctrlY + rowH) {
-            SceneManager.performHapticFeedback(EngineHaptics.TICK)
-            VisualsStateHolder.backgroundNebulaEnabled = !VisualsStateHolder.backgroundNebulaEnabled
-            return
-        }
     }
 
     private fun beginSettingsLayout(logicalWidth: Float, logicalHeight: Float) {
@@ -383,26 +366,6 @@ object SettingsScene : Scene {
             renderer.drawButton(strings.authorizeLabel, ctrlX, ctrlY, ctrlW, rowH, isClicked = false)
         }
 
-        // Visuals section (demoscene + nebula toggles). Toggles write to
-        // VisualsStateHolder, which the magic circle renderer reads each frame.
-        // No platform persistence for now — toggles are session-scoped.
-        layoutRow(renderer, strings.visualsHeader)
-        val visualsHeaderH = ProceduralTextRenderer.measureWrappedHeight(strings.visualsHeader, usableWidth)
-        ProceduralTextRenderer.drawWrapped(renderer, strings.visualsHeader, labelX, ctrlY + (rowH - visualsHeaderH) / 2f, usableWidth, PaletteIndices.SECONDARY)
-
-        layoutRow(renderer, strings.demosceneLabel)
-        renderer.drawButton(
-            if (VisualsStateHolder.demosceneEffectsEnabled) strings.on else strings.off,
-            ctrlX, ctrlY, ctrlW, rowH,
-            isClicked = VisualsStateHolder.demosceneEffectsEnabled
-        )
-
-        layoutRow(renderer, strings.nebulaLabel)
-        renderer.drawButton(
-            if (VisualsStateHolder.backgroundNebulaEnabled) strings.on else strings.off,
-            ctrlX, ctrlY, ctrlW, rowH,
-            isClicked = VisualsStateHolder.backgroundNebulaEnabled
-        )
     }
 
     private fun clampSettingsScroll(state: EngineUiState, strings: AppStrings) {
@@ -425,11 +388,6 @@ object SettingsScene : Scene {
         layoutRow(null, strings.vibe)
         layoutRow(null, strings.themeLabel)
         layoutRow(null, strings.precisionLabel)
-        // Visuals section: 1 header + 2 toggle rows. Same height as a
-        // side-by-side row, so `layoutRow(null, label)` advances `currentY` once.
-        layoutRow(null, strings.visualsHeader)
-        layoutRow(null, strings.demosceneLabel)
-        layoutRow(null, strings.nebulaLabel)
     }
 
     private fun indexOf(values: Array<String>, value: String): Int {

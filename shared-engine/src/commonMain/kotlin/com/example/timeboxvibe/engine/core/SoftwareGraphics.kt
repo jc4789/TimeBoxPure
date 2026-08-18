@@ -134,6 +134,10 @@ class SoftwareGraphics(
         val right = maxOf(x0, x1).coerceAtMost(framebuffer.width)
         val bottom = maxOf(y0, y1).coerceAtMost(framebuffer.height)
         if (left >= right || top >= bottom) return
+        if (primaryIndex == secondaryIndex || pattern == SoftDitherPattern.SOLID) {
+            fillRectUnchecked(left, top, right - left, bottom - top, primaryIndex)
+            return
+        }
         val pixels = framebuffer.indices
         val stride = framebuffer.width
         val primary = primaryIndex.toByte()
@@ -176,12 +180,9 @@ class SoftwareGraphics(
         val stride = framebuffer.width
         var row = top
         while (row < bottom) {
-            var offset = row * stride + left
+            val rowStart = row * stride + left
             val rowEnd = row * stride + right
-            while (offset < rowEnd) {
-                pixels[offset] = color
-                offset++
-            }
+            pixels.fill(color, rowStart, rowEnd)
             row++
         }
     }
@@ -226,4 +227,3 @@ class SoftwareGraphics(
         private const val DASH_LENGTH = 8
     }
 }
-

@@ -128,6 +128,10 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
     companion object {
         private const val U = CANONICAL_UI_UNIT
         private const val GLYPH_CELL_COUNT = 16
+        private const val GLYPH_SOURCE_CENTER = (GLYPH_CELL_COUNT - 1) * 0.5f
+        private const val GLYPH_SAMPLE_FRACTION_BITS = 12
+        private const val GLYPH_SAMPLE_FRACTION_SCALE = 1 shl GLYPH_SAMPLE_FRACTION_BITS
+        private const val GLYPH_SAMPLE_FRACTION_HALF = GLYPH_SAMPLE_FRACTION_SCALE / 2
         const val TEXT_SCALE_IDENTITY = 1
         const val TEXT_SCALE_HEADER = 2
 
@@ -170,9 +174,6 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
     private val mappedCanvas = UiMappedEngineCanvas(outputCanvas)
     val canvas: EngineCanvas = mappedCanvas
     private val vector = AliasedVectorLayer(canvas)
-    val nestedTimeboxRenderer = NestedTimeboxInstrumentRenderer(this)
-
-    private val rotatedGlyphBuffer = IntArray(GLYPH_CELL_COUNT * GLYPH_CELL_COUNT)
 
     fun beginGraphics() {
         mappedCanvas.beginGraphics()
@@ -340,8 +341,9 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
      * "up" points radially outward — used for rune bands and scripture rings.
      * When [tangent] is false, the glyph is rendered upright (tops point up) and centered
      * on the polar coordinate.
-     * Reuses [rotatedGlyphBuffer] to avoid per-call allocation. Final raster output is
-     * integer-snapped and bounded against the canvas.
+     * Tangent glyphs are inverse-sampled directly into the final scaled pixel grid,
+     * without per-call allocation. Final raster output is integer-snapped and bounded
+     * against the canvas.
      */
     /**
      * Places a small filled disc at a polar coordinate. Used for the magic
@@ -397,35 +399,45 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
         val rotIdx = FastMath.degreesToIdx(angleDegrees + 90f)
         val cosR = FastMath.fastCos(rotIdx)
         val sinR = FastMath.fastSin(rotIdx)
-        val cxLocal = 7.5f
-        val cyLocal = 7.5f
-
-        var i = 0
-        while (i < GLYPH_CELL_COUNT * GLYPH_CELL_COUNT) {
-            rotatedGlyphBuffer[i] = 0
-            i++
-        }
-
-        var y = 0
-        while (y < GLYPH_CELL_COUNT) {
-            val rowBits = glyph[y]
-            var x = 0
-            while (x < GLYPH_CELL_COUNT) {
-                val bitMask = 0x8000 ushr x
-                if ((rowBits and bitMask) != 0) {
-                    val localX = (x - cxLocal).toFloat()
-                    val localY = (y - cyLocal).toFloat()
-                    val rx = (localX * cosR - localY * sinR).roundToInt() + 8
-                    val ry = (localX * sinR + localY * cosR).roundToInt() + 8
-                    if (rx in 0..15 && ry in 0..15) {
-                        rotatedGlyphBuffer[ry * GLYPH_CELL_COUNT + rx] = 1
-                    }
+        var inkPixelCount = 0
+        var inkXTotal = 0
+        var inkYTotal = 0
+        var glyphY = 0
+        while (glyphY < GLYPH_CELL_COUNT) {
+            val rowBits = glyph[glyphY]
+            var glyphX = 0
+            while (glyphX < GLYPH_CELL_COUNT) {
+                if ((rowBits and (0x8000 ushr glyphX)) != 0) {
+                    inkPixelCount++
+                    inkXTotal += glyphX
+                    inkYTotal += glyphY
                 }
-                x++
+                glyphX++
             }
-            y++
+            glyphY++
         }
-        emitRotatedGlyph(polarX, polarY, colorIndex, shadowColorIndex, scale)
+        val sourceCenterX = if (inkPixelCount > 0) {
+            inkXTotal.toFloat() / inkPixelCount
+        } else {
+            GLYPH_SOURCE_CENTER
+        }
+        val sourceCenterY = if (inkPixelCount > 0) {
+            inkYTotal.toFloat() / inkPixelCount
+        } else {
+            GLYPH_SOURCE_CENTER
+        }
+        emitRotatedGlyph(
+            glyph,
+            polarX,
+            polarY,
+            cosR,
+            sinR,
+            sourceCenterX,
+            sourceCenterY,
+            colorIndex,
+            shadowColorIndex,
+            scale
+        )
     }
 
     /** Keeps ornamental polar glyphs in the canonical UI transform. */
@@ -474,66 +486,83 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
     }
 
     private fun emitRotatedGlyph(
+        glyph: IntArray,
         centerX: Float,
         centerY: Float,
+        cosRotation: Float,
+        sinRotation: Float,
+        sourceCenterX: Float,
+        sourceCenterY: Float,
         colorIndex: Int,
         shadowColorIndex: Int,
         scale: Int
     ) {
         val fScale = scale.toFloat()
-        val baseX = centerX - U * 0.5f * fScale
-        val baseY = centerY - U * 0.5f * fScale
-        val w = canvas.width.toInt()
-        val h = canvas.height.toInt()
-
-        if (shadowColorIndex != EngineCanvas.COLOR_TRANSPARENT) {
-            var y = 0
-            while (y < GLYPH_CELL_COUNT) {
-                var x = 0
-                while (x < GLYPH_CELL_COUNT) {
-                    if (rotatedGlyphBuffer[y * GLYPH_CELL_COUNT + x] != 0) {
-                        var sy = 0
-                        while (sy < scale) {
-                            var sx = 0
-                            while (sx < scale) {
-                                val px = baseX + (x * scale + sx) + fScale
-                                val py = baseY + (y * scale + sy) + fScale
-                                if (px >= 0 && px < w && py >= 0 && py < h) {
-                                    canvas.setPixel(px, py, shadowColorIndex)
-                                }
-                                sx++
+        val inverseScale = 1f / fScale
+        val rasterSize = GLYPH_CELL_COUNT * scale
+        val rasterHalf = rasterSize * 0.5f
+        val unshiftedBaseX = centerX - rasterHalf
+        val unshiftedBaseY = centerY - rasterHalf
+        val clipRight = canvas.width.toInt()
+        val clipBottom = canvas.height.toInt()
+        val firstLocalCoordinate = 0.5f * inverseScale - GLYPH_CELL_COUNT * 0.5f
+        val sampleFixedScale = GLYPH_SAMPLE_FRACTION_SCALE.toFloat()
+        val firstSourceX = (
+            firstLocalCoordinate * cosRotation +
+                firstLocalCoordinate * sinRotation +
+                sourceCenterX
+        )
+        val firstSourceY = (
+            -firstLocalCoordinate * sinRotation +
+                firstLocalCoordinate * cosRotation +
+                sourceCenterY
+        )
+        val sourceXStep = (inverseScale * cosRotation * sampleFixedScale).roundToInt()
+        val sourceYStep = (-inverseScale * sinRotation * sampleFixedScale).roundToInt()
+        val rowSourceXStep = (inverseScale * sinRotation * sampleFixedScale).roundToInt()
+        val rowSourceYStep = (inverseScale * cosRotation * sampleFixedScale).roundToInt()
+        val firstSourceXFixed = (firstSourceX * sampleFixedScale).roundToInt()
+        val firstSourceYFixed = (firstSourceY * sampleFixedScale).roundToInt()
+        var pass = if (shadowColorIndex == EngineCanvas.COLOR_TRANSPARENT) 1 else 0
+        while (pass < 2) {
+            val passOffset = if (pass == 0) scale else 0
+            val passColor = if (pass == 0) shadowColorIndex else colorIndex
+            val baseX = unshiftedBaseX.roundToInt() + passOffset
+            val baseY = unshiftedBaseY.roundToInt() + passOffset
+            var rowSourceX = firstSourceXFixed
+            var rowSourceY = firstSourceYFixed
+            var rasterY = 0
+            while (rasterY < rasterSize) {
+                var sampledSourceX = rowSourceX
+                var sampledSourceY = rowSourceY
+                var rasterX = 0
+                while (rasterX < rasterSize) {
+                    val sourceX = (sampledSourceX + GLYPH_SAMPLE_FRACTION_HALF) shr
+                        GLYPH_SAMPLE_FRACTION_BITS
+                    val sourceY = (sampledSourceY + GLYPH_SAMPLE_FRACTION_HALF) shr
+                        GLYPH_SAMPLE_FRACTION_BITS
+                    if (
+                        sourceX >= 0 && sourceX < GLYPH_CELL_COUNT &&
+                        sourceY >= 0 && sourceY < GLYPH_CELL_COUNT
+                    ) {
+                        val bitMask = 0x8000 ushr sourceX
+                        if ((glyph[sourceY] and bitMask) != 0) {
+                            val pixelX = baseX + rasterX
+                            val pixelY = baseY + rasterY
+                            if (pixelX >= 0 && pixelY >= 0 && pixelX < clipRight && pixelY < clipBottom) {
+                                canvas.setPixel(pixelX.toFloat(), pixelY.toFloat(), passColor)
                             }
-                            sy++
                         }
                     }
-                    x++
+                    sampledSourceX += sourceXStep
+                    sampledSourceY += sourceYStep
+                    rasterX++
                 }
-                y++
+                rowSourceX += rowSourceXStep
+                rowSourceY += rowSourceYStep
+                rasterY++
             }
-        }
-
-        var y = 0
-        while (y < GLYPH_CELL_COUNT) {
-            var x = 0
-            while (x < GLYPH_CELL_COUNT) {
-                if (rotatedGlyphBuffer[y * GLYPH_CELL_COUNT + x] != 0) {
-                    var sy = 0
-                    while (sy < scale) {
-                        var sx = 0
-                        while (sx < scale) {
-                            val px = baseX + (x * scale + sx)
-                            val py = baseY + (y * scale + sy)
-                            if (px >= 0 && px < w && py >= 0 && py < h) {
-                                canvas.setPixel(px, py, colorIndex)
-                            }
-                            sx++
-                        }
-                        sy++
-                    }
-                }
-                x++
-            }
-            y++
+            pass++
         }
     }
 
@@ -731,28 +760,6 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
             canvas.drawLine(x1, y1, x2, y2, colorIndex, strokeWidth)
             i++
         }
-    }
-
-    fun drawProceduralPolarDemo(centerX: Float, centerY: Float, baseRadius: Float, timeMs: Long) {
-        val sourcePixel = 1f
-        // 1. Draw independent rotating circle stroke
-        drawCircleStroke(centerX, centerY, baseRadius, PaletteIndices.HIGHLIGHT, sourcePixel)
-
-        // 2. Draw rotating star links (5-pointed star rotating counter-clockwise at 8s period)
-        val phaseStar = (timeMs % 8000L).toFloat() / 8000f * -360f
-        drawPolarStarLinks(centerX, centerY, baseRadius - U, 5, 2, phaseStar, PaletteIndices.ACCENT_SECONDARY, sourcePixel)
-
-        // 3. Draw rotating octagon (rotating clockwise at 12s period)
-        val phaseOct = (timeMs % 12000L).toFloat() / 12000f * 360f
-        drawRotatingPolygon(centerX, centerY, baseRadius - U * 2f, 8, phaseOct, PaletteIndices.MAGIC_CIRCLE_PRIMARY, sourcePixel)
-
-        // 4. Draw active-only bead loop (30 beads, 15 active, rotating slowly)
-        val phaseBeads = (timeMs % 20000L).toFloat() / 20000f * 360f
-        drawActivePolarBeadLoop(centerX, centerY, baseRadius + U, 30, 15, phaseBeads, 4f, PaletteIndices.BORDER)
-
-        // 5. Draw active-only ticks (24 ticks, 12 active, rotating CCW)
-        val phaseTicks = (timeMs % 15000L).toFloat() / 15000f * -360f
-        drawActivePolarTickLoop(centerX, centerY, baseRadius - U * 3f, baseRadius - U * 2.5f, 24, 12, phaseTicks, PaletteIndices.HIGHLIGHT, sourcePixel)
     }
 
     fun drawBulletPattern(
