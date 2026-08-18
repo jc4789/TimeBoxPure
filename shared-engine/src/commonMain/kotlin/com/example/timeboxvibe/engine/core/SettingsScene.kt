@@ -67,7 +67,7 @@ object SettingsScene : Scene {
 
     override fun onInput(inputCode: Int) {}
 
-    override fun onTouch(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
+    override fun onTouch(x: Float, y: Float, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
         val inPlayArea = x >= playX && y >= playY && x < playX + playW && y < playY + playH
 
         if (!isDragging && !inPlayArea) {
@@ -105,7 +105,7 @@ object SettingsScene : Scene {
                     val deltaX = x - initialTouchX
                     val deltaY = y - initialTouchY
                     if (inPlayArea && abs(deltaX) < (U / 2).toFloat() && abs(deltaY) < (U / 2).toFloat() && !hasDragged) {
-                        onInput(x, y, TouchAction.UP, playX, playY, playW, playH)
+                        onInput(x.toInt(), y.toInt(), TouchAction.UP, playX, playY, playW, playH)
                     }
                 }
             }

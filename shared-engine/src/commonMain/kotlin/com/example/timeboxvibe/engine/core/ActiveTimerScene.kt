@@ -2,7 +2,6 @@ package com.example.timeboxvibe.engine.core
 
 import com.example.timeboxvibe.engine.AppStrings
 import com.example.timeboxvibe.engine.getStrings
-import kotlin.math.abs
 
 private const val U = CANONICAL_UI_UNIT
 
@@ -18,28 +17,15 @@ object ActiveTimerScene : Scene {
     private const val CONTROL_GAP_LANDSCAPE = U
     private const val CONTROL_ICON_SIZE = U * 2
     private const val CONTROL_ICON_SCALE = 1
-    private const val TIMER_RADIUS_WIDTH_NUM = 9f
-    private const val TIMER_RADIUS_WIDTH_DEN = 20f
-    private const val TIMER_RADIUS_HEIGHT_NUM = 9f
-    private const val TIMER_RADIUS_HEIGHT_DEN = 20f
-    private const val OUTER_TO_INNER_RING_CELLS = 2
-    private const val INNER_TO_QUIET_ZONE_CELLS = 3
-    private const val MIN_TIMER_RADIUS_CELLS = 8
-    private const val TIMER_TOP_GAP_CELLS = 1
-    private const val TIMER_CONTROL_GAP_CELLS = 1
-    private const val TIMER_BOTTOM_PAD_CELLS = 1
+    private const val CONTROL_BOTTOM_CLEARANCE_CELLS = 1
+    private const val GRAPHICS_TOP_GAP_CELLS = 1
     private const val CALENDAR_PANEL_HEIGHT_CELLS = 5
     private const val CALENDAR_PANEL_GAP_CELLS = 1
     var isTaskFocused = false
     private val inputContainer = FixedInputContainer(64)
     private val taskCursor = EngineCursorRenderer()
-    private var scrollY = 0f
-    private var lastTouchY = 0f
-    private var isDragging = false
-    private var initialTouchX = 0f
-    private var initialTouchY = 0f
-    private var hasDragged = false
     private var alarmMarqueeX = 0f
+    private var renderedControlRowY = 0f
     private var lastRenderState: EngineUiState? = null
     // Demoscene manager: 6 Wave oscillators + 1 IkChain2D + Perlin rune drift.
     // Allocated on first render so we don't run the constructor at class init.
@@ -47,9 +33,7 @@ object ActiveTimerScene : Scene {
 
     override fun onEnter(payload: Any?) {
         isTaskFocused = false
-        scrollY = 0f
-        isDragging = false
-        hasDragged = false
+        renderedControlRowY = 0f
         taskCursor.reset()
         // Clear input container
         while (inputContainer.length > 0) {
@@ -67,7 +51,6 @@ object ActiveTimerScene : Scene {
 
     override fun onExit() {
         isTaskFocused = false
-        isDragging = false
     }
 
     override fun update(dt: Float) {
@@ -100,8 +83,7 @@ object ActiveTimerScene : Scene {
         val isPortrait = UiShellLayout.isTallDisplay
         
         val cx: Float
-        val baseCy: Float
-        val radius: Float
+        val preferredCy: Float
         val playAreaStartX: Float
         val playAreaW: Float
         val playAreaH: Float
@@ -118,15 +100,14 @@ object ActiveTimerScene : Scene {
             playAreaW = playW.toFloat()
             playAreaH = playH.toFloat()
             cx = logicalWidth / 2f
-            radius = timerRadius(playAreaW, playAreaH)
-            baseCy = timerCenterY(playAreaH, inputBaseY, radius, taskInputH)
+            preferredCy = playAreaH / 2f
 
             // 1. Draw Play Area background (top 85%). When the user enables
             //    the "Background Nebula" setting, the clear color slowly
             //    cycles through BG / BG_ALT / PANEL via a 2-octave Perlin
             //    fbm sampled at the play-area center and the center-offset.
             val nebulaColor = nebulaColorIndex(
-                cx, baseCy, playAreaW, playAreaH, elapsedSeconds
+                cx, preferredCy, playAreaW, playAreaH, elapsedSeconds
             )
             renderer.fillRectDither(0f, 0f, logicalWidth, playAreaH, nebulaColor, nebulaColor, SoftDitherPattern.SOLID)
         } else {
@@ -134,19 +115,22 @@ object ActiveTimerScene : Scene {
             playAreaW = playW.toFloat()
             playAreaH = playH.toFloat()
             cx = playAreaStartX + (playAreaW / 2f)
-            radius = timerRadius(playAreaW, playAreaH)
-            baseCy = timerCenterY(playAreaH, inputBaseY, radius, taskInputH)
+            preferredCy = playAreaH / 2f
 
             // 1. Draw Play Area background (right 70%) with optional nebula.
             val nebulaColor = nebulaColorIndex(
-                cx, baseCy, playAreaW, playAreaH, elapsedSeconds
+                cx, preferredCy, playAreaW, playAreaH, elapsedSeconds
             )
             renderer.fillRectDither(playAreaStartX, 0f, logicalWidth, logicalHeight, nebulaColor, nebulaColor, SoftDitherPattern.SOLID)
         }
-        scrollY = scrollY.coerceIn(timerMinScroll(state, playAreaH, logicalHeight, radius, inputBaseY, taskInputH, playAreaW), 0f)
-        val cy = baseCy + scrollY
-        val inputY = inputBaseY + scrollY
-        val btnY = timerControlRowY(baseCy, radius) + scrollY
+        val inputY = inputBaseY
+        val reservedBtnY = timerControlRowY(playAreaH)
+        val calendarY = reservedBtnY - (U * CALENDAR_PANEL_GAP_CELLS).toFloat() - calendarPanelHeight(state, playAreaW)
+        val graphicsBottomY = if (state.activeMode == "calendar") {
+            calendarY - U.toFloat()
+        } else {
+            reservedBtnY - U.toFloat()
+        }
 
         // Outer beads = current stage / micro timer. Inner beads = session macro
         // (dual big box, calendar remaining, or sequence set remaining e.g. 60m pomodoro).
@@ -172,13 +156,12 @@ object ActiveTimerScene : Scene {
         //    FrameClock) drives each layer's continuous rotation. Demoscene
         //    manager provides Perlin rune drift + FABRIK comet trail; null
         //    when demoscene is disabled in settings.
-        val innerRadius = radius - (U * OUTER_TO_INNER_RING_CELLS).toFloat()
-        val quietRadius = innerRadius - (U * INNER_TO_QUIET_ZONE_CELLS).toFloat()
-        renderer.nestedTimeboxRenderer.render(
-            centerX = cx,
-            centerY = cy,
-            baseRadius = radius,
-            quietRadius = quietRadius,
+        val renderedGraphicsBottomY = renderer.nestedTimeboxRenderer.render(
+            viewportLeft = playAreaStartX,
+            viewportTop = inputY + taskInputH + (U * GRAPHICS_TOP_GAP_CELLS).toFloat(),
+            viewportRight = playAreaStartX + playAreaW,
+            viewportBottom = graphicsBottomY,
+            preferredCenterY = playY.toFloat() + playAreaH * 0.5f,
             outerProgress = outerProgress,
             innerProgress = innerProgress,
             elapsedSeconds = elapsedSeconds,
@@ -200,6 +183,12 @@ object ActiveTimerScene : Scene {
             playAreaW = playAreaW,
             demoscene = demoscene
         )
+        val btnY = if (state.activeMode == "calendar") {
+            reservedBtnY
+        } else {
+            minOf(reservedBtnY, renderedGraphicsBottomY + U.toFloat())
+        }
+        renderedControlRowY = btnY
 
         // 4. Draw Task Input Box
         val taskText = state.currentTask
@@ -274,7 +263,7 @@ object ActiveTimerScene : Scene {
             controlIndex++
         }
 
-        drawActiveCalendarPanel(renderer, state, strings, playAreaStartX, playAreaW, btnY + CONTROL_BUTTON_HEIGHT + (U * CALENDAR_PANEL_GAP_CELLS).toFloat())
+        drawActiveCalendarPanel(renderer, state, strings, playAreaStartX, playAreaW, calendarY)
 
     }
 
@@ -392,52 +381,12 @@ object ActiveTimerScene : Scene {
         }
     }
 
-    override fun onTouch(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
+    override fun onTouch(x: Float, y: Float, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
         val inPlayArea = x >= playX && y >= playY && x < playX + playW && y < playY + playH
-
-        if (!isDragging && !inPlayArea) {
-            return
-        }
-
-        when (action) {
-            TouchAction.DOWN -> {
-                if (!inPlayArea) return
-                isDragging = true
-                lastTouchY = y.toFloat()
-                initialTouchX = x.toFloat()
-                initialTouchY = y.toFloat()
-                hasDragged = false
-            }
-            TouchAction.MOVE -> {
-                if (isDragging) {
-                    val deltaY = y - lastTouchY
-                    if (abs(deltaY) > (U / 4).toFloat()) {
-                        hasDragged = true
-                    }
-                    scrollY += deltaY
-                    lastTouchY = y.toFloat()
-                    val state = SceneManager.timerActions?.getUiState() ?: return
-                    val logicalHeight = SceneManager.logicalHeight
-                    val radius = timerRadius(playW.toFloat(), playH.toFloat())
-                    val strings = getStrings(state.language)
-                    val inputHeight = taskInputHeight(state, strings, playW.toFloat())
-                    scrollY = scrollY.coerceIn(timerMinScroll(state, playH.toFloat(), logicalHeight, radius, timerInputY(logicalHeight), inputHeight, playW.toFloat()), 0f)
-                }
-            }
-            TouchAction.UP -> {
-                if (isDragging) {
-                    isDragging = false
-                    val deltaX = x - initialTouchX
-                    val deltaY = y - initialTouchY
-                    if (inPlayArea && abs(deltaX) < (U / 2).toFloat() && abs(deltaY) < (U / 2).toFloat() && !hasDragged) {
-                        onInput(x, y, TouchAction.UP, playX, playY, playW, playH)
-                    }
-                }
-            }
-            TouchAction.CANCEL -> {
-                isDragging = false
-                hasDragged = false
-            }
+        if (action == TouchAction.CANCEL) {
+            onInput(x.toInt(), y.toInt(), action, playX, playY, playW, playH)
+        } else if (action == TouchAction.UP && inPlayArea) {
+            onInput(x.toInt(), y.toInt(), action, playX, playY, playW, playH)
         }
     }
 
@@ -450,7 +399,6 @@ object ActiveTimerScene : Scene {
         if (!isUp) return
 
         val state = SceneManager.timerActions?.getUiState() ?: return
-        val logicalWidth = SceneManager.logicalWidth
         val logicalHeight = SceneManager.logicalHeight
         val isPortrait = UiShellLayout.isTallDisplay
 
@@ -460,11 +408,9 @@ object ActiveTimerScene : Scene {
         val playAreaStartX = playX.toFloat()
         val playAreaW = playW.toFloat()
         val playAreaH = playH.toFloat()
-        val radius = timerRadius(playAreaW, playAreaH)
         val inputBaseY = timerInputY(logicalHeight)
         val strings = getStrings(state.language)
         val inputH = taskInputHeight(state, strings, playAreaW)
-        scrollY = scrollY.coerceIn(timerMinScroll(state, playAreaH, logicalHeight, radius, inputBaseY, inputH, playAreaW), 0f)
 
         if (state.isRinging) {
             if (SceneManager.timerActionsFromTouchEnabled()) {
@@ -475,7 +421,7 @@ object ActiveTimerScene : Scene {
         }
 
         // 1. Task Input Click
-        val inputY = inputBaseY + scrollY
+        val inputY = inputBaseY
         val inputX = playAreaStartX + TASK_INPUT_SIDE_PAD
         val inputW = if (playAreaW >= (U * 14) - (U / 4)) {
             playAreaW - TASK_INPUT_SIDE_PAD * 2f - PRESET_BADGE_SIZE - PRESET_BADGE_GAP
@@ -493,7 +439,7 @@ object ActiveTimerScene : Scene {
         isTaskFocused = false
 
         // 2. Button clicks
-        val btnY = timerControlRowY(timerCenterY(playAreaH, inputBaseY, radius, inputH), radius) + scrollY
+        val btnY = if (renderedControlRowY > 0f) renderedControlRowY else timerControlRowY(playAreaH)
         val btnW = timerControlWidth(playAreaW, isPortrait)
 
         if (fy >= btnY && fy <= btnY + CONTROL_BUTTON_HEIGHT) {
@@ -534,8 +480,9 @@ object ActiveTimerScene : Scene {
         }
     }
 
-    private fun timerControlRowY(timerCenterY: Float, radius: Float): Float {
-        return timerCenterY + radius + U * TIMER_CONTROL_GAP_CELLS
+    private fun timerControlRowY(playAreaH: Float): Float {
+        val requestedY = playAreaH - CONTROL_BUTTON_HEIGHT - U * CONTROL_BOTTOM_CLEARANCE_CELLS
+        return maxOf(U.toFloat(), requestedY)
     }
 
     private fun timerControlGap(isPortrait: Boolean): Float {
@@ -553,28 +500,8 @@ object ActiveTimerScene : Scene {
         return startX + index * (buttonWidth + gap)
     }
 
-    private fun timerRadius(playAreaW: Float, playAreaH: Float): Float {
-        val widthBound = playAreaW * TIMER_RADIUS_WIDTH_NUM / TIMER_RADIUS_WIDTH_DEN
-        val heightBound = playAreaH * TIMER_RADIUS_HEIGHT_NUM / TIMER_RADIUS_HEIGHT_DEN
-        return maxOf((U * MIN_TIMER_RADIUS_CELLS).toFloat(), minOf(widthBound, heightBound))
-    }
-
     private fun timerInputY(logicalHeight: Float): Float {
         return maxOf(logicalHeight / 12f, U * 2f)
-    }
-
-    private fun timerCenterY(playAreaH: Float, inputY: Float, radius: Float, inputHeight: Float): Float {
-        val clearTop = inputY + inputHeight + U * TIMER_TOP_GAP_CELLS + radius
-        return maxOf(clearTop, playAreaH / 2f)
-    }
-
-    private fun timerMinScroll(state: EngineUiState, playAreaH: Float, logicalHeight: Float, radius: Float, inputY: Float, inputHeight: Float, playAreaW: Float): Float {
-        val centerY = timerCenterY(playAreaH, inputY, radius, inputHeight)
-        var contentBottom = timerControlRowY(centerY, radius) + CONTROL_BUTTON_HEIGHT + U * TIMER_BOTTOM_PAD_CELLS
-        if (state.activeMode == "calendar") {
-            contentBottom += U * CALENDAR_PANEL_GAP_CELLS + calendarPanelHeight(state, playAreaW)
-        }
-        return (playAreaH - contentBottom).coerceAtMost(0f)
     }
 
     private fun taskInputDisplayText(taskText: String, strings: AppStrings): String {

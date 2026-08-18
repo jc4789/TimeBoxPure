@@ -263,8 +263,8 @@ object EntropyScene : Scene {
         }
     }
 
-    override fun onTouch(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
-        onInput(x, y, action, playX, playY, playW, playH)
+    override fun onTouch(x: Float, y: Float, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
+        onInput(x.toInt(), y.toInt(), action, playX, playY, playW, playH)
     }
 
     override fun onInput(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {

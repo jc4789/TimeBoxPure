@@ -37,7 +37,13 @@ import kotlin.math.roundToInt
  */
 class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRenderer) {
     companion object {
-        private const val U = CANONICAL_UI_UNIT
+        // Authoritative graphics-local dimensions. The Android reference uses
+        // block 3: 162 * 3 = 486px radius and 16 * 3 = 48px ornament glyphs.
+        private const val GRAPHICS_SOURCE_CELL = 16f
+        private const val GRAPHICS_SOURCE_RADIUS = 162f
+        private const val GRAPHICS_REFERENCE_RADIUS = GRAPHICS_SOURCE_RADIUS * 3f
+        private const val GRAPHICS_BOUNDARY_PAD = 2f
+        private const val READOUT_MAX_WIDTH_CELLS = 16
         private const val GUIDE_ALPHA = 0x66
         private const val MECHANICAL_ALPHA = 0xAA
         private const val SCRIPTURE_ALPHA = 0x88
@@ -83,9 +89,8 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         private const val SQUARE1_DEG_PER_SEC = -15f
         private const val SQUARE2_DEG_PER_SEC = 20f
         private const val CORE_DEG_PER_SEC = 40f
-        // Yin-yang core radius — 3 glyph cells, snapped to the 16x16 grid.
+        // Yin-yang core radius — 3 graphics cells, snapped to the graphics grid.
         // The core occupies the 3-cell radius inside the 4-cell inner timer band.
-        // This is a clean U-multiplier; no arbitrary ratio.
         // 0.5f kept as the comet-trail lerp step (one step per ring rotation)
         // and as a glyph offset.
         // Comet tail: 4 dots in a line trailing the core's rotation angle.
@@ -99,10 +104,11 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
     }
 
     fun render(
-        centerX: Float,
-        centerY: Float,
-        baseRadius: Float,
-        quietRadius: Float,
+        viewportLeft: Float,
+        viewportTop: Float,
+        viewportRight: Float,
+        viewportBottom: Float,
+        preferredCenterY: Float,
         outerProgress: Float,
         innerProgress: Float,
         elapsedSeconds: Float,
@@ -123,12 +129,37 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         strings: AppStrings,
         playAreaW: Float,
         demoscene: MagicCircleDemoscene? = null
-    ) {
+    ): Float {
         // Nested readouts + inner bead ring whenever a macro tier is present
         // (dual modes, or calendar/classic pomodoro with remaining-block total).
         // Does not alter TimerEngine.isDual — display-only.
         val showNestedMacro = isDual || bigTotalDuration > 0
-        val thin = 1f
+        val outputLeft = renderer.outputX(viewportLeft)
+        val outputTop = renderer.outputY(viewportTop)
+        val outputRight = renderer.outputX(viewportRight)
+        val outputBottom = renderer.outputY(maxOf(viewportTop, viewportBottom))
+        val outputPreferredCenterY = renderer.outputY(preferredCenterY)
+        val outputShortAxis = minOf(
+            maxOf(1f, outputRight - outputLeft),
+            maxOf(1f, outputBottom - outputTop)
+        )
+        val graphicsRadius = minOf(
+            GRAPHICS_REFERENCE_RADIUS,
+            maxOf(1f, outputShortAxis * 0.5f - GRAPHICS_BOUNDARY_PAD)
+        )
+        val graphicsUnit = graphicsRadius / GRAPHICS_SOURCE_RADIUS
+        val graphicsGlyphBlock = maxOf(1, graphicsUnit.roundToInt())
+        val graphicsCell = GRAPHICS_SOURCE_CELL * graphicsUnit
+        val thin = maxOf(1f, graphicsUnit)
+        val centerX = (outputLeft + outputRight) * 0.5f
+        val minimumCenterY = outputTop + graphicsRadius + GRAPHICS_BOUNDARY_PAD
+        val maximumCenterY = outputBottom - graphicsRadius - GRAPHICS_BOUNDARY_PAD
+        val centerY = if (maximumCenterY >= minimumCenterY) {
+            outputPreferredCenterY.coerceIn(minimumCenterY, maximumCenterY)
+        } else {
+            (outputTop + outputBottom) * 0.5f
+        }
+        val baseRadius = graphicsRadius
 
         // Continuous rotation angles (degrees per second × elapsed seconds).
         // The angle grows unbounded; FastMath handles mod 360 internally.
@@ -139,27 +170,27 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         val square2Angle = elapsedSeconds * SQUARE2_DEG_PER_SEC - 90f
         val coreAngle = elapsedSeconds * CORE_DEG_PER_SEC
 
-        val coreR = (U * 3).toFloat()
+        val coreR = graphicsCell * 3f
 
-        // Radii — all snapped to the 16x16 grid: baseRadius, baseRadius - U*N,
-        // or U*N. The outer ring is the boundary (U*0 offset from baseRadius);
-        // every other band is a whole or half number of U cells inside the
+        // Radii are owned by the graphic's own integer pixel block, not the UI glyph cell.
+        // The outer ring is the boundary; every other band is a whole or half
+        // graphics cell inside the
         // boundary. Nothing extends past baseRadius — the 魔法陣 contains
         // everything.
         val outerR = baseRadius
-        val decorationR = baseRadius - (U / 2).toFloat()
-        val runeBandR = baseRadius - U.toFloat()
-        val outerTimerR = baseRadius - (U * 2).toFloat()
-        val scriptureR = baseRadius - (U * 2 + U / 2).toFloat()
-        val pentagramR = baseRadius - (U * 2).toFloat()
-        val sectorKanjiR = baseRadius - (U * 2).toFloat()
-        val octagramR = baseRadius - (U * 3).toFloat()
-        val innerBeadR = (U * 4).toFloat()
-        val innerRingR = baseRadius - (U * 4).toFloat()
-        val innerCardinalR = baseRadius - (U * 4).toFloat()
+        val decorationR = baseRadius - graphicsCell * 0.5f
+        val runeBandR = baseRadius - graphicsCell
+        val outerTimerR = baseRadius - graphicsCell * 2f
+        val scriptureR = baseRadius - graphicsCell * 2.5f
+        val pentagramR = baseRadius - graphicsCell * 2f
+        val sectorKanjiR = baseRadius - graphicsCell * 2f
+        val octagramR = baseRadius - graphicsCell * 3f
+        val innerBeadR = graphicsCell * 4f
+        val innerCardinalR = baseRadius - graphicsCell * 4f
 
-        // 1. Outer thin ring (the "frame") — red, pulled in 0.25U, at SCRIPTURE
-        //    alpha (0x88) so it's visible without dominating.
+        // 1. Outer thin ring (the "frame") at SCRIPTURE alpha (0x88).
+        renderer.beginGraphics()
+        try {
         renderer.setDrawAlpha(SCRIPTURE_ALPHA)
         renderer.drawAliasedCircle(centerX, centerY, outerR, magicPrimaryColorIndex, thin)
 
@@ -177,14 +208,14 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
                 runeBandR,
                 angle,
                 magicSecondaryColorIndex,
+                scale = graphicsGlyphBlock,
                 tangent = true
             )
             runeIdx++
         }
 
-        // 3. Outer detail ticks (36 small, rotating slowly). The ticks
-        //    span the band between the outer ring and the decoration ring
-        //    (both at U * 0.5f inside the boundary).
+        // 3. Outer detail ticks (36 small, rotating slowly). The ticks span
+        //    the band between the outer ring and the decoration ring.
         renderer.setDrawAlpha(GUIDE_ALPHA)
         renderer.drawActivePolarTickLoop(
             centerX, centerY, decorationR, outerR,
@@ -197,7 +228,7 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         while (dotIdx < DECORATION_DOT_COUNT) {
             val isCardinal = DECORATION_IS_CARDINAL[dotIdx]
             val color = if (isCardinal) PaletteIndices.ACCENT_SECONDARY else PaletteIndices.BORDER
-            val size = if (isCardinal) 2.5f else 1.5f
+            val size = if (isCardinal) 2.5f * graphicsUnit else 1.5f * graphicsUnit
             renderer.setDrawAlpha(if (isCardinal) SOLID_ALPHA else SCRIPTURE_ALPHA)
             renderer.drawPolarDot(
                 centerX, centerY, decorationR, DECORATION_ANGLES[dotIdx],
@@ -206,15 +237,14 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
             dotIdx++
         }
 
-        // 5. Outer timer beads (60, rotating slowly). The ring sits at
-        //    baseRadius - U*2, a full cell inside the rune kanji band
-        //    (so the kanji no longer cover the beads).
+        // 5. Outer timer beads (60, rotating slowly). The ring sits two
+        //    graphics cells inside the boundary, clear of the rune band.
         renderer.setDrawAlpha(SOLID_ALPHA)
         val outerActive = (outerProgress.coerceIn(0f, 1f) * OUTER_BEAD_COUNT).toInt()
         renderer.drawActivePolarBeadLoop(
             centerX, centerY, outerTimerR,
             OUTER_BEAD_COUNT, outerActive, -90f,
-            2.5f, outerActiveColorIndex
+                2.5f * graphicsUnit, outerActiveColorIndex
         )
 
         // 6. 10-scripture ring (10 hardcoded kanji, slightly faster than rune band).
@@ -229,6 +259,7 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
                 scriptureR,
                 angle,
                 magicPrimaryColorIndex,
+                scale = graphicsGlyphBlock,
                 tangent = true
             )
             scriptureIdx++
@@ -254,6 +285,7 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
                 sectorKanjiR,
                 angle,
                 magicPrimaryColorIndex,
+                scale = graphicsGlyphBlock,
                 tangent = true
             )
             sectorIdx++
@@ -281,7 +313,7 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
             renderer.drawActivePolarBeadLoop(
                 centerX, centerY, innerBeadR,
                 INNER_BEAD_COUNT, innerActive, -90f,
-                2.0f, innerActiveColorIndex
+                2.0f * graphicsUnit, innerActiveColorIndex
             )
         }
 
@@ -307,7 +339,7 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
             val r = trailR0 + trailLinkIdx * trailRStep
             val trailAngle = coreAngle - trailLinkIdx * 12f
             val linkAlpha = (trailBaseAlpha * (1f - trailLinkIdx * 0.22f)).toInt().coerceIn(0x20, 0xFF)
-            val linkSize = (2.5f - trailLinkIdx * 0.4f).coerceAtLeast(0.8f)
+            val linkSize = (2.5f - trailLinkIdx * 0.4f).coerceAtLeast(0.8f) * graphicsUnit
             val linkX = renderer.getPolarX(centerX, r, trailAngle)
             val linkY = renderer.getPolarY(centerY, r, trailAngle)
             renderer.setDrawAlpha(linkAlpha)
@@ -316,7 +348,7 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         }
         renderer.setDrawAlpha(SOLID_ALPHA)
 
-        // 13. 5 inner cardinal kanji (static, upright, at innerRingR = 4 cells).
+        // 13. 5 inner cardinal kanji (static, upright, four graphics cells inward).
         renderer.setDrawAlpha(SCRIPTURE_ALPHA)
         var innerCardinalIdx = 0
         while (innerCardinalIdx < INNER_CARDINAL_COUNT) {
@@ -328,18 +360,35 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
                 innerCardinalR,
                 angle,
                 magicPrimaryColorIndex,
+                scale = graphicsGlyphBlock,
                 tangent = false
             )
             innerCardinalIdx++
         }
 
-        // 14. Center timer text readout (drawn last so it sits on top of everything).
-        renderer.setDrawAlpha(SOLID_ALPHA)
-        drawCenterReadout(
-            centerX, centerY, quietRadius, showNestedMacro, timeRemaining, stageLabel,
-            midTimeRemaining, bigTimeRemaining, activeMode, isBreak, sequenceLength,
-            strings, playAreaW
-        )
+            // The center readout is part of the instrument graphic. It uses the
+            // same graphics-local integer block as every ring and ornament.
+            renderer.setDrawAlpha(SOLID_ALPHA)
+            drawCenterReadout(
+                centerX = centerX,
+                centerY = centerY,
+                graphicsCell = graphicsCell,
+                graphicsGlyphBlock = graphicsGlyphBlock,
+                showNestedMacro = showNestedMacro,
+                timeRemaining = timeRemaining,
+                stageLabel = stageLabel,
+                midTimeRemaining = midTimeRemaining,
+                bigTimeRemaining = bigTimeRemaining,
+                activeMode = activeMode,
+                isBreak = isBreak,
+                sequenceLength = sequenceLength,
+                strings = strings,
+                viewportWidth = outputRight - outputLeft
+            )
+        } finally {
+            renderer.endGraphics()
+        }
+        return UiRasterGrid.logicalY(centerY + graphicsRadius + thin * 0.5f)
     }
 
     private fun drawSolidYinYang(
@@ -417,7 +466,8 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
     private fun drawCenterReadout(
         centerX: Float,
         centerY: Float,
-        quietRadius: Float,
+        graphicsCell: Float,
+        graphicsGlyphBlock: Int,
         showNestedMacro: Boolean,
         timeRemaining: Int,
         stageLabel: String,
@@ -427,50 +477,72 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         isBreak: Boolean,
         sequenceLength: Int,
         strings: AppStrings,
-        playAreaW: Float
+        viewportWidth: Float
     ) {
         val primary = PaletteIndices.TEXT_PRIMARY
         val secondary = PaletteIndices.TEXT_SECONDARY
-        val maxTextWidth = minOf(playAreaW - (U + U / 2).toFloat(), quietRadius * 2f - U.toFloat())
+        val maxTextWidth = maxOf(
+            graphicsCell,
+            minOf(
+                viewportWidth - graphicsCell * 1.5f,
+                graphicsCell * READOUT_MAX_WIDTH_CELLS
+            )
+        )
 
         // Nested: micro stage (large) + macro block remaining (small) + labels.
         if (showNestedMacro) {
             if (activeMode == "dual.5") {
                 if (sequenceLength > 1) {
-                    drawStageLabelCentered(centerX, stageLabel, centerY - (U * 3 + U / 2).toFloat(), secondary, maxTextWidth, true)
+                    drawStageLabelCentered(centerX, stageLabel, centerY - graphicsCell * 3.5f, secondary, maxTextWidth, true, graphicsGlyphBlock, graphicsCell)
                 }
-                drawTimeCentered(centerX, timeRemaining, centerY - (U + U / 2).toFloat(), 2, primary)
-                drawAlarmTimeCentered(centerX, midTimeRemaining, centerY + (U / 2).toFloat(), primary)
-                drawTimeCentered(centerX, bigTimeRemaining, centerY + (U * 2).toFloat(), 1, primary)
-                drawStaticTextCenteredAtTop(centerX, strings.sessionLimitLabel, centerY + (U * 3).toFloat(), secondary, maxTextWidth)
+                drawTimeCentered(centerX, timeRemaining, centerY - graphicsCell * 1.5f, graphicsGlyphBlock * 2, primary)
+                drawAlarmTimeCentered(centerX, midTimeRemaining, centerY + graphicsCell * 0.5f, primary, graphicsGlyphBlock)
+                drawTimeCentered(centerX, bigTimeRemaining, centerY + graphicsCell * 2f, graphicsGlyphBlock, primary)
+                drawStaticTextCenteredAtTop(centerX, strings.sessionLimitLabel, centerY + graphicsCell * 3f, secondary, maxTextWidth, graphicsGlyphBlock)
             } else {
                 if (sequenceLength > 1 || activeMode == "calendar" || activeMode == "sequence") {
-                    drawStageLabelCentered(centerX, stageLabel, centerY - (U * 2 + U / 2).toFloat(), secondary, maxTextWidth, true)
+                    drawStageLabelCentered(centerX, stageLabel, centerY - graphicsCell * 2.5f, secondary, maxTextWidth, true, graphicsGlyphBlock, graphicsCell)
                 }
-                drawTimeCentered(centerX, timeRemaining, centerY - (U / 2).toFloat(), 2, primary)
-                drawTimeCentered(centerX, bigTimeRemaining, centerY + (U + U / 2).toFloat(), 1, primary)
+                drawTimeCentered(centerX, timeRemaining, centerY - graphicsCell * 0.5f, graphicsGlyphBlock * 2, primary)
+                drawTimeCentered(centerX, bigTimeRemaining, centerY + graphicsCell * 1.5f, graphicsGlyphBlock, primary)
                 val label = if (activeMode == "dual-sequence") {
                     strings.blockLimitLabel
                 } else {
                     strings.sessionLimitLabel
                 }
-                drawStaticTextCenteredAtTop(centerX, label, centerY + (U * 2 + U / 2).toFloat(), secondary, maxTextWidth)
+                drawStaticTextCenteredAtTop(centerX, label, centerY + graphicsCell * 2.5f, secondary, maxTextWidth, graphicsGlyphBlock)
             }
             return
         }
 
-        drawTimeCentered(centerX, timeRemaining, centerY - (U / 2).toFloat(), 2, primary)
+        drawTimeCentered(centerX, timeRemaining, centerY - graphicsCell * 0.5f, graphicsGlyphBlock * 2, primary)
         val isSequence = activeMode == "sequence" || activeMode == "calendar"
         if (isSequence && sequenceLength > 1) {
-            drawStageLabelCentered(centerX, stageLabel, centerY + (U + U / 2).toFloat(), secondary, maxTextWidth, false)
+            drawStageLabelCentered(centerX, stageLabel, centerY + graphicsCell * 1.5f, secondary, maxTextWidth, false, graphicsGlyphBlock, graphicsCell)
         } else if (activeMode != "sequence") {
             val label = if (isBreak) strings.unwindingLabel else strings.focusingLabel
-            drawStaticTextCenteredAtTop(centerX, label, centerY + U.toFloat(), secondary, maxTextWidth)
+            drawStaticTextCenteredAtTop(centerX, label, centerY + graphicsCell, secondary, maxTextWidth, graphicsGlyphBlock)
         }
     }
 
-    private fun drawStaticTextCenteredAtTop(centerX: Float, text: String, topY: Float, colorIndex: Int, maxWidth: Float) {
-        ProceduralTextRenderer.drawWrapped(renderer, text, centerX - maxWidth / 2f, topY, maxWidth, colorIndex, alignment = ProceduralTextRenderer.ALIGN_CENTER)
+    private fun drawStaticTextCenteredAtTop(
+        centerX: Float,
+        text: String,
+        topY: Float,
+        colorIndex: Int,
+        maxWidth: Float,
+        scale: Int
+    ) {
+        ProceduralTextRenderer.drawWrapped(
+            renderer,
+            text,
+            centerX - maxWidth / 2f,
+            topY,
+            maxWidth,
+            colorIndex,
+            scale = scale,
+            alignment = ProceduralTextRenderer.ALIGN_CENTER
+        )
     }
 
     private fun drawStageLabelCentered(
@@ -479,12 +551,27 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         centerY: Float,
         colorIndex: Int,
         maxWidth: Float,
-        placeAbove: Boolean
+        placeAbove: Boolean,
+        scale: Int,
+        graphicsCell: Float
     ) {
         if (text.isEmpty()) return
-        val textHeight = ProceduralTextRenderer.measureWrappedHeight(text, maxWidth)
-        val startY = if (placeAbove) centerY + (U / 2).toFloat() - textHeight else centerY - (U / 2).toFloat()
-        ProceduralTextRenderer.drawWrapped(renderer, text, centerX - maxWidth / 2f, startY, maxWidth, colorIndex, alignment = ProceduralTextRenderer.ALIGN_CENTER)
+        val textHeight = ProceduralTextRenderer.measureWrappedHeight(text, maxWidth, scale)
+        val startY = if (placeAbove) {
+            centerY + graphicsCell * 0.5f - textHeight
+        } else {
+            centerY - graphicsCell * 0.5f
+        }
+        ProceduralTextRenderer.drawWrapped(
+            renderer,
+            text,
+            centerX - maxWidth / 2f,
+            startY,
+            maxWidth,
+            colorIndex,
+            scale = scale,
+            alignment = ProceduralTextRenderer.ALIGN_CENTER
+        )
     }
 
     private fun drawTimeCentered(centerX: Float, seconds: Int, centerY: Float, scale: Int, colorIndex: Int) {
@@ -501,28 +588,28 @@ class NestedTimeboxInstrumentRenderer(private val renderer: ScaledProceduralRend
         drawGlyph(FULLWIDTH_DIGITS[remainder % 10], startX + cellWidth * 4f, startY, colorIndex, scale)
     }
 
-    private fun drawAlarmTimeCentered(centerX: Float, seconds: Int, centerY: Float, colorIndex: Int) {
+    private fun drawAlarmTimeCentered(centerX: Float, seconds: Int, centerY: Float, colorIndex: Int, scale: Int) {
         val safeSeconds = maxOf(0, seconds)
         val minutes = safeSeconds / 60
         val remainder = safeSeconds % 60
         val prefix = "［　ＡＬＡＲＭ：　"
         val totalCells = prefix.length + 7
-        val cellWidth = ScaledProceduralRenderer.measureTextHeight()
+        val cellWidth = ScaledProceduralRenderer.measureTextHeight(scale)
         var drawX = centerX - totalCells * cellWidth / 2f
         val drawY = centerY - cellWidth / 2f
         var index = 0
         while (index < prefix.length) {
-            drawGlyph(prefix[index], drawX, drawY, colorIndex)
+            drawGlyph(prefix[index], drawX, drawY, colorIndex, scale)
             drawX += cellWidth
             index++
         }
-        drawGlyph(FULLWIDTH_DIGITS[(minutes / 10) % 10], drawX, drawY, colorIndex); drawX += cellWidth
-        drawGlyph(FULLWIDTH_DIGITS[minutes % 10], drawX, drawY, colorIndex); drawX += cellWidth
-        drawGlyph('：', drawX, drawY, colorIndex); drawX += cellWidth
-        drawGlyph(FULLWIDTH_DIGITS[remainder / 10], drawX, drawY, colorIndex); drawX += cellWidth
-        drawGlyph(FULLWIDTH_DIGITS[remainder % 10], drawX, drawY, colorIndex); drawX += cellWidth
-        drawGlyph('　', drawX, drawY, colorIndex); drawX += cellWidth
-        drawGlyph('］', drawX, drawY, colorIndex)
+        drawGlyph(FULLWIDTH_DIGITS[(minutes / 10) % 10], drawX, drawY, colorIndex, scale); drawX += cellWidth
+        drawGlyph(FULLWIDTH_DIGITS[minutes % 10], drawX, drawY, colorIndex, scale); drawX += cellWidth
+        drawGlyph('：', drawX, drawY, colorIndex, scale); drawX += cellWidth
+        drawGlyph(FULLWIDTH_DIGITS[remainder / 10], drawX, drawY, colorIndex, scale); drawX += cellWidth
+        drawGlyph(FULLWIDTH_DIGITS[remainder % 10], drawX, drawY, colorIndex, scale); drawX += cellWidth
+        drawGlyph('　', drawX, drawY, colorIndex, scale); drawX += cellWidth
+        drawGlyph('］', drawX, drawY, colorIndex, scale)
     }
 
     private fun drawGlyph(char: Char, x: Float, y: Float, colorIndex: Int, scale: Int = 1) {

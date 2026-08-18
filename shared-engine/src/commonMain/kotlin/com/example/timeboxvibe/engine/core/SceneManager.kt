@@ -152,8 +152,9 @@ object SceneManager {
         }
     }
 
-    fun render(renderer: ScaledProceduralRenderer, logicalWidth: Float, logicalHeight: Float) {
-        setLogicalBounds(logicalWidth, logicalHeight)
+    fun render(renderer: ScaledProceduralRenderer, outputWidth: Float, outputHeight: Float) {
+        setLogicalBounds(outputWidth, outputHeight)
+        renderer.clear(PaletteIndices.BG)
         renderer.drawRect(0f, 0f, logicalWidth, logicalHeight, PaletteIndices.BG)
         val logThisFrame = debugRenderAfterSwitch
         if (logThisFrame) {
@@ -177,9 +178,10 @@ object SceneManager {
     }
 
     fun setLogicalBounds(width: Float, height: Float) {
-        logicalWidth = width
-        logicalHeight = height
-        UiShellLayout.resolve(width, height)
+        UiRasterGrid.configure(width.toInt(), height.toInt())
+        logicalWidth = UiRasterGrid.logicalWidth
+        logicalHeight = UiRasterGrid.logicalHeight
+        UiShellLayout.resolve(logicalWidth, logicalHeight)
         playAreaX = UiShellLayout.contentX.toInt()
         playAreaY = UiShellLayout.contentY.toInt()
         playAreaWidth = UiShellLayout.contentWidth.toInt()
@@ -215,7 +217,7 @@ object SceneManager {
         debugStringsAfterLanguage = false
     }
 
-    private fun dispatchTouch(x: Int, y: Int, actionCode: Int) {
+    private fun dispatchTouch(x: Float, y: Float, actionCode: Int) {
         val scene = activeScene ?: return
         val sceneAction = when (actionCode) {
             ENGINE_TOUCH_DOWN -> TouchAction.DOWN
@@ -256,11 +258,11 @@ object SceneManager {
         var offset = 0
         while (index < touchCount) {
             try {
-                val logicalX = touchBuffer[offset + TOUCH_SLOT_LOGICAL_X]
-                val logicalY = touchBuffer[offset + TOUCH_SLOT_LOGICAL_Y]
+                val logicalX = UiRasterGrid.logicalX(touchBuffer[offset + TOUCH_SLOT_LOGICAL_X].toFloat())
+                val logicalY = UiRasterGrid.logicalY(touchBuffer[offset + TOUCH_SLOT_LOGICAL_Y].toFloat())
                 val actionCode = touchBuffer[offset + TOUCH_SLOT_ACTION]
                 val sceneAction = engineTouchAction(actionCode)
-                val hudConsumed = handleHudTouch(logicalX, logicalY, sceneAction)
+                val hudConsumed = handleHudTouch(logicalX.toInt(), logicalY.toInt(), sceneAction)
                 if (!hudConsumed &&
                     !DEBUG_DISABLE_SCENE_TOUCH_DISPATCH &&
                     (DEBUG_TOUCH_MODE == TOUCH_MODE_SCENE_NO_TIMER_ACTIONS || DEBUG_TOUCH_MODE == TOUCH_MODE_FULL)

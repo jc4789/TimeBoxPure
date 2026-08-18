@@ -38,7 +38,7 @@ object BlockOverlayScene : Scene {
 
     override fun onInput(inputCode: Int) {}
 
-    override fun onTouch(x: Int, y: Int, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
+    override fun onTouch(x: Float, y: Float, action: Int, playX: Int, playY: Int, playW: Int, playH: Int) {
         if (action == TouchAction.DOWN) {
             val logicalWidth = SceneManager.logicalWidth
             val logicalHeight = SceneManager.logicalHeight
@@ -66,4 +66,3 @@ object BlockOverlayScene : Scene {
         return minOf(logicalHeight * 0.7f, logicalHeight - buttonHeight - U.toFloat())
     }
 }
-

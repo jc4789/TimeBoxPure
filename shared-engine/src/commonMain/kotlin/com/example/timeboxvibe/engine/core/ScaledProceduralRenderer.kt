@@ -3,13 +3,128 @@ package com.example.timeboxvibe.engine.core
 import com.example.timeboxvibe.engine.ShinonomeFont
 import kotlin.math.roundToInt
 
+private class UiMappedEngineCanvas(private val output: EngineCanvas) : EngineCanvas {
+    private var graphicsDepth = 0
+
+    override val width: Float
+        get() = if (graphicsDepth > 0) output.width else UiRasterGrid.logicalWidth
+
+    override val height: Float
+        get() = if (graphicsDepth > 0) output.height else UiRasterGrid.logicalHeight
+
+    fun beginGraphics() {
+        graphicsDepth++
+    }
+
+    fun endGraphics() {
+        if (graphicsDepth > 0) graphicsDepth--
+    }
+
+    override fun setDrawAlpha(alphaByte: Int) {
+        output.setDrawAlpha(alphaByte)
+    }
+
+    override fun clear(colorIndex: Int) {
+        output.clear(colorIndex)
+    }
+
+    override fun setPixel(x: Float, y: Float, colorIndex: Int) {
+        if (graphicsDepth > 0) {
+            output.setPixel(x, y, colorIndex)
+            return
+        }
+        val block = UiRasterGrid.pixelBlock.toFloat()
+        output.drawRect(x * block, y * block, block, block, colorIndex)
+    }
+
+    override fun drawLine(
+        x0: Float,
+        y0: Float,
+        x1: Float,
+        y1: Float,
+        colorIndex: Int,
+        strokeWidth: Float
+    ) {
+        if (graphicsDepth > 0) {
+            output.drawLine(x0, y0, x1, y1, colorIndex, strokeWidth)
+            return
+        }
+        val block = UiRasterGrid.pixelBlock.toFloat()
+        output.drawLine(
+            x0 * block,
+            y0 * block,
+            x1 * block,
+            y1 * block,
+            colorIndex,
+            strokeWidth * block
+        )
+    }
+
+    override fun drawRect(x: Float, y: Float, w: Float, h: Float, colorIndex: Int) {
+        if (graphicsDepth > 0) {
+            output.drawRect(x, y, w, h, colorIndex)
+            return
+        }
+        val block = UiRasterGrid.pixelBlock.toFloat()
+        output.drawRect(x * block, y * block, w * block, h * block, colorIndex)
+    }
+
+    override fun drawCircle(
+        centerX: Float,
+        centerY: Float,
+        radius: Float,
+        colorIndex: Int,
+        strokeWidth: Float,
+        dashed: Boolean
+    ) {
+        if (graphicsDepth > 0) {
+            output.drawCircle(centerX, centerY, radius, colorIndex, strokeWidth, dashed)
+            return
+        }
+        val block = UiRasterGrid.pixelBlock.toFloat()
+        output.drawCircle(
+            centerX * block,
+            centerY * block,
+            radius * block,
+            colorIndex,
+            strokeWidth * block,
+            dashed
+        )
+    }
+
+    override fun fillRectDither(
+        x0: Float,
+        y0: Float,
+        x1: Float,
+        y1: Float,
+        primaryIndex: Int,
+        secondaryIndex: Int,
+        pattern: SoftDitherPattern
+    ) {
+        if (graphicsDepth > 0) {
+            output.fillRectDither(x0, y0, x1, y1, primaryIndex, secondaryIndex, pattern)
+            return
+        }
+        val block = UiRasterGrid.pixelBlock.toFloat()
+        output.fillRectDither(
+            x0 * block,
+            y0 * block,
+            x1 * block,
+            y1 * block,
+            primaryIndex,
+            secondaryIndex,
+            pattern
+        )
+    }
+}
+
 /**
  * High-Level cross-platform procedural drawing engine.
  * It takes primitive vector operations provided by [EngineCanvas] and uses math to
  * procedurally draw retro PC-98 visuals, Shinonome bitmapped typography, complex ZUN-style
  * magical circles, and bullet patterns.
  */
-class ScaledProceduralRenderer(val canvas: EngineCanvas) {
+class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
     companion object {
         private const val U = CANONICAL_UI_UNIT
         private const val GLYPH_CELL_COUNT = 16
@@ -52,10 +167,24 @@ class ScaledProceduralRenderer(val canvas: EngineCanvas) {
         ShinonomeFont.initCache()
     }
 
+    private val mappedCanvas = UiMappedEngineCanvas(outputCanvas)
+    val canvas: EngineCanvas = mappedCanvas
     private val vector = AliasedVectorLayer(canvas)
     val nestedTimeboxRenderer = NestedTimeboxInstrumentRenderer(this)
 
     private val rotatedGlyphBuffer = IntArray(GLYPH_CELL_COUNT * GLYPH_CELL_COUNT)
+
+    fun beginGraphics() {
+        mappedCanvas.beginGraphics()
+    }
+
+    fun endGraphics() {
+        mappedCanvas.endGraphics()
+    }
+
+    fun outputX(logicalX: Float): Float = UiRasterGrid.outputX(logicalX)
+
+    fun outputY(logicalY: Float): Float = UiRasterGrid.outputY(logicalY)
 
     fun clear(colorIndex: Int) {
         canvas.clear(colorIndex)
