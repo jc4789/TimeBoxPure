@@ -2,13 +2,14 @@ package com.example.timeboxvibe.engine.core
 
 import kotlin.math.roundToInt
 
-/** Routes procedural renderer commands into the integer [SoftwareGraphics] rasterizer. */
+/** Routes procedural renderer commands through one indexed software raster path. */
 class SoftwareEngineCanvas(
     primitiveWidth: Int,
     primitiveHeight: Int
 ) : EngineCanvas {
     val framebuffer = IndexedFramebuffer(primitiveWidth, primitiveHeight)
     val graphics = SoftwareGraphics(framebuffer)
+    private val aliased = AliasedVectorLayer(this)
 
     override val width: Float
         get() = framebuffer.width.toFloat()
@@ -44,14 +45,7 @@ class SoftwareEngineCanvas(
         strokeWidth: Float
     ) {
         if (!drawEnabled) return
-        graphics.line(
-            x0.roundToInt(),
-            y0.roundToInt(),
-            x1.roundToInt(),
-            y1.roundToInt(),
-            colorIndex,
-            strokeWidth.roundToInt().coerceAtLeast(1)
-        )
+        aliased.drawAliasedLine(x0, y0, x1, y1, colorIndex, strokeWidth)
     }
 
     override fun drawRect(x: Float, y: Float, w: Float, h: Float, colorIndex: Int) {
@@ -68,14 +62,7 @@ class SoftwareEngineCanvas(
         dashed: Boolean
     ) {
         if (!drawEnabled) return
-        graphics.circle(
-            centerX.roundToInt(),
-            centerY.roundToInt(),
-            radius.roundToInt(),
-            colorIndex,
-            strokeWidth.roundToInt().coerceAtLeast(1),
-            dashed
-        )
+        aliased.drawAliasedCircle(centerX, centerY, radius, colorIndex, strokeWidth, dashed)
     }
 
     override fun fillRectDither(

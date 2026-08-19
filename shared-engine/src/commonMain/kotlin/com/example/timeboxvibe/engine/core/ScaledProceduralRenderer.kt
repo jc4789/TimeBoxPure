@@ -5,6 +5,7 @@ import kotlin.math.roundToInt
 
 private class UiMappedEngineCanvas(private val output: EngineCanvas) : EngineCanvas {
     private var graphicsDepth = 0
+    val aliased = AliasedVectorLayer(this)
 
     override val width: Float
         get() = if (graphicsDepth > 0) output.width else UiRasterGrid.logicalWidth
@@ -45,19 +46,7 @@ private class UiMappedEngineCanvas(private val output: EngineCanvas) : EngineCan
         colorIndex: Int,
         strokeWidth: Float
     ) {
-        if (graphicsDepth > 0) {
-            output.drawLine(x0, y0, x1, y1, colorIndex, strokeWidth)
-            return
-        }
-        val block = UiRasterGrid.pixelBlock.toFloat()
-        output.drawLine(
-            x0 * block,
-            y0 * block,
-            x1 * block,
-            y1 * block,
-            colorIndex,
-            strokeWidth * block
-        )
+        aliased.drawAliasedLine(x0, y0, x1, y1, colorIndex, strokeWidth)
     }
 
     override fun drawRect(x: Float, y: Float, w: Float, h: Float, colorIndex: Int) {
@@ -77,19 +66,7 @@ private class UiMappedEngineCanvas(private val output: EngineCanvas) : EngineCan
         strokeWidth: Float,
         dashed: Boolean
     ) {
-        if (graphicsDepth > 0) {
-            output.drawCircle(centerX, centerY, radius, colorIndex, strokeWidth, dashed)
-            return
-        }
-        val block = UiRasterGrid.pixelBlock.toFloat()
-        output.drawCircle(
-            centerX * block,
-            centerY * block,
-            radius * block,
-            colorIndex,
-            strokeWidth * block,
-            dashed
-        )
+        aliased.drawAliasedCircle(centerX, centerY, radius, colorIndex, strokeWidth, dashed)
     }
 
     override fun fillRectDither(
@@ -173,7 +150,7 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
 
     private val mappedCanvas = UiMappedEngineCanvas(outputCanvas)
     val canvas: EngineCanvas = mappedCanvas
-    private val vector = AliasedVectorLayer(canvas)
+    private val aliased = mappedCanvas.aliased
 
     fun beginGraphics() {
         mappedCanvas.beginGraphics()
@@ -192,7 +169,7 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
     }
 
     fun drawLine(x0: Float, y0: Float, x1: Float, y1: Float, colorIndex: Int, strokeWidth: Float = 1f) {
-        canvas.drawLine(x0, y0, x1, y1, colorIndex, strokeWidth)
+        aliased.drawAliasedLine(x0, y0, x1, y1, colorIndex, strokeWidth)
     }
 
     fun drawRect(x: Float, y: Float, w: Float, h: Float, colorIndex: Int) {
@@ -217,12 +194,8 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
         )
     }
 
-    /**
-     * Platform canvas circle. Non-authoritative for PC-98 ornaments —
-     * use [drawAliasedCircle] for integer-snapped palette-index rings.
-     */
     fun drawCircle(centerX: Float, centerY: Float, radius: Float, colorIndex: Int, strokeWidth: Float = 1f, dashed: Boolean = false) {
-        canvas.drawCircle(centerX, centerY, radius, colorIndex, strokeWidth, dashed)
+        aliased.drawAliasedCircle(centerX, centerY, radius, colorIndex, strokeWidth, dashed)
     }
 
     /**
@@ -588,7 +561,7 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
             val x2 = centerX + r2 * cosVal
             val y2 = centerY + r2 * sinVal
             if (i <= activeOuter) {
-                canvas.drawLine(x1, y1, x2, y2, primaryColorIndex, sw * 1.5f)
+                aliased.drawAliasedLine(x1, y1, x2, y2, primaryColorIndex, sw * 1.5f)
             }
         }
 
@@ -611,7 +584,7 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
                 val y2 = centerY + r2 * sinVal
                 
                 if (i <= activeInner) {
-                    canvas.drawLine(x1, y1, x2, y2, secondaryColorIndex, sw * 1.5f)
+                    aliased.drawAliasedLine(x1, y1, x2, y2, secondaryColorIndex, sw * 1.5f)
                 }
             }
         }
@@ -628,7 +601,7 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
     }
 
     fun drawCircleStroke(centerX: Float, centerY: Float, radius: Float, colorIndex: Int, strokeWidth: Float = 1f) {
-        canvas.drawCircle(centerX, centerY, radius, colorIndex, strokeWidth, false)
+        aliased.drawAliasedCircle(centerX, centerY, radius, colorIndex, strokeWidth)
     }
 
     fun setDrawAlpha(alphaByte: Int) {
@@ -654,7 +627,7 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
             val angle = startDegrees + sweepStep * i
             val x = getPolarX(centerX, radius, angle)
             val y = getPolarY(centerY, radius, angle)
-            canvas.drawLine(prevX, prevY, x, y, colorIndex, strokeWidth)
+            aliased.drawAliasedLine(prevX, prevY, x, y, colorIndex, strokeWidth)
             prevX = x
             prevY = y
             i++
@@ -672,7 +645,7 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
         val bx = getPolarX(centerX, radius, angleDegrees)
         val by = getPolarY(centerY, radius, angleDegrees)
         val half = size / 2f
-        vector.drawAliasedFilledCircle(bx, by, half, colorIndex)
+        aliased.drawAliasedFilledCircle(bx, by, half, colorIndex)
     }
 
     fun drawPolarStarLinks(
@@ -694,7 +667,7 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
             val y1 = getPolarY(centerY, radius, angle1)
             val x2 = getPolarX(centerX, radius, angle2)
             val y2 = getPolarY(centerY, radius, angle2)
-            canvas.drawLine(x1, y1, x2, y2, colorIndex, strokeWidth)
+            aliased.drawAliasedLine(x1, y1, x2, y2, colorIndex, strokeWidth)
             i++
         }
     }
@@ -757,7 +730,7 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
             val y1 = getPolarY(centerY, innerRadius, angle)
             val x2 = getPolarX(centerX, outerRadius, angle)
             val y2 = getPolarY(centerY, outerRadius, angle)
-            canvas.drawLine(x1, y1, x2, y2, colorIndex, strokeWidth)
+            aliased.drawAliasedLine(x1, y1, x2, y2, colorIndex, strokeWidth)
             i++
         }
     }
@@ -810,11 +783,11 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
         centerX: Float, centerY: Float, radius: Float,
         colorIndex: Int, strokeWidth: Float = 1f, dashed: Boolean = false
     ) {
-        vector.drawAliasedCircle(centerX, centerY, radius, colorIndex, strokeWidth, dashed)
+        aliased.drawAliasedCircle(centerX, centerY, radius, colorIndex, strokeWidth, dashed)
     }
 
     fun drawAliasedFilledCircle(centerX: Float, centerY: Float, radius: Float, colorIndex: Int) {
-        vector.drawAliasedFilledCircle(centerX, centerY, radius, colorIndex)
+        aliased.drawAliasedFilledCircle(centerX, centerY, radius, colorIndex)
     }
 
     fun drawRotatedBresenhamHalfCircle(
@@ -826,7 +799,7 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
         colorIndex: Int,
         strokeWidth: Float = 1f
     ) {
-        vector.drawRotatedBresenhamHalfCircle(
+        aliased.drawRotatedBresenhamHalfCircle(
             centerX,
             centerY,
             radius,
@@ -842,7 +815,7 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
         startDegrees: Float, sweepDegrees: Float,
         colorIndex: Int, strokeWidth: Float = 1f
     ) {
-        vector.drawAliasedArc(centerX, centerY, radius, startDegrees, sweepDegrees, colorIndex, strokeWidth)
+        aliased.drawAliasedArc(centerX, centerY, radius, startDegrees, sweepDegrees, colorIndex, strokeWidth)
     }
 
     fun drawAliasedProgressArc(
@@ -850,14 +823,14 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
         startDegrees: Float, fullSweepDegrees: Float,
         progress: Float, colorIndex: Int, strokeWidth: Float = 1f
     ) {
-        vector.drawAliasedProgressArc(centerX, centerY, radius, startDegrees, fullSweepDegrees, progress, colorIndex, strokeWidth)
+        aliased.drawAliasedProgressArc(centerX, centerY, radius, startDegrees, fullSweepDegrees, progress, colorIndex, strokeWidth)
     }
 
     fun drawAliasedLine(
         x0: Float, y0: Float, x1: Float, y1: Float,
         colorIndex: Int, strokeWidth: Float = 1f
     ) {
-        vector.drawAliasedLine(x0, y0, x1, y1, colorIndex, strokeWidth)
+        aliased.drawAliasedLine(x0, y0, x1, y1, colorIndex, strokeWidth)
     }
 
     fun drawRadialTickMarks(
@@ -867,7 +840,7 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
         colorIndex: Int, strokeWidth: Float = 1f,
         majorEvery: Int = 0, majorExtraLength: Float = 0f
     ) {
-        vector.drawRadialTickMarks(centerX, centerY, innerRadius, outerRadius, tickCount, startDegrees, colorIndex, strokeWidth, majorEvery, majorExtraLength)
+        aliased.drawRadialTickMarks(centerX, centerY, innerRadius, outerRadius, tickCount, startDegrees, colorIndex, strokeWidth, majorEvery, majorExtraLength)
     }
 
     fun drawRadialProgressTickMarks(
@@ -876,7 +849,7 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
         tickCount: Int, activeCount: Int, startDegrees: Float,
         colorIndex: Int, strokeWidth: Float = 1f
     ) {
-        vector.drawRadialProgressTickMarks(centerX, centerY, innerRadius, outerRadius, tickCount, activeCount, startDegrees, colorIndex, strokeWidth)
+        aliased.drawRadialProgressTickMarks(centerX, centerY, innerRadius, outerRadius, tickCount, activeCount, startDegrees, colorIndex, strokeWidth)
     }
 
     fun drawCubicBezierDeCasteljau(
@@ -884,7 +857,7 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
         x2: Float, y2: Float, x3: Float, y3: Float,
         colorIndex: Int, strokeWidth: Float = 1f
     ) {
-        vector.drawCubicBezierDeCasteljau(x0, y0, x1, y1, x2, y2, x3, y3, colorIndex, strokeWidth)
+        aliased.drawCubicBezierDeCasteljau(x0, y0, x1, y1, x2, y2, x3, y3, colorIndex, strokeWidth)
     }
 
     fun drawQuadraticBezierDeCasteljau(
@@ -892,7 +865,7 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
         x2: Float, y2: Float,
         colorIndex: Int, strokeWidth: Float = 1f
     ) {
-        vector.drawQuadraticBezierDeCasteljau(x0, y0, x1, y1, x2, y2, colorIndex, strokeWidth)
+        aliased.drawQuadraticBezierDeCasteljau(x0, y0, x1, y1, x2, y2, colorIndex, strokeWidth)
     }
 
 }

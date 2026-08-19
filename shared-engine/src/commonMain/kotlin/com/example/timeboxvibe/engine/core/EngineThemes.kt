@@ -112,6 +112,56 @@ object EngineThemes {
         WaColor12.古代紫, WaColor12.藍色, WaColor12.紫鳶, WaColor12.紅
     )
 
+    init {
+        configureMagicCircleColors(reimuFocus)
+        configureMagicCircleColors(reimuBreak)
+        configureMagicCircleColors(marisaFocus)
+        configureMagicCircleColors(marisaBreak)
+        configureMagicCircleColors(aliceFocus)
+        configureMagicCircleColors(aliceBreak)
+        configureMagicCircleColors(kaguyaFocus)
+        configureMagicCircleColors(kaguyaBreak)
+    }
+
+    private fun configureMagicCircleColors(palette: ShortArray) {
+        val background = palette[PaletteIndices.BG]
+        palette[PaletteIndices.MAGIC_CIRCLE_PRIMARY] = blendMagicLayerColor(
+            palette[PaletteIndices.ACCENT_PRIMARY],
+            background
+        )
+        palette[PaletteIndices.MAGIC_CIRCLE_SECONDARY] = blendMagicLayerColor(
+            palette[PaletteIndices.ACCENT_DANGER],
+            background
+        )
+    }
+
+    /** Reproduces the former 0x88 ornamental alpha as a real 12-bit palette color. */
+    private fun blendMagicLayerColor(foreground: Short, background: Short): Short {
+        val foregroundValue = foreground.toInt()
+        val backgroundValue = background.toInt()
+        val red = blendMagicLayerChannel(
+            (foregroundValue ushr 8) and 0x0F,
+            (backgroundValue ushr 8) and 0x0F
+        )
+        val green = blendMagicLayerChannel(
+            (foregroundValue ushr 4) and 0x0F,
+            (backgroundValue ushr 4) and 0x0F
+        )
+        val blue = blendMagicLayerChannel(
+            foregroundValue and 0x0F,
+            backgroundValue and 0x0F
+        )
+        return ((red shl 8) or (green shl 4) or blue).toShort()
+    }
+
+    private fun blendMagicLayerChannel(foreground: Int, background: Int): Int {
+        return (
+            foreground * MAGIC_LAYER_ALPHA_BYTE +
+                background * (0xFF - MAGIC_LAYER_ALPHA_BYTE) +
+                0x7F
+            ) / 0xFF
+    }
+
     fun getColors(themeName: String, isBreak: Boolean) {
         val palette = when (themeName) {
             "marisa" -> if (isBreak) marisaBreak else marisaFocus
@@ -121,4 +171,6 @@ object EngineThemes {
         }
         Pc98GraphicsHardware.setupPalette(palette)
     }
+
+    private const val MAGIC_LAYER_ALPHA_BYTE = 0x88
 }

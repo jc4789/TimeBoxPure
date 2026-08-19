@@ -9,15 +9,14 @@ import kotlin.math.roundToInt
  *
  * Ownership contract:
  * - Sole integer Bresenham circle/line/arc/Bezier rasterizer (no second circle path).
+ * - Stroke width is the graphic's own raster step, so proportional geometry keeps the same alias mask.
  * - Colors are palette indices 0..15 (4-bit on-screen); 12-bit RAMDAC is Pc98GraphicsHardware.
  * - Graphics trig uses FastMath only.
  */
 class AliasedVectorLayer(private val canvas: EngineCanvas) {
     companion object {
-        private const val U = 16
         private const val FULL_TURN_DEGREES = 360f
-        private const val ARC_SAMPLE_UNIT_CELLS_DEN = 4f
-        private const val BEZIER_SAMPLE_UNIT_CELLS_DEN = 4f
+        private const val SAMPLE_INTERVAL_PIXELS = 4f
         private const val MIN_ARC_SEGMENTS = 6
         private const val MAX_ARC_SEGMENTS = 144
         private const val MIN_BEZIER_SEGMENTS = 4
@@ -32,13 +31,14 @@ class AliasedVectorLayer(private val canvas: EngineCanvas) {
         colorIndex: Int,
         strokeWidth: Float = 1f
     ) {
+        val rasterStep = strokeWidth.coerceAtLeast(1f)
         drawAliasedLineInt(
-            x0.roundToInt(),
-            y0.roundToInt(),
-            x1.roundToInt(),
-            y1.roundToInt(),
+            (x0 / rasterStep).roundToInt(),
+            (y0 / rasterStep).roundToInt(),
+            (x1 / rasterStep).roundToInt(),
+            (y1 / rasterStep).roundToInt(),
             colorIndex,
-            strokeWidth.roundToInt().coerceAtLeast(1)
+            rasterStep
         )
     }
 
@@ -60,16 +60,16 @@ class AliasedVectorLayer(private val canvas: EngineCanvas) {
         strokeWidth: Float = 1f,
         dashed: Boolean = false
     ) {
-        val xc = centerX.roundToInt()
-        val yc = centerY.roundToInt()
-        val r = radius.roundToInt()
-        val sw = strokeWidth.roundToInt().coerceAtLeast(1)
+        val rasterStep = strokeWidth.coerceAtLeast(1f)
+        val xc = (centerX / rasterStep).roundToInt()
+        val yc = (centerY / rasterStep).roundToInt()
+        val r = (radius / rasterStep).roundToInt()
         var x = 0
         var y = r
         var d = 3 - 2 * r
 
         if (r <= 0) return
-        plotCircleOctants(xc, yc, x, y, colorIndex, sw, dashed)
+        plotCircleOctants(xc, yc, x, y, colorIndex, rasterStep, dashed)
         while (x <= y) {
             x++
             if (d > 0) {
@@ -78,7 +78,7 @@ class AliasedVectorLayer(private val canvas: EngineCanvas) {
             } else {
                 d += 4 * x + 6
             }
-            plotCircleOctants(xc, yc, x, y, colorIndex, sw, dashed)
+            plotCircleOctants(xc, yc, x, y, colorIndex, rasterStep, dashed)
         }
     }
 
@@ -144,19 +144,19 @@ class AliasedVectorLayer(private val canvas: EngineCanvas) {
         colorIndex: Int,
         strokeWidth: Float = 1f
     ) {
-        val xc = centerX.roundToInt()
-        val yc = centerY.roundToInt()
-        val r = radius.roundToInt()
+        val rasterStep = strokeWidth.coerceAtLeast(1f)
+        val xc = (centerX / rasterStep).roundToInt()
+        val yc = (centerY / rasterStep).roundToInt()
+        val r = (radius / rasterStep).roundToInt()
         if (r <= 0) return
 
         val cosRotation = FastMath.fastCos(rotationAngleIndex)
         val sinRotation = FastMath.fastSin(rotationAngleIndex)
-        val sw = strokeWidth.roundToInt().coerceAtLeast(1)
         var x = 0
         var y = r
         var decision = 3 - 2 * r
 
-        plotRotatedHalfCircleOctants(xc, yc, x, y, cosRotation, sinRotation, drawPositiveX, colorIndex, sw)
+        plotRotatedHalfCircleOctants(xc, yc, x, y, cosRotation, sinRotation, drawPositiveX, colorIndex, rasterStep)
         while (x <= y) {
             x++
             if (decision > 0) {
@@ -165,7 +165,7 @@ class AliasedVectorLayer(private val canvas: EngineCanvas) {
             } else {
                 decision += 4 * x + 6
             }
-            plotRotatedHalfCircleOctants(xc, yc, x, y, cosRotation, sinRotation, drawPositiveX, colorIndex, sw)
+            plotRotatedHalfCircleOctants(xc, yc, x, y, cosRotation, sinRotation, drawPositiveX, colorIndex, rasterStep)
         }
     }
 
@@ -178,16 +178,16 @@ class AliasedVectorLayer(private val canvas: EngineCanvas) {
         sinRotation: Float,
         drawPositiveX: Boolean,
         colorIndex: Int,
-        strokeWidth: Int
+        rasterStep: Float
     ) {
-        plotRotatedHalfCirclePoint(centerX, centerY, x, y, cosRotation, sinRotation, drawPositiveX, colorIndex, strokeWidth)
-        plotRotatedHalfCirclePoint(centerX, centerY, y, x, cosRotation, sinRotation, drawPositiveX, colorIndex, strokeWidth)
-        plotRotatedHalfCirclePoint(centerX, centerY, -x, y, cosRotation, sinRotation, drawPositiveX, colorIndex, strokeWidth)
-        plotRotatedHalfCirclePoint(centerX, centerY, -y, x, cosRotation, sinRotation, drawPositiveX, colorIndex, strokeWidth)
-        plotRotatedHalfCirclePoint(centerX, centerY, x, -y, cosRotation, sinRotation, drawPositiveX, colorIndex, strokeWidth)
-        plotRotatedHalfCirclePoint(centerX, centerY, y, -x, cosRotation, sinRotation, drawPositiveX, colorIndex, strokeWidth)
-        plotRotatedHalfCirclePoint(centerX, centerY, -x, -y, cosRotation, sinRotation, drawPositiveX, colorIndex, strokeWidth)
-        plotRotatedHalfCirclePoint(centerX, centerY, -y, -x, cosRotation, sinRotation, drawPositiveX, colorIndex, strokeWidth)
+        plotRotatedHalfCirclePoint(centerX, centerY, x, y, cosRotation, sinRotation, drawPositiveX, colorIndex, rasterStep)
+        plotRotatedHalfCirclePoint(centerX, centerY, y, x, cosRotation, sinRotation, drawPositiveX, colorIndex, rasterStep)
+        plotRotatedHalfCirclePoint(centerX, centerY, -x, y, cosRotation, sinRotation, drawPositiveX, colorIndex, rasterStep)
+        plotRotatedHalfCirclePoint(centerX, centerY, -y, x, cosRotation, sinRotation, drawPositiveX, colorIndex, rasterStep)
+        plotRotatedHalfCirclePoint(centerX, centerY, x, -y, cosRotation, sinRotation, drawPositiveX, colorIndex, rasterStep)
+        plotRotatedHalfCirclePoint(centerX, centerY, y, -x, cosRotation, sinRotation, drawPositiveX, colorIndex, rasterStep)
+        plotRotatedHalfCirclePoint(centerX, centerY, -x, -y, cosRotation, sinRotation, drawPositiveX, colorIndex, rasterStep)
+        plotRotatedHalfCirclePoint(centerX, centerY, -y, -x, cosRotation, sinRotation, drawPositiveX, colorIndex, rasterStep)
     }
 
     private fun plotRotatedHalfCirclePoint(
@@ -199,12 +199,12 @@ class AliasedVectorLayer(private val canvas: EngineCanvas) {
         sinRotation: Float,
         drawPositiveX: Boolean,
         colorIndex: Int,
-        strokeWidth: Int
+        rasterStep: Float
     ) {
         if ((localX >= 0) != drawPositiveX) return
         val rotatedX = (localX * cosRotation - localY * sinRotation).roundToInt()
         val rotatedY = (localX * sinRotation + localY * cosRotation).roundToInt()
-        plotStrokePixel(centerX + rotatedX, centerY + rotatedY, colorIndex, strokeWidth)
+        plotStrokePixel(centerX + rotatedX, centerY + rotatedY, colorIndex, rasterStep)
     }
 
     fun drawAliasedArc(
@@ -216,7 +216,7 @@ class AliasedVectorLayer(private val canvas: EngineCanvas) {
         colorIndex: Int,
         strokeWidth: Float = 1f
     ) {
-        val segmentCount = estimateArcSegments(radius, abs(sweepDegrees))
+        val segmentCount = estimateArcSegments(radius / strokeWidth.coerceAtLeast(1f), abs(sweepDegrees))
         drawSampledArc(centerX, centerY, radius, startDegrees, sweepDegrees, segmentCount, colorIndex, strokeWidth)
     }
 
@@ -311,8 +311,9 @@ class AliasedVectorLayer(private val canvas: EngineCanvas) {
         colorIndex: Int,
         strokeWidth: Float = 1f
     ) {
+        val rasterStep = strokeWidth.coerceAtLeast(1f)
         val segmentCount = estimateBezierSegments(
-            distanceEstimate(x0, y0, x1, y1) + distanceEstimate(x1, y1, x2, y2)
+            (distanceEstimate(x0, y0, x1, y1) + distanceEstimate(x1, y1, x2, y2)) / rasterStep
         )
         var prevX = x0
         var prevY = y0
@@ -352,10 +353,11 @@ class AliasedVectorLayer(private val canvas: EngineCanvas) {
         colorIndex: Int,
         strokeWidth: Float = 1f
     ) {
+        val rasterStep = strokeWidth.coerceAtLeast(1f)
         val segmentCount = estimateBezierSegments(
-            distanceEstimate(x0, y0, x1, y1) +
+            (distanceEstimate(x0, y0, x1, y1) +
                 distanceEstimate(x1, y1, x2, y2) +
-                distanceEstimate(x2, y2, x3, y3)
+                distanceEstimate(x2, y2, x3, y3)) / rasterStep
         )
         var prevX = x0
         var prevY = y0
@@ -414,7 +416,7 @@ class AliasedVectorLayer(private val canvas: EngineCanvas) {
         }
     }
 
-    private fun drawAliasedLineInt(x0In: Int, y0In: Int, x1: Int, y1: Int, colorIndex: Int, strokeWidth: Int) {
+    private fun drawAliasedLineInt(x0In: Int, y0In: Int, x1: Int, y1: Int, colorIndex: Int, rasterStep: Float) {
         var x0 = x0In
         var y0 = y0In
         val dx = abs(x1 - x0)
@@ -423,7 +425,7 @@ class AliasedVectorLayer(private val canvas: EngineCanvas) {
         val sy = if (y0 < y1) 1 else -1
         var err = dx + dy
         while (true) {
-            plotStrokePixel(x0, y0, colorIndex, strokeWidth)
+            plotStrokePixel(x0, y0, colorIndex, rasterStep)
             if (x0 == x1 && y0 == y1) break
             val e2 = err * 2
             if (e2 >= dy) {
@@ -437,36 +439,38 @@ class AliasedVectorLayer(private val canvas: EngineCanvas) {
         }
     }
 
-    private fun plotCircleOctants(xc: Int, yc: Int, x: Int, y: Int, colorIndex: Int, strokeWidth: Int, dashed: Boolean) {
+    private fun plotCircleOctants(xc: Int, yc: Int, x: Int, y: Int, colorIndex: Int, rasterStep: Float, dashed: Boolean) {
         if (dashed && ((x + y) / 4) % 2 != 0) return
-        plotStrokePixel(xc + x, yc + y, colorIndex, strokeWidth)
-        plotStrokePixel(xc - x, yc + y, colorIndex, strokeWidth)
-        plotStrokePixel(xc + x, yc - y, colorIndex, strokeWidth)
-        plotStrokePixel(xc - x, yc - y, colorIndex, strokeWidth)
-        plotStrokePixel(xc + y, yc + x, colorIndex, strokeWidth)
-        plotStrokePixel(xc - y, yc + x, colorIndex, strokeWidth)
-        plotStrokePixel(xc + y, yc - x, colorIndex, strokeWidth)
-        plotStrokePixel(xc - y, yc - x, colorIndex, strokeWidth)
+        plotStrokePixel(xc + x, yc + y, colorIndex, rasterStep)
+        plotStrokePixel(xc - x, yc + y, colorIndex, rasterStep)
+        plotStrokePixel(xc + x, yc - y, colorIndex, rasterStep)
+        plotStrokePixel(xc - x, yc - y, colorIndex, rasterStep)
+        plotStrokePixel(xc + y, yc + x, colorIndex, rasterStep)
+        plotStrokePixel(xc - y, yc + x, colorIndex, rasterStep)
+        plotStrokePixel(xc + y, yc - x, colorIndex, rasterStep)
+        plotStrokePixel(xc - y, yc - x, colorIndex, rasterStep)
     }
 
-    private fun plotStrokePixel(x: Int, y: Int, colorIndex: Int, strokeWidth: Int) {
-        if (x < 0 || x >= canvas.width.toInt() || y < 0 || y >= canvas.height.toInt()) return
-        if (strokeWidth <= 1) {
-            canvas.setPixel(x.toFloat(), y.toFloat(), colorIndex)
+    private fun plotStrokePixel(x: Int, y: Int, colorIndex: Int, rasterStep: Float) {
+        val outputX = x * rasterStep
+        val outputY = y * rasterStep
+        if (outputX < 0f || outputX >= canvas.width || outputY < 0f || outputY >= canvas.height) return
+        if (rasterStep <= 1f) {
+            canvas.setPixel(outputX, outputY, colorIndex)
         } else {
-            val half = strokeWidth / 2f
-            canvas.drawRect(x.toFloat() - half, y.toFloat() - half, strokeWidth.toFloat(), strokeWidth.toFloat(), colorIndex)
+            val half = rasterStep / 2f
+            canvas.drawRect(outputX - half, outputY - half, rasterStep, rasterStep, colorIndex)
         }
     }
 
     private fun estimateArcSegments(radius: Float, sweepDegrees: Float): Int {
         val arcLengthEstimate = radius * sweepDegrees / FULL_TURN_DEGREES * 6f
-        return (arcLengthEstimate / (U / ARC_SAMPLE_UNIT_CELLS_DEN)).roundToInt()
+        return (arcLengthEstimate / SAMPLE_INTERVAL_PIXELS).roundToInt()
             .coerceIn(MIN_ARC_SEGMENTS, MAX_ARC_SEGMENTS)
     }
 
     private fun estimateBezierSegments(lengthEstimate: Float): Int {
-        return (lengthEstimate / (U / BEZIER_SAMPLE_UNIT_CELLS_DEN)).roundToInt()
+        return (lengthEstimate / SAMPLE_INTERVAL_PIXELS).roundToInt()
             .coerceIn(MIN_BEZIER_SEGMENTS, MAX_BEZIER_SEGMENTS)
     }
 

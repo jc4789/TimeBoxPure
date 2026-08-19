@@ -186,10 +186,12 @@ class NestedTimeboxInstrumentRenderer {
 
         // Indexed output has no partial alpha. Enable drawing once for the
         // complete instrument and select all visual differences by palette index.
+        val magicLayerPrimary = PaletteIndices.MAGIC_CIRCLE_PRIMARY
+        val magicLayerSecondary = PaletteIndices.MAGIC_CIRCLE_SECONDARY
         renderer.beginGraphics()
         try {
         renderer.setDrawAlpha(SOLID_ALPHA)
-        renderer.drawAliasedCircle(centerX, centerY, outerR, magicPrimaryColorIndex, thin)
+        renderer.drawAliasedCircle(centerX, centerY, outerR, magicLayerPrimary, thin)
 
         // 2. Rune band: 36 tangent mantra glyphs.
         var runeIdx = 0
@@ -201,7 +203,7 @@ class NestedTimeboxInstrumentRenderer {
                 centerY,
                 runeBandR,
                 angle,
-                magicSecondaryColorIndex,
+                magicLayerSecondary,
                 scale = graphicsGlyphBlock,
                 tangent = true
             )
@@ -213,7 +215,7 @@ class NestedTimeboxInstrumentRenderer {
         renderer.drawActivePolarTickLoop(
             centerX, centerY, decorationR, outerR,
             OUTER_DETAIL_COUNT, OUTER_DETAIL_COUNT, outerDetailAngleDegrees,
-            magicSecondaryColorIndex, thin
+            magicLayerSecondary, thin
         )
 
         // 4. 12-dot decoration ring: 4 gold cardinals + 8 gray inter-cardinals.
@@ -248,7 +250,7 @@ class NestedTimeboxInstrumentRenderer {
                 centerY,
                 scriptureR,
                 angle,
-                magicPrimaryColorIndex,
+                magicLayerPrimary,
                 scale = graphicsGlyphBlock,
                 tangent = true
             )
@@ -272,7 +274,7 @@ class NestedTimeboxInstrumentRenderer {
                 centerY,
                 sectorKanjiR,
                 angle,
-                magicPrimaryColorIndex,
+                magicLayerPrimary,
                 scale = graphicsGlyphBlock,
                 tangent = true
             )
@@ -282,11 +284,11 @@ class NestedTimeboxInstrumentRenderer {
         // 9. Octagram: two squares exactly 45 degrees apart.
         renderer.drawRotatingPolygon(
             centerX, centerY, octagramR, SQUARE_VERTEX_COUNT,
-            squareOneAngleDegrees, magicPrimaryColorIndex, thin
+            squareOneAngleDegrees, magicLayerPrimary, thin
         )
         renderer.drawRotatingPolygon(
             centerX, centerY, octagramR, SQUARE_VERTEX_COUNT,
-            squareTwoAngleDegrees, magicPrimaryColorIndex, thin
+            squareTwoAngleDegrees, magicLayerPrimary, thin
         )
 
         // 10. Inner timer beads (48) — macro/session ring when nested.
@@ -331,7 +333,7 @@ class NestedTimeboxInstrumentRenderer {
                 centerY,
                 innerCardinalR,
                 angle,
-                magicPrimaryColorIndex,
+                magicLayerPrimary,
                 scale = graphicsGlyphBlock,
                 tangent = false
             )

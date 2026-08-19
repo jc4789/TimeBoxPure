@@ -6,6 +6,32 @@ import kotlin.test.assertFailsWith
 
 class SoftwareEngineCanvasTest {
     @Test
+    fun aliasedCircleScalesRelativeToItsOwnStroke() {
+        val source = SoftwareEngineCanvas(32, 32)
+        val scaled = SoftwareEngineCanvas(96, 96)
+
+        source.drawCircle(16f, 16f, 10f, 7, 1f)
+        scaled.drawCircle(48f, 48f, 30f, 7, 3f)
+
+        var y = 0
+        while (y < scaled.framebuffer.height) {
+            var x = 0
+            while (x < scaled.framebuffer.width) {
+                val sourceX = (x + 1) / 3
+                val sourceY = (y + 1) / 3
+                val expected = if (sourceX < source.framebuffer.width && sourceY < source.framebuffer.height) {
+                    source.framebuffer.colorIndexAt(sourceX, sourceY)
+                } else {
+                    0
+                }
+                assertEquals(expected, scaled.framebuffer.colorIndexAt(x, y), "pixel ($x, $y)")
+                x++
+            }
+            y++
+        }
+    }
+
+    @Test
     fun clearAndRectWritePaletteIndices() {
         val canvas = SoftwareEngineCanvas(8, 6)
         canvas.clear(3)
