@@ -895,6 +895,18 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
         VectorOrnament.strokeRectFrame(aliased, x, y, width, height, colorIndex, strokeWidth, kind)
     }
 
+    fun paintRectFrame(
+        x: Float,
+        y: Float,
+        width: Float,
+        height: Float,
+        fillIndex: Int,
+        frameIndex: Int,
+        kind: Int = VectorFrameKind.PANEL
+    ) {
+        VectorOrnament.paintRectFrame(canvas, aliased, x, y, width, height, fillIndex, frameIndex, kind)
+    }
+
     fun strokeMedallion(centerX: Float, centerY: Float, radius: Float, colorIndex: Int, strokeWidth: Float = 1f) {
         VectorOrnament.strokeMedallion(aliased, centerX, centerY, radius, colorIndex, strokeWidth)
     }

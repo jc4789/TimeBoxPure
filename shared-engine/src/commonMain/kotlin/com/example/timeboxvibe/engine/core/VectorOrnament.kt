@@ -2,9 +2,9 @@ package com.example.timeboxvibe.engine.core
 
 /** Which vector vocabulary to instance on a logical rectangle. */
 object VectorFrameKind {
-    /** Single stroke + corner hooks. Buttons, steppers, fields. */
+    /** Chrome band + compact corner scrolls. Buttons, steppers, fields. */
     const val SMALL = 0
-    /** Outer stroke + corner scrolls + sparse edge arches. Cards and sheets. */
+    /** Wider chrome + corner scrolls + sparse edge arches. Cards and sheets. */
     const val PANEL = 1
 }
 
@@ -22,12 +22,16 @@ object VectorOrnament {
      */
     private const val STROKE_ON_FILL = 1f
     private const val MIN_CORNER_PIXELS = 3f
-    private const val SMALL_CORNER_CELLS_DEN = 4
-    private const val SMALL_HOOK_SPAN_DEN = 6f
-    private const val PANEL_CORNER_SHORT_DEN = 5f
-    private const val EDGE_ARCH_MIN_SPAN_CELLS = 4
-    private const val EDGE_ARCH_TRIPLE_SPAN_CELLS = 10
-    private const val EDGE_ARCH_INWARD_SCALE = 0.35f
+    private const val MIN_CHROME_PIXELS = 2f
+    private const val SMALL_CORNER_CELLS_DEN = 2
+    private const val SMALL_HOOK_SPAN_DEN = 3f
+    private const val SMALL_BAND_CELLS_DEN = 4
+    private const val PANEL_CORNER_SHORT_DEN = 3f
+    private const val PANEL_BAND_CELLS_DEN = 3
+    private const val CHROME_SHORT_DEN = 6f
+    private const val EDGE_ARCH_MIN_SPAN_CELLS = 3
+    private const val EDGE_ARCH_TRIPLE_SPAN_CELLS = 8
+    private const val EDGE_ARCH_INWARD_SCALE = 0.48f
     private const val FIELD_TILE_CELLS = 4
     private const val FIELD_ROW_CELLS = 2
     private const val FIELD_INNER_RING_NUM = 2
@@ -66,12 +70,16 @@ object VectorOrnament {
     private val hookOps = intArrayOf(
         VectorPathOp.MOVE,
         VectorPathOp.CUBIC,
-        VectorPathOp.LINE
+        VectorPathOp.LINE,
+        VectorPathOp.MOVE,
+        VectorPathOp.CUBIC
     )
     private val hookCoords = floatArrayOf(
-        0.00f, 0.90f,
-        0.00f, 0.28f, 0.28f, 0.00f, 0.90f, 0.00f,
-        1.00f, 0.00f
+        0.00f, 1.00f,
+        0.00f, 0.34f, 0.16f, 0.08f, 0.62f, 0.00f,
+        1.00f, 0.00f,
+        0.18f, 0.78f,
+        0.18f, 0.40f, 0.34f, 0.20f, 0.72f, 0.16f
     )
 
     private val archOps = intArrayOf(
@@ -126,6 +134,10 @@ object VectorOrnament {
         strokeRectEdges(layer, left, top, right, bottom, colorIndex, strokeWidth)
 
         val shortest = minOf(width, height)
+        val band = chromeBand(kind, shortest)
+        if (width > band * 2f && height > band * 2f) {
+            strokeRectEdges(layer, left + band, top + band, right - band, bottom - band, colorIndex, strokeWidth)
+        }
         if (kind == VectorFrameKind.SMALL) {
             val hookSize = minOf((U / SMALL_CORNER_CELLS_DEN).toFloat(), shortest / SMALL_HOOK_SPAN_DEN)
             if (hookSize >= MIN_CORNER_PIXELS) {
@@ -144,6 +156,39 @@ object VectorOrnament {
         strokeEdgeArches(layer, left + cornerSize, bottom, innerW - cornerSize * 2f, cornerSize, EDGE_BOTTOM, colorIndex, strokeWidth)
         strokeEdgeArches(layer, left, top + cornerSize, innerH - cornerSize * 2f, cornerSize, EDGE_LEFT, colorIndex, strokeWidth)
         strokeEdgeArches(layer, right, top + cornerSize, innerH - cornerSize * 2f, cornerSize, EDGE_RIGHT, colorIndex, strokeWidth)
+    }
+
+    /**
+     * Width of the filled chrome band. Ornaments sit on this band, so the
+     * playfield never shows through the frame.
+     */
+    fun chromeBand(kind: Int, shortest: Float): Float {
+        if (shortest <= 0f) return 0f
+        val cells = if (kind == VectorFrameKind.SMALL) SMALL_BAND_CELLS_DEN else PANEL_BAND_CELLS_DEN
+        val wanted = (U / cells).toFloat()
+        return maxOf(MIN_CHROME_PIXELS, minOf(wanted, shortest / CHROME_SHORT_DEN))
+    }
+
+    fun paintRectFrame(
+        canvas: EngineCanvas,
+        layer: AliasedVectorLayer,
+        x: Float,
+        y: Float,
+        width: Float,
+        height: Float,
+        fillIndex: Int,
+        frameIndex: Int,
+        kind: Int = VectorFrameKind.PANEL
+    ) {
+        if (width <= 0f || height <= 0f) return
+        canvas.fillRectDither(x, y, x + width, y + height, frameIndex, frameIndex, SoftDitherPattern.SOLID)
+        val band = chromeBand(kind, minOf(width, height))
+        val innerRight = x + width - band
+        val innerBottom = y + height - band
+        if (innerRight > x + band && innerBottom > y + band) {
+            canvas.fillRectDither(x + band, y + band, innerRight, innerBottom, fillIndex, fillIndex, SoftDitherPattern.SOLID)
+        }
+        strokeRectFrame(layer, x, y, width, height, frameIndex, 1f, kind)
     }
 
     fun strokeMedallion(

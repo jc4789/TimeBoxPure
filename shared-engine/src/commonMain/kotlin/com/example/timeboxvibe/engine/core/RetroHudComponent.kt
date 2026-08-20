@@ -104,16 +104,7 @@ object RetroHudComponent {
         val contentColor = if (isActive) PaletteIndices.TEXT_PRIMARY else PaletteIndices.BORDER_BRIGHT
         val surfaceColor = if (isActive) PaletteIndices.ACCENT_PRIMARY else PaletteIndices.PANEL_DARK
         if (isActive) {
-            renderer.fillRectDither(
-                x,
-                y,
-                x + width,
-                y + height,
-                PaletteIndices.PANEL,
-                PaletteIndices.PANEL,
-                SoftDitherPattern.SOLID
-            )
-            renderer.strokeRectFrame(x, y, width, height, accentColorIndex, kind = VectorFrameKind.SMALL)
+            renderer.paintRectFrame(x, y, width, height, PaletteIndices.PANEL, accentColorIndex, VectorFrameKind.SMALL)
             val radius = minOf(width, height) / 4f
             renderer.strokeMedallion(x + width / 2f, y + height / 2f, radius, accentColorIndex)
         }

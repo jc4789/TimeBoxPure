@@ -192,8 +192,7 @@ object TemplateForgeScene : Scene {
         if (isForgeValid()) {
             renderer.drawButton(strings.saveTemplate, contentX, saveY, contentW, saveH, isClicked = false, allowTextStacking = true)
         } else {
-            renderer.fillRectDither(contentX, saveY, contentX + contentW, saveY + saveH, PaletteIndices.PANEL_DARK, PaletteIndices.PANEL_DARK, SoftDitherPattern.SOLID)
-            renderer.strokeRectFrame(contentX, saveY, contentW, saveH, PaletteIndices.SECONDARY)
+            renderer.paintRectFrame(contentX, saveY, contentW, saveH, PaletteIndices.PANEL_DARK, PaletteIndices.SECONDARY)
             val saveTextW = maxOf(U.toFloat(), contentW - U.toFloat())
             val saveTextH = ProceduralTextRenderer.measureWrappedHeight(strings.saveTemplate, saveTextW)
             ProceduralTextRenderer.drawWrapped(renderer, strings.saveTemplate, contentX + (U / 2).toFloat(), saveY + (saveH - saveTextH) / 2f, saveTextW, PaletteIndices.SECONDARY, alignment = ProceduralTextRenderer.ALIGN_CENTER)
@@ -814,8 +813,7 @@ object TemplateForgeScene : Scene {
         val labelH = ProceduralTextRenderer.measureWrappedHeight(label, labelW)
         val labelY = labelYForRow(label, y, fieldY, fieldH, labelH, width)
         ProceduralTextRenderer.drawWrapped(renderer, label, x, labelY, labelW, PaletteIndices.PRIMARY)
-        renderer.fillRectDither(controlX, fieldY, controlX + controlW, fieldY + fieldH, PaletteIndices.PANEL_DARK, PaletteIndices.PANEL_DARK, SoftDitherPattern.SOLID)
-        renderer.strokeRectFrame(controlX, fieldY, controlW, fieldH, if (isFocused) PaletteIndices.PRIMARY else PaletteIndices.SECONDARY, kind = VectorFrameKind.SMALL)
+        renderer.paintRectFrame(controlX, fieldY, controlW, fieldH, PaletteIndices.PANEL_DARK, if (isFocused) PaletteIndices.PRIMARY else PaletteIndices.SECONDARY, VectorFrameKind.SMALL)
         ProceduralTextRenderer.drawWrapped(renderer, display, controlX + (U / 2).toFloat(), fieldY + (U / 2).toFloat(), maxOf(U.toFloat(), controlW - U.toFloat()), if (value.isEmpty()) PaletteIndices.SECONDARY else PaletteIndices.PRIMARY)
         return fieldY + fieldH + (U / 2).toFloat()
     }

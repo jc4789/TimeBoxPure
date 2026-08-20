@@ -29,7 +29,7 @@ class VectorOrnamentTest {
         var samples = 0
         var x = 32
         while (x <= 144) {
-            if (rowHasIndex(canvas, x, 14, 10)) hits++
+            if (rowHasIndex(canvas, x, 22, 10)) hits++
             samples++
             x += 16
         }
@@ -72,10 +72,10 @@ class VectorOrnamentTest {
         assertTrue(hasIndex(canvas, 2, 2, 7), "top-left stroke")
         assertTrue(hasIndex(canvas, 21, 2, 7), "top-right sits on fill edge")
         var centerHits = 0
-        var y = 16
-        while (y <= 36) {
-            var x = 8
-            while (x <= 14) {
+        var y = 20
+        while (y <= 32) {
+            var x = 11
+            while (x <= 15) {
                 if (canvas.framebuffer.colorIndexAt(x, y) == 7) centerHits++
                 x++
             }
@@ -96,6 +96,24 @@ class VectorOrnamentTest {
         assertTrue(canvas.framebuffer.colorIndexAt(88, 20) == 0, "outside the widget stays background")
         val inside = canvas.framebuffer.colorIndexAt(20, 9)
         assertTrue(inside == 3 || inside == 10, "just inside the top edge is fill or ink, not a gutter")
+    }
+
+    @Test
+    fun chromeBandIsFrameColorNotPlayfield() {
+        val canvas = SoftwareEngineCanvas(120, 56)
+        canvas.clear(0)
+        val layer = AliasedVectorLayer(canvas)
+        VectorOrnament.paintRectFrame(canvas, layer, 8f, 8f, 96f, 40f, 3, 10, VectorFrameKind.PANEL)
+
+        val band = VectorOrnament.chromeBand(VectorFrameKind.PANEL, 40f)
+        assertTrue(band >= 2f, "chrome has thickness")
+        val midY = 8 + (band / 2f).toInt()
+        val chrome = canvas.framebuffer.colorIndexAt(20, midY)
+        assertTrue(chrome == 10, "chrome band is the frame color ($chrome)")
+        val interior = canvas.framebuffer.colorIndexAt(40, 28)
+        assertTrue(interior == 3, "interior is the panel fill ($interior)")
+        assertTrue(canvas.framebuffer.colorIndexAt(7, 20) == 0, "outside stays playfield")
+        assertTrue(cornerInk(canvas, 8, 8, 10) > 12, "corner scroll sits on the chrome")
     }
 
     @Test

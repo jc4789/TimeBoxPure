@@ -163,13 +163,11 @@ object ActiveTimerScene : Scene {
         } else {
             playAreaW - TASK_INPUT_SIDE_PAD * 2f
         }
-        renderer.fillRectDither(inputX, inputY, inputX + inputW, inputY + inputH, PaletteIndices.PANEL_DARK, PaletteIndices.PANEL_DARK, SoftDitherPattern.SOLID)
-        renderer.strokeRectFrame(inputX, inputY, inputW, inputH, if (isTaskFocused) PaletteIndices.HIGHLIGHT else PaletteIndices.SECONDARY, kind = VectorFrameKind.SMALL)
+        renderer.paintRectFrame(inputX, inputY, inputW, inputH, PaletteIndices.PANEL_DARK, if (isTaskFocused) PaletteIndices.HIGHLIGHT else PaletteIndices.SECONDARY, VectorFrameKind.SMALL)
 
         if (showPresetBadge) {
             val presetBadgeY = inputY + (inputH - PRESET_BADGE_SIZE) / 2f
-            renderer.fillRectDither(presetBadgeX, presetBadgeY, presetBadgeX + PRESET_BADGE_SIZE.toFloat(), presetBadgeY + PRESET_BADGE_SIZE.toFloat(), PaletteIndices.PANEL_DARK, PaletteIndices.PANEL_DARK, SoftDitherPattern.SOLID)
-            renderer.strokeRectFrame(presetBadgeX, presetBadgeY, PRESET_BADGE_SIZE.toFloat(), PRESET_BADGE_SIZE.toFloat(), PaletteIndices.SECONDARY, kind = VectorFrameKind.SMALL)
+            renderer.paintRectFrame(presetBadgeX, presetBadgeY, PRESET_BADGE_SIZE.toFloat(), PRESET_BADGE_SIZE.toFloat(), PaletteIndices.PANEL_DARK, PaletteIndices.SECONDARY, VectorFrameKind.SMALL)
             ProceduralIconRenderer.draw(
                 renderer,
                 activePresetIcon(state.activeMode),
@@ -512,8 +510,7 @@ object ActiveTimerScene : Scene {
         val panelW = playAreaW - TASK_INPUT_SIDE_PAD * 2f
         val panelH = calendarPanelHeight(state, playAreaW)
         if (panelW <= U.toFloat() || panelH <= U.toFloat()) return
-        renderer.fillRectDither(panelX, y, panelX + panelW, y + panelH, PaletteIndices.PANEL_DARK, PaletteIndices.PANEL_DARK, SoftDitherPattern.SOLID)
-        renderer.strokeRectFrame(panelX, y, panelW, panelH, PaletteIndices.SECONDARY)
+        renderer.paintRectFrame(panelX, y, panelW, panelH, PaletteIndices.PANEL_DARK, PaletteIndices.SECONDARY)
         val titleY = y + (U / 2).toFloat()
         val titleW = panelW - U.toFloat()
         val title = if (state.currentStageLabel.isNotEmpty()) state.currentStageLabel else preset.name
@@ -588,8 +585,7 @@ object ActiveTimerScene : Scene {
         drawIcon: Boolean
     ) {
         val fillColor = if (isClicked) PaletteIndices.PANEL else PaletteIndices.PANEL_DARK
-        renderer.fillRectDither(x, y, x + width, y + height, fillColor, fillColor, SoftDitherPattern.SOLID)
-        renderer.strokeRectFrame(x, y, width, height, PaletteIndices.SECONDARY, kind = VectorFrameKind.SMALL)
+        renderer.paintRectFrame(x, y, width, height, fillColor, PaletteIndices.SECONDARY, VectorFrameKind.SMALL)
         if (!drawIcon) return
 
         val contentColor = PaletteIndices.TEXT_PRIMARY

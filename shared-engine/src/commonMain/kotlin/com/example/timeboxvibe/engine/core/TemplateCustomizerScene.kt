@@ -71,8 +71,7 @@ object TemplateCustomizerScene : Scene {
             val cardX = playAreaStartX + U + (U / 4)
             val cardW = playAreaW - (U * 2) - (U / 2)
             val fillColor = if (isActive) PaletteIndices.PANEL else PaletteIndices.PANEL_DARK
-            renderer.fillRectDither(cardX, currentY, cardX + cardW, currentY + cardH, fillColor, fillColor, SoftDitherPattern.SOLID)
-            renderer.strokeRectFrame(cardX, currentY, cardW, cardH, frameColorIndex)
+            renderer.paintRectFrame(cardX, currentY, cardW, cardH, fillColor, frameColorIndex)
 
             val textLeftX = cardX + (U / 2 + U / 8).toFloat()
             val hasDelete = preset.id.startsWith("custom_")

@@ -29,6 +29,13 @@ object EngineThemes {
      * 薄紅 / うすべに / source #E8A1A8 / RGB 232,161,168 / Munsell - / 12-bit #EAB / expanded #EE88BB
      *      (added for inner timer beads — a clear pink, distinct from the near-white
      *      櫻色, and from the red HIGHLIGHT used for the outer beads)
+     * 高麗納戸 / こうらいなんど / source #2D5F4C / RGB 45,95,76 / 12-bit #254 / expanded #225544
+     * 錆青磁 / さびせいじ / source #3A6960 / RGB 58,105,96 / 12-bit #365 / expanded #336655
+     * 滅紫 / けしむらさき / source #3F2B4B / RGB 63,43,75 / 12-bit #324 / expanded #332244
+     * 紫紺 / しこん / source #460E44 / RGB 70,14,68 / 12-bit #404 / expanded #440044
+     * 葡萄色 / えびいろ / source #522F60 / RGB 82,47,96 / 12-bit #526 / expanded #552266
+     * 鳥の子色 / とりのこいろ / source #FFF1CF / RGB 255,241,207 / 12-bit #FED / expanded #FFEECC
+     * 金色 / こんじき / source #E6B422 / RGB 230,180,34 / 12-bit #EB2 / expanded #EEBB22
      */
     private object WaColor12 {
         const val 櫻色: Short = 0x0FEE
@@ -54,61 +61,72 @@ object EngineThemes {
         const val 海松茶: Short = 0x0554
         const val 藤鼠: Short = 0x0AAC
         const val 薄紅: Short = 0x0EAB
+        const val 高麗納戸: Short = 0x0254
+        const val 錆青磁: Short = 0x0365
+        const val 滅紫: Short = 0x0324
+        const val 紫紺: Short = 0x0404
+        const val 葡萄色: Short = 0x0526
+        const val 鳥の子色: Short = 0x0FED
+        const val 金色: Short = 0x0EB2
     }
 
+    /** 朱雀の間 — teal field, purple panels, gold chrome, vermillion. */
     private val reimuFocus = shortArrayOf(
-        WaColor12.墨色, WaColor12.藍鉄, WaColor12.黒橡, WaColor12.褐返,
-        WaColor12.藍鼠, WaColor12.胡粉色, WaColor12.月白, WaColor12.櫻色,
-        WaColor12.煤色, WaColor12.深緋, WaColor12.山吹色, WaColor12.緋色,
+        WaColor12.高麗納戸, WaColor12.錆青磁, WaColor12.葡萄色, WaColor12.滅紫,
+        WaColor12.黒橡, WaColor12.鳥の子色, WaColor12.胡粉色, WaColor12.月白,
+        WaColor12.煤色, WaColor12.深緋, WaColor12.金色, WaColor12.緋色,
         WaColor12.翡翠色, WaColor12.藍色, WaColor12.古代紫, WaColor12.真紅
     )
 
     private val reimuBreak = shortArrayOf(
-        WaColor12.墨色, WaColor12.紫鳶, WaColor12.黒橡, WaColor12.褐返,
-        WaColor12.藍鼠, WaColor12.胡粉色, WaColor12.月白, WaColor12.櫻色,
-        WaColor12.煤色, WaColor12.紅, WaColor12.山吹色, WaColor12.深緋,
+        WaColor12.滅紫, WaColor12.紫鳶, WaColor12.葡萄色, WaColor12.紫紺,
+        WaColor12.黒橡, WaColor12.鳥の子色, WaColor12.胡粉色, WaColor12.櫻色,
+        WaColor12.煤色, WaColor12.紅, WaColor12.金色, WaColor12.深緋,
         WaColor12.翡翠色, WaColor12.藍色, WaColor12.古代紫, WaColor12.紅緋
     )
 
+    /** Forest gold — moss field, lacquer panels, bright gold. */
     private val marisaFocus = shortArrayOf(
-        WaColor12.褐返, WaColor12.墨色, WaColor12.海松茶, WaColor12.藍鉄,
-        WaColor12.黒橡, WaColor12.胡粉色, WaColor12.月白, WaColor12.櫻色,
-        WaColor12.煤色, WaColor12.山吹色, WaColor12.古代紫, WaColor12.緋色,
+        WaColor12.褐返, WaColor12.海松茶, WaColor12.黒橡, WaColor12.墨色,
+        WaColor12.藍鉄, WaColor12.鳥の子色, WaColor12.胡粉色, WaColor12.山吹色,
+        WaColor12.煤色, WaColor12.金色, WaColor12.山吹色, WaColor12.緋色,
         WaColor12.翡翠色, WaColor12.藍鼠, WaColor12.藍色, WaColor12.紅
     )
 
     private val marisaBreak = shortArrayOf(
-        WaColor12.墨色, WaColor12.海松茶, WaColor12.黒橡, WaColor12.褐返,
-        WaColor12.藍鉄, WaColor12.胡粉色, WaColor12.月白, WaColor12.櫻色,
-        WaColor12.煤色, WaColor12.山吹色, WaColor12.藤鼠, WaColor12.深緋,
+        WaColor12.墨色, WaColor12.褐返, WaColor12.海松茶, WaColor12.黒橡,
+        WaColor12.藍鉄, WaColor12.鳥の子色, WaColor12.胡粉色, WaColor12.櫻色,
+        WaColor12.煤色, WaColor12.金色, WaColor12.藤鼠, WaColor12.深緋,
         WaColor12.翡翠色, WaColor12.藍鼠, WaColor12.古代紫, WaColor12.紅緋
     )
 
+    /** 翡翠ノ箱庭 — purple field, jade titles, gold chrome. */
     private val aliceFocus = shortArrayOf(
-        WaColor12.紺色, WaColor12.藍鉄, WaColor12.古代紫, WaColor12.墨色,
-        WaColor12.藍鼠, WaColor12.胡粉色, WaColor12.月白, WaColor12.櫻色,
-        WaColor12.煤色, WaColor12.藤鼠, WaColor12.翡翠色, WaColor12.深緋,
-        WaColor12.山吹色, WaColor12.藍色, WaColor12.紫鳶, WaColor12.紅緋
+        WaColor12.紫紺, WaColor12.葡萄色, WaColor12.古代紫, WaColor12.滅紫,
+        WaColor12.紫鳶, WaColor12.鳥の子色, WaColor12.胡粉色, WaColor12.月白,
+        WaColor12.煤色, WaColor12.翡翠色, WaColor12.金色, WaColor12.深緋,
+        WaColor12.山吹色, WaColor12.藍色, WaColor12.藤鼠, WaColor12.紅緋
     )
 
     private val aliceBreak = shortArrayOf(
-        WaColor12.藍鉄, WaColor12.紺色, WaColor12.紫鳶, WaColor12.墨色,
-        WaColor12.藍鼠, WaColor12.胡粉色, WaColor12.月白, WaColor12.藤鼠,
-        WaColor12.煤色, WaColor12.古代紫, WaColor12.翡翠色, WaColor12.緋色,
+        WaColor12.葡萄色, WaColor12.滅紫, WaColor12.古代紫, WaColor12.紫紺,
+        WaColor12.紫鳶, WaColor12.鳥の子色, WaColor12.胡粉色, WaColor12.藤鼠,
+        WaColor12.煤色, WaColor12.翡翠色, WaColor12.金色, WaColor12.緋色,
         WaColor12.山吹色, WaColor12.藍色, WaColor12.櫻色, WaColor12.真紅
     )
 
+    /** Moon capital — ink field, moon-white text, gold and wisteria. */
     private val kaguyaFocus = shortArrayOf(
-        WaColor12.墨色, WaColor12.海松茶, WaColor12.黒橡, WaColor12.褐返,
-        WaColor12.藍鼠, WaColor12.胡粉色, WaColor12.月白, WaColor12.櫻色,
-        WaColor12.煤色, WaColor12.山吹色, WaColor12.古代紫, WaColor12.深緋,
-        WaColor12.翡翠色, WaColor12.藍色, WaColor12.藤鼠, WaColor12.真紅
+        WaColor12.墨色, WaColor12.褐返, WaColor12.藍鉄, WaColor12.黒橡,
+        WaColor12.藍鼠, WaColor12.鳥の子色, WaColor12.月白, WaColor12.胡粉色,
+        WaColor12.煤色, WaColor12.金色, WaColor12.藤鼠, WaColor12.深緋,
+        WaColor12.翡翠色, WaColor12.藍色, WaColor12.古代紫, WaColor12.真紅
     )
 
     private val kaguyaBreak = shortArrayOf(
-        WaColor12.褐返, WaColor12.海松茶, WaColor12.黒橡, WaColor12.藍鉄,
-        WaColor12.藍鼠, WaColor12.胡粉色, WaColor12.月白, WaColor12.櫻色,
-        WaColor12.煤色, WaColor12.翡翠色, WaColor12.山吹色, WaColor12.緋色,
+        WaColor12.褐返, WaColor12.墨色, WaColor12.黒橡, WaColor12.藍鉄,
+        WaColor12.藍鼠, WaColor12.鳥の子色, WaColor12.月白, WaColor12.櫻色,
+        WaColor12.煤色, WaColor12.藤鼠, WaColor12.金色, WaColor12.緋色,
         WaColor12.古代紫, WaColor12.藍色, WaColor12.紫鳶, WaColor12.紅
     )
 
