@@ -868,4 +868,47 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
         aliased.drawQuadraticBezierDeCasteljau(x0, y0, x1, y1, x2, y2, colorIndex, strokeWidth)
     }
 
+    fun strokeVectorPath(
+        ops: IntArray,
+        coords: FloatArray,
+        originX: Float,
+        originY: Float,
+        xx: Float,
+        xy: Float,
+        yx: Float,
+        yy: Float,
+        colorIndex: Int,
+        strokeWidth: Float = 1f
+    ) {
+        aliased.strokePath(ops, coords, originX, originY, xx, xy, yx, yy, colorIndex, strokeWidth)
+    }
+
+    fun strokeRectFrame(
+        x: Float,
+        y: Float,
+        width: Float,
+        height: Float,
+        colorIndex: Int,
+        strokeWidth: Float = 1f,
+        kind: Int = VectorFrameKind.PANEL
+    ) {
+        VectorOrnament.strokeRectFrame(aliased, x, y, width, height, colorIndex, strokeWidth, kind)
+    }
+
+    fun strokeMedallion(centerX: Float, centerY: Float, radius: Float, colorIndex: Int, strokeWidth: Float = 1f) {
+        VectorOrnament.strokeMedallion(aliased, centerX, centerY, radius, colorIndex, strokeWidth)
+    }
+
+    fun strokeHorizontalRule(x0: Float, y: Float, x1: Float, colorIndex: Int, strokeWidth: Float = 1f) {
+        VectorOrnament.strokeHorizontalRule(aliased, x0, y, x1, colorIndex, strokeWidth)
+    }
+
+    fun strokeVerticalRule(x: Float, y0: Float, y1: Float, colorIndex: Int, strokeWidth: Float = 1f) {
+        VectorOrnament.strokeVerticalRule(aliased, x, y0, y1, colorIndex, strokeWidth)
+    }
+
+    fun drawLattice(x0: Float, y0: Float, x1: Float, y1: Float, colorIndex: Int) {
+        VectorOrnament.drawLattice(this, x0, y0, x1, y1, colorIndex)
+    }
+
 }

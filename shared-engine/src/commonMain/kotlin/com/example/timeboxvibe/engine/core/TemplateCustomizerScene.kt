@@ -70,12 +70,9 @@ object TemplateCustomizerScene : Scene {
             val frameColorIndex = if (isActive) PaletteIndices.PRIMARY else PaletteIndices.SECONDARY
             val cardX = playAreaStartX + U + (U / 4)
             val cardW = playAreaW - (U * 2) - (U / 2)
-            
-            if (isActive) {
-                renderer.fillRectDither(cardX, currentY, cardX + cardW, currentY + cardH, frameColorIndex, frameColorIndex, SoftDitherPattern.SOLID)
-            } else {
-                renderer.drawRect(cardX, currentY, cardW, cardH, frameColorIndex)
-            }
+            val fillColor = if (isActive) PaletteIndices.PANEL else PaletteIndices.PANEL_DARK
+            renderer.fillRectDither(cardX, currentY, cardX + cardW, currentY + cardH, fillColor, fillColor, SoftDitherPattern.SOLID)
+            renderer.strokeRectFrame(cardX, currentY, cardW, cardH, frameColorIndex)
 
             val textLeftX = cardX + (U / 2 + U / 8).toFloat()
             val hasDelete = preset.id.startsWith("custom_")
@@ -89,13 +86,13 @@ object TemplateCustomizerScene : Scene {
             val maxTextW = maxOf(U.toFloat(), textRightLimit - textLeftX)
 
             val nameScale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
-            val textColor = if (isActive) PaletteIndices.BLACK else PaletteIndices.PRIMARY
+            val textColor = if (isActive) PaletteIndices.TEXT_PRIMARY else PaletteIndices.PRIMARY
             val textTop = currentY + (U / 4).toFloat()
             val nameH = ProceduralTextRenderer.measureWrappedHeight(preset.name, maxTextW, nameScale)
             ProceduralTextRenderer.drawWrapped(renderer, preset.name, textLeftX, textTop, maxTextW, textColor, nameScale, uppercase = true)
 
             if (preset.mode == "calendar") {
-                val idColor = if (isActive) PaletteIndices.BLACK else PaletteIndices.SECONDARY
+                val idColor = if (isActive) PaletteIndices.TEXT_PRIMARY else PaletteIndices.SECONDARY
                 val idScale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
                 val idY = textTop + nameH
                 val idH = ProceduralTextRenderer.measurePresetIdHeight(preset.id, maxTextW, idScale)
@@ -112,7 +109,7 @@ object TemplateCustomizerScene : Scene {
 
                 val idW = maxTextW / 2f
                 val idScale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
-                val idColor = if (isActive) PaletteIndices.BLACK else PaletteIndices.SECONDARY
+                val idColor = if (isActive) PaletteIndices.TEXT_PRIMARY else PaletteIndices.SECONDARY
                 ProceduralTextRenderer.drawPresetIdWrapped(renderer, preset.id, textLeftX + maxTextW * 0.45f, detailY, idW, idColor, idScale)
             }
 
@@ -344,8 +341,8 @@ private fun drawCalendarTimeline(
     if (availableW <= 0f || height <= 0f) return
 
     var currentX = x
-    val priColor = if (isActive) PaletteIndices.BLACK else PaletteIndices.PRIMARY
-    val secColor = if (isActive) PaletteIndices.PRIMARY else PaletteIndices.SECONDARY
+    val priColor = if (isActive) PaletteIndices.HIGHLIGHT else PaletteIndices.PRIMARY
+    val secColor = PaletteIndices.SECONDARY
 
     var i = 0
     while (i < numBlocks) {

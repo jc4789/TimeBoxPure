@@ -125,7 +125,8 @@ object EntropyScene : Scene {
             inputTextH + U.toFloat(),
             ScaledProceduralRenderer.measureButtonHeight(strings.addButton, loadW, (U * 2).toFloat(), allowTextStacking = true)
         )
-        renderer.drawRect(inputX, inputY, inputW, inputH, if (isInputFocused) PaletteIndices.PRIMARY else PaletteIndices.SECONDARY)
+        renderer.fillRectDither(inputX, inputY, inputX + inputW, inputY + inputH, PaletteIndices.PANEL_DARK, PaletteIndices.PANEL_DARK, SoftDitherPattern.SOLID)
+        renderer.strokeRectFrame(inputX, inputY, inputW, inputH, if (isInputFocused) PaletteIndices.PRIMARY else PaletteIndices.SECONDARY, kind = VectorFrameKind.SMALL)
 
         val inputTextY = inputY + (inputH - inputTextH) / 2f
         if (inputContainer.length == 0) {
@@ -171,18 +172,15 @@ object EntropyScene : Scene {
             val slotTxtY = slotY + (slotH - taskTextH) / 2f
             val deleteY = slotY + (slotH - U.toFloat()) / 2f
 
-            if (isHighlighted) {
-                renderer.fillRectDither(inputX, slotY, inputX + playAreaW - padding * 2f, slotY + slotH, frameColorIndex, frameColorIndex, SoftDitherPattern.SOLID)
-                drawTaskRow(renderer, idx, inputX + (U / 2).toFloat(), slotTxtY, PaletteIndices.BLACK, slotTxtScale, taskMaxW)
-                if (!isSpinning) {
-                    ProceduralTextRenderer.drawRaw(renderer, "［Ｘ］", deleteX, deleteY, PaletteIndices.BLACK, slotTxtScale)
-                }
-            } else {
-                renderer.drawRect(inputX, slotY, playAreaW - padding * 2f, slotH, frameColorIndex)
-                drawTaskRow(renderer, idx, inputX + (U / 2).toFloat(), slotTxtY, PaletteIndices.PRIMARY, slotTxtScale, taskMaxW)
-                if (!isSpinning) {
-                    ProceduralTextRenderer.drawRaw(renderer, "［Ｘ］", deleteX, deleteY, PaletteIndices.SECONDARY, slotTxtScale)
-                }
+            val slotW = playAreaW - padding * 2f
+            val slotFill = if (isHighlighted) PaletteIndices.PANEL else PaletteIndices.PANEL_DARK
+            val slotText = if (isHighlighted) PaletteIndices.TEXT_PRIMARY else PaletteIndices.PRIMARY
+            val slotDelete = if (isHighlighted) PaletteIndices.TEXT_PRIMARY else PaletteIndices.SECONDARY
+            renderer.fillRectDither(inputX, slotY, inputX + slotW, slotY + slotH, slotFill, slotFill, SoftDitherPattern.SOLID)
+            renderer.strokeRectFrame(inputX, slotY, slotW, slotH, frameColorIndex)
+            drawTaskRow(renderer, idx, inputX + (U / 2).toFloat(), slotTxtY, slotText, slotTxtScale, taskMaxW)
+            if (!isSpinning) {
+                ProceduralTextRenderer.drawRaw(renderer, "［Ｘ］", deleteX, deleteY, slotDelete, slotTxtScale)
             }
             slotY += slotH + slotSpacing
             idx++
@@ -212,7 +210,8 @@ object EntropyScene : Scene {
                 renderer.drawButton(btnText, inputX, detY, detW, detH, isClicked = false, allowTextStacking = true)
             } else {
                 // disabled style
-                renderer.drawRect(inputX, detY, detW, detH, PaletteIndices.SECONDARY)
+                renderer.fillRectDither(inputX, detY, inputX + detW, detY + detH, PaletteIndices.PANEL_DARK, PaletteIndices.PANEL_DARK, SoftDitherPattern.SOLID)
+                renderer.strokeRectFrame(inputX, detY, detW, detH, PaletteIndices.SECONDARY)
                 drawCenteredText(renderer, btnText, inputX, detY, detW, detH, PaletteIndices.SECONDARY)
             }
         }
@@ -229,8 +228,8 @@ object EntropyScene : Scene {
         val popupH = directivePopupHeight(playAreaW, playAreaH, strings)
         val popupY = maxOf((U / 2).toFloat(), (playAreaH - popupH) / 2f)
         
-        renderer.fillRectDither(popupX, popupY, popupX + popupW, popupY + popupH, PaletteIndices.BLACK, PaletteIndices.BLACK, SoftDitherPattern.SOLID)
-        renderer.drawRect(popupX, popupY, popupW, popupH, PaletteIndices.ERROR)
+        renderer.fillRectDither(popupX, popupY, popupX + popupW, popupY + popupH, PaletteIndices.PANEL_DARK, PaletteIndices.PANEL_DARK, SoftDitherPattern.SOLID)
+        renderer.strokeRectFrame(popupX, popupY, popupW, popupH, PaletteIndices.ERROR)
         
         // Full-width close button using drawButton.
         val closeSize = (U * POPUP_CLOSE_CELLS).toFloat()

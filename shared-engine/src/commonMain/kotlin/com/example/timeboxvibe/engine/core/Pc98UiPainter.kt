@@ -11,12 +11,10 @@ fun ScaledProceduralRenderer.drawButton(
     isHovered: Boolean = false,
     allowTextStacking: Boolean = false
 ) {
-    val pc98White = PaletteIndices.WHITE
-    val pc98Black = PaletteIndices.BLACK
-    val bgColor = if (isClicked || isHovered) pc98White else pc98Black
-    val textColor = if (isClicked || isHovered) pc98Black else pc98White
+    val bgColor = if (isClicked || isHovered) PaletteIndices.PANEL else PaletteIndices.PANEL_DARK
+    val textColor = if (isClicked || isHovered) PaletteIndices.TEXT_PRIMARY else PaletteIndices.SECONDARY
+    val frameColor = if (isClicked || isHovered) PaletteIndices.BORDER_BRIGHT else PaletteIndices.SECONDARY
 
-    fillRectDither(x, y, x + w, y + h, pc98White, pc98White, SoftDitherPattern.SOLID)
     val border = CANONICAL_UI_UNIT / BUTTON_BORDER_CELLS_DEN
     fillRectDither(
         x + border,
@@ -27,6 +25,7 @@ fun ScaledProceduralRenderer.drawButton(
         bgColor,
         SoftDitherPattern.SOLID
     )
+    strokeRectFrame(x, y, w, h, frameColor, kind = VectorFrameKind.SMALL)
 
     val textScale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
     if (isClicked || isHovered) {

@@ -16,6 +16,11 @@ object UiShellLayout {
     private const val HUD_RATIO_DEN = 10f
     private const val PLAY_AREA_RATIO_NUM = 17f
     private const val PLAY_AREA_RATIO_DEN = 20f
+    private const val NAV_MAX_WIDTH_CELLS = 6
+    private const val NAV_MAX_HEIGHT_CELLS = 4
+    private const val NAV_MIN_HEIGHT_CELLS = 2
+    private const val NAV_LEFT_MAX_WIDTH_NUM = 4
+    private const val NAV_LEFT_MAX_WIDTH_DEN = 5
 
     var placement: HudPlacement = HudPlacement.BOTTOM
         private set
@@ -112,16 +117,20 @@ object UiShellLayout {
     private fun resolveBottomNavigation() {
         val gap = (U / 2).toFloat()
         val sidePad = (U / 2).toFloat()
-        val buttonWidth = maxOf(
+        val fittedWidth = maxOf(
             0,
             ((contentWidth - sidePad * 2f - gap * (NAV_TAB_COUNT - 1)) / NAV_TAB_COUNT).toInt()
         ).toFloat()
-        val buttonHeight = maxOf(0f, minOf(maxOf((U * 2).toFloat(), hudHeight - U.toFloat()), hudHeight))
+        val buttonWidth = minOf(fittedWidth, (U * NAV_MAX_WIDTH_CELLS).toFloat())
+        val fittedHeight = maxOf(0f, minOf(maxOf((U * NAV_MIN_HEIGHT_CELLS).toFloat(), hudHeight - U.toFloat()), hudHeight))
+        val buttonHeight = minOf(fittedHeight, (U * NAV_MAX_HEIGHT_CELLS).toFloat())
+        val rowWidth = buttonWidth * NAV_TAB_COUNT + gap * (NAV_TAB_COUNT - 1)
+        val startX = (hudX + (hudWidth - rowWidth) / 2f).toInt().toFloat()
         val buttonY = (hudY + (hudHeight - buttonHeight) / 2f).toInt().toFloat()
 
         var index = 0
         while (index < NAV_TAB_COUNT) {
-            navX[index] = sidePad + (buttonWidth + gap) * index
+            navX[index] = startX + (buttonWidth + gap) * index
             navY[index] = buttonY
             navWidth[index] = buttonWidth
             navHeight[index] = buttonHeight
@@ -133,9 +142,10 @@ object UiShellLayout {
         val gap = (U / 2).toFloat()
         val topPad = U.toFloat()
         val fittedButtonHeight = (logicalHeight - topPad * 2f - gap * (NAV_TAB_COUNT - 1)) / NAV_TAB_COUNT
-        val buttonHeight = maxOf(0, minOf(U * 5 / 2, fittedButtonHeight.toInt())).toFloat()
-        val buttonWidth = (hudWidth * 4f / 5f).toInt().toFloat()
-        val buttonX = ((hudWidth - buttonWidth) / 2f).toInt().toFloat()
+        val buttonHeight = maxOf(0, minOf(U * NAV_MAX_HEIGHT_CELLS, fittedButtonHeight.toInt())).toFloat()
+        val fittedWidth = (hudWidth * NAV_LEFT_MAX_WIDTH_NUM / NAV_LEFT_MAX_WIDTH_DEN).toInt().toFloat()
+        val buttonWidth = minOf(fittedWidth, (U * NAV_MAX_WIDTH_CELLS).toFloat())
+        val buttonX = (hudX + (hudWidth - buttonWidth) / 2f).toInt().toFloat()
         val stackHeight = buttonHeight * NAV_TAB_COUNT + gap * (NAV_TAB_COUNT - 1)
         val startY = maxOf(U.toFloat(), ((logicalHeight - stackHeight) / 2f).toInt().toFloat())
 

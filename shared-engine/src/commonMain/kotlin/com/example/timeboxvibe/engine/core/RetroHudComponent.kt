@@ -30,28 +30,30 @@ object RetroHudComponent {
             UiShellLayout.hudY,
             UiShellLayout.hudX + UiShellLayout.hudWidth,
             UiShellLayout.hudY + UiShellLayout.hudHeight,
-            PaletteIndices.BLACK,
-            PaletteIndices.BLACK,
+            PaletteIndices.PANEL_DARK,
+            PaletteIndices.PANEL_DARK,
             SoftDitherPattern.SOLID
         )
-
+        renderer.drawLattice(
+            UiShellLayout.hudX,
+            UiShellLayout.hudY,
+            UiShellLayout.hudX + UiShellLayout.hudWidth,
+            UiShellLayout.hudY + UiShellLayout.hudHeight,
+            PaletteIndices.BG_ALT
+        )
         if (UiShellLayout.placement == HudPlacement.LEFT) {
-            renderer.drawLine(
+            renderer.strokeVerticalRule(
                 UiShellLayout.hudX + UiShellLayout.hudWidth,
                 UiShellLayout.hudY,
-                UiShellLayout.hudX + UiShellLayout.hudWidth,
                 UiShellLayout.hudY + UiShellLayout.hudHeight,
-                PaletteIndices.PRIMARY,
-                2f
+                PaletteIndices.SECONDARY
             )
         } else {
-            renderer.drawLine(
+            renderer.strokeHorizontalRule(
                 UiShellLayout.hudX,
                 UiShellLayout.hudY,
                 UiShellLayout.hudX + UiShellLayout.hudWidth,
-                UiShellLayout.hudY,
-                PaletteIndices.PRIMARY,
-                2f
+                PaletteIndices.SECONDARY
             )
         }
 
@@ -107,20 +109,22 @@ object RetroHudComponent {
         accentColorIndex: Int,
         iconName: String
     ) {
-        val frameColor = PaletteIndices.WHITE
-        val fillColor = if (isActive) PaletteIndices.WHITE else PaletteIndices.BLACK
-        val contentColor = if (isActive) PaletteIndices.BLACK else PaletteIndices.WHITE
-        val surfaceColor = if (isActive) PaletteIndices.PRIMARY else PaletteIndices.BLACK
-        renderer.fillRectDither(x, y, x + width, y + height, frameColor, frameColor, SoftDitherPattern.SOLID)
-        renderer.fillRectDither(
-            x + BUTTON_BORDER,
-            y + BUTTON_BORDER,
-            x + width - BUTTON_BORDER,
-            y + height - BUTTON_BORDER,
-            fillColor,
-            fillColor,
-            SoftDitherPattern.SOLID
-        )
+        val contentColor = if (isActive) PaletteIndices.TEXT_PRIMARY else PaletteIndices.BORDER_BRIGHT
+        val surfaceColor = if (isActive) PaletteIndices.ACCENT_PRIMARY else PaletteIndices.PANEL_DARK
+        if (isActive) {
+            renderer.fillRectDither(
+                x + BUTTON_BORDER,
+                y + BUTTON_BORDER,
+                x + width - BUTTON_BORDER,
+                y + height - BUTTON_BORDER,
+                PaletteIndices.PANEL,
+                PaletteIndices.PANEL,
+                SoftDitherPattern.SOLID
+            )
+            renderer.strokeRectFrame(x, y, width, height, accentColorIndex, kind = VectorFrameKind.SMALL)
+            val radius = minOf(width, height) / 3f
+            renderer.strokeMedallion(x + width / 2f, y + height / 2f, radius, accentColorIndex)
+        }
 
         val iconX = x + (width - ICON_SIZE) / 2f
         val iconY = y + (height - ICON_SIZE) / 2f

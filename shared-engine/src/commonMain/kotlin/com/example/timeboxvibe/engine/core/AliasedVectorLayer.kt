@@ -3,6 +3,14 @@ package com.example.timeboxvibe.engine.core
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+object VectorPathOp {
+    const val MOVE = 0
+    const val LINE = 1
+    const val QUAD = 2
+    const val CUBIC = 3
+    const val CLOSE = 4
+}
+
 /**
  * Small palette-indexed aliased vector layer for PC-98-style procedural linework.
  * Final raster output is snapped to integer pixels and emitted through EngineCanvas.
@@ -19,9 +27,22 @@ class AliasedVectorLayer(private val canvas: EngineCanvas) {
         private const val SAMPLE_INTERVAL_PIXELS = 4f
         private const val MIN_ARC_SEGMENTS = 6
         private const val MAX_ARC_SEGMENTS = 144
-        private const val MIN_BEZIER_SEGMENTS = 4
-        private const val MAX_BEZIER_SEGMENTS = 96
+        /** Chord deviation, in logical pixels, that stops De Casteljau splits. */
+        private const val BEZIER_FLATNESS_PIXELS = 1f
+        /** Matches tools/math_oracles/de_casteljau_oracle.py max_depth. */
+        private const val BEZIER_MAX_SUBDIVISION_DEPTH = 16
+        private const val BEZIER_STACK_CAPACITY = BEZIER_MAX_SUBDIVISION_DEPTH + 1
+        private const val DE_CASTELJAU_MIDPOINT = 0.5f
+        private const val CUBIC_CONTROL_POINTS = 4
+        private const val QUAD_CONTROL_POINTS = 3
     }
+
+    private val cubicX = FloatArray(BEZIER_STACK_CAPACITY * CUBIC_CONTROL_POINTS)
+    private val cubicY = FloatArray(BEZIER_STACK_CAPACITY * CUBIC_CONTROL_POINTS)
+    private val cubicDepth = IntArray(BEZIER_STACK_CAPACITY)
+    private val quadX = FloatArray(BEZIER_STACK_CAPACITY * QUAD_CONTROL_POINTS)
+    private val quadY = FloatArray(BEZIER_STACK_CAPACITY * QUAD_CONTROL_POINTS)
+    private val quadDepth = IntArray(BEZIER_STACK_CAPACITY)
 
     fun drawAliasedLine(
         x0: Float,
@@ -311,33 +332,43 @@ class AliasedVectorLayer(private val canvas: EngineCanvas) {
         colorIndex: Int,
         strokeWidth: Float = 1f
     ) {
-        val rasterStep = strokeWidth.coerceAtLeast(1f)
-        val segmentCount = estimateBezierSegments(
-            (distanceEstimate(x0, y0, x1, y1) + distanceEstimate(x1, y1, x2, y2)) / rasterStep
-        )
+        var stackCount = 0
+        stackCount = pushQuad(stackCount, x0, y0, x1, y1, x2, y2, 0)
         var prevX = x0
         var prevY = y0
         var prevSnappedX = x0.roundToInt()
         var prevSnappedY = y0.roundToInt()
-        var i = 1
-        while (i <= segmentCount) {
-            val t = i.toFloat() / segmentCount
-            val ax = lerp(x0, x1, t)
-            val ay = lerp(y0, y1, t)
-            val bx = lerp(x1, x2, t)
-            val by = lerp(y1, y2, t)
-            val cx = lerp(ax, bx, t)
-            val cy = lerp(ay, by, t)
-            val snappedX = cx.roundToInt()
-            val snappedY = cy.roundToInt()
-            if (snappedX != prevSnappedX || snappedY != prevSnappedY) {
-                drawAliasedLine(prevX, prevY, cx, cy, colorIndex, strokeWidth)
-                prevX = cx
-                prevY = cy
-                prevSnappedX = snappedX
-                prevSnappedY = snappedY
+        while (stackCount > 0) {
+            stackCount--
+            val base = stackCount * QUAD_CONTROL_POINTS
+            val qx0 = quadX[base]
+            val qy0 = quadY[base]
+            val qx1 = quadX[base + 1]
+            val qy1 = quadY[base + 1]
+            val qx2 = quadX[base + 2]
+            val qy2 = quadY[base + 2]
+            val depth = quadDepth[stackCount]
+            if (depth >= BEZIER_MAX_SUBDIVISION_DEPTH || quadIsFlat(qx0, qy0, qx1, qy1, qx2, qy2)) {
+                val snappedX = qx2.roundToInt()
+                val snappedY = qy2.roundToInt()
+                if (snappedX != prevSnappedX || snappedY != prevSnappedY) {
+                    drawAliasedLine(prevX, prevY, qx2, qy2, colorIndex, strokeWidth)
+                    prevX = qx2
+                    prevY = qy2
+                    prevSnappedX = snappedX
+                    prevSnappedY = snappedY
+                }
+            } else {
+                val ax = lerp(qx0, qx1, DE_CASTELJAU_MIDPOINT)
+                val ay = lerp(qy0, qy1, DE_CASTELJAU_MIDPOINT)
+                val bx = lerp(qx1, qx2, DE_CASTELJAU_MIDPOINT)
+                val by = lerp(qy1, qy2, DE_CASTELJAU_MIDPOINT)
+                val cx = lerp(ax, bx, DE_CASTELJAU_MIDPOINT)
+                val cy = lerp(ay, by, DE_CASTELJAU_MIDPOINT)
+                val nextDepth = depth + 1
+                stackCount = pushQuad(stackCount, cx, cy, bx, by, qx2, qy2, nextDepth)
+                stackCount = pushQuad(stackCount, qx0, qy0, ax, ay, cx, cy, nextDepth)
             }
-            i++
         }
     }
 
@@ -353,41 +384,169 @@ class AliasedVectorLayer(private val canvas: EngineCanvas) {
         colorIndex: Int,
         strokeWidth: Float = 1f
     ) {
-        val rasterStep = strokeWidth.coerceAtLeast(1f)
-        val segmentCount = estimateBezierSegments(
-            (distanceEstimate(x0, y0, x1, y1) +
-                distanceEstimate(x1, y1, x2, y2) +
-                distanceEstimate(x2, y2, x3, y3)) / rasterStep
-        )
+        var stackCount = 0
+        stackCount = pushCubic(stackCount, x0, y0, x1, y1, x2, y2, x3, y3, 0)
         var prevX = x0
         var prevY = y0
         var prevSnappedX = x0.roundToInt()
         var prevSnappedY = y0.roundToInt()
-        var i = 1
-        while (i <= segmentCount) {
-            val t = i.toFloat() / segmentCount
-            val ax = lerp(x0, x1, t)
-            val ay = lerp(y0, y1, t)
-            val bx = lerp(x1, x2, t)
-            val by = lerp(y1, y2, t)
-            val cx = lerp(x2, x3, t)
-            val cy = lerp(y2, y3, t)
-            val dx = lerp(ax, bx, t)
-            val dy = lerp(ay, by, t)
-            val ex = lerp(bx, cx, t)
-            val ey = lerp(by, cy, t)
-            val fx = lerp(dx, ex, t)
-            val fy = lerp(dy, ey, t)
-            val snappedX = fx.roundToInt()
-            val snappedY = fy.roundToInt()
-            if (snappedX != prevSnappedX || snappedY != prevSnappedY) {
-                drawAliasedLine(prevX, prevY, fx, fy, colorIndex, strokeWidth)
-                prevX = fx
-                prevY = fy
-                prevSnappedX = snappedX
-                prevSnappedY = snappedY
+        while (stackCount > 0) {
+            stackCount--
+            val base = stackCount * CUBIC_CONTROL_POINTS
+            val cx0 = cubicX[base]
+            val cy0 = cubicY[base]
+            val cx1 = cubicX[base + 1]
+            val cy1 = cubicY[base + 1]
+            val cx2 = cubicX[base + 2]
+            val cy2 = cubicY[base + 2]
+            val cx3 = cubicX[base + 3]
+            val cy3 = cubicY[base + 3]
+            val depth = cubicDepth[stackCount]
+            if (depth >= BEZIER_MAX_SUBDIVISION_DEPTH || cubicIsFlat(cx0, cy0, cx1, cy1, cx2, cy2, cx3, cy3)) {
+                val snappedX = cx3.roundToInt()
+                val snappedY = cy3.roundToInt()
+                if (snappedX != prevSnappedX || snappedY != prevSnappedY) {
+                    drawAliasedLine(prevX, prevY, cx3, cy3, colorIndex, strokeWidth)
+                    prevX = cx3
+                    prevY = cy3
+                    prevSnappedX = snappedX
+                    prevSnappedY = snappedY
+                }
+            } else {
+                val ax = lerp(cx0, cx1, DE_CASTELJAU_MIDPOINT)
+                val ay = lerp(cy0, cy1, DE_CASTELJAU_MIDPOINT)
+                val bx = lerp(cx1, cx2, DE_CASTELJAU_MIDPOINT)
+                val by = lerp(cy1, cy2, DE_CASTELJAU_MIDPOINT)
+                val cx = lerp(cx2, cx3, DE_CASTELJAU_MIDPOINT)
+                val cy = lerp(cy2, cy3, DE_CASTELJAU_MIDPOINT)
+                val dx = lerp(ax, bx, DE_CASTELJAU_MIDPOINT)
+                val dy = lerp(ay, by, DE_CASTELJAU_MIDPOINT)
+                val ex = lerp(bx, cx, DE_CASTELJAU_MIDPOINT)
+                val ey = lerp(by, cy, DE_CASTELJAU_MIDPOINT)
+                val fx = lerp(dx, ex, DE_CASTELJAU_MIDPOINT)
+                val fy = lerp(dy, ey, DE_CASTELJAU_MIDPOINT)
+                val nextDepth = depth + 1
+                stackCount = pushCubic(stackCount, fx, fy, ex, ey, cx, cy, cx3, cy3, nextDepth)
+                stackCount = pushCubic(stackCount, cx0, cy0, ax, ay, dx, dy, fx, fy, nextDepth)
             }
-            i++
+        }
+    }
+
+    /**
+     * Stroke a hardcoded unit path after the 2x2 placement
+     * `out = origin + [xx xy; yx yy] * unit`.
+     */
+    fun strokePath(
+        ops: IntArray,
+        coords: FloatArray,
+        originX: Float,
+        originY: Float,
+        xx: Float,
+        xy: Float,
+        yx: Float,
+        yy: Float,
+        colorIndex: Int,
+        strokeWidth: Float = 1f
+    ) {
+        var coordIndex = 0
+        var opIndex = 0
+        var hasPoint = false
+        var startX = 0f
+        var startY = 0f
+        var curX = 0f
+        var curY = 0f
+        while (opIndex < ops.size) {
+            val op = ops[opIndex]
+            when (op) {
+                VectorPathOp.MOVE -> {
+                    if (coordIndex + 1 >= coords.size) return
+                    val x = coords[coordIndex]
+                    val y = coords[coordIndex + 1]
+                    coordIndex += 2
+                    curX = originX + xx * x + xy * y
+                    curY = originY + yx * x + yy * y
+                    startX = curX
+                    startY = curY
+                    hasPoint = true
+                }
+                VectorPathOp.LINE -> {
+                    if (coordIndex + 1 >= coords.size) return
+                    val x = coords[coordIndex]
+                    val y = coords[coordIndex + 1]
+                    coordIndex += 2
+                    val nextX = originX + xx * x + xy * y
+                    val nextY = originY + yx * x + yy * y
+                    if (hasPoint) {
+                        drawAliasedLine(curX, curY, nextX, nextY, colorIndex, strokeWidth)
+                    }
+                    curX = nextX
+                    curY = nextY
+                    if (!hasPoint) {
+                        startX = curX
+                        startY = curY
+                        hasPoint = true
+                    }
+                }
+                VectorPathOp.QUAD -> {
+                    if (coordIndex + 3 >= coords.size) return
+                    val x1 = coords[coordIndex]
+                    val y1 = coords[coordIndex + 1]
+                    val x2 = coords[coordIndex + 2]
+                    val y2 = coords[coordIndex + 3]
+                    coordIndex += 4
+                    val c1x = originX + xx * x1 + xy * y1
+                    val c1y = originY + yx * x1 + yy * y1
+                    val nextX = originX + xx * x2 + xy * y2
+                    val nextY = originY + yx * x2 + yy * y2
+                    if (hasPoint) {
+                        drawQuadraticBezierDeCasteljau(curX, curY, c1x, c1y, nextX, nextY, colorIndex, strokeWidth)
+                    }
+                    curX = nextX
+                    curY = nextY
+                    if (!hasPoint) {
+                        startX = curX
+                        startY = curY
+                        hasPoint = true
+                    }
+                }
+                VectorPathOp.CUBIC -> {
+                    if (coordIndex + 5 >= coords.size) return
+                    val x1 = coords[coordIndex]
+                    val y1 = coords[coordIndex + 1]
+                    val x2 = coords[coordIndex + 2]
+                    val y2 = coords[coordIndex + 3]
+                    val x3 = coords[coordIndex + 4]
+                    val y3 = coords[coordIndex + 5]
+                    coordIndex += 6
+                    val c1x = originX + xx * x1 + xy * y1
+                    val c1y = originY + yx * x1 + yy * y1
+                    val c2x = originX + xx * x2 + xy * y2
+                    val c2y = originY + yx * x2 + yy * y2
+                    val nextX = originX + xx * x3 + xy * y3
+                    val nextY = originY + yx * x3 + yy * y3
+                    if (hasPoint) {
+                        drawCubicBezierDeCasteljau(
+                            curX, curY, c1x, c1y, c2x, c2y, nextX, nextY, colorIndex, strokeWidth
+                        )
+                    }
+                    curX = nextX
+                    curY = nextY
+                    if (!hasPoint) {
+                        startX = curX
+                        startY = curY
+                        hasPoint = true
+                    }
+                }
+                VectorPathOp.CLOSE -> {
+                    if (hasPoint) {
+                        drawAliasedLine(curX, curY, startX, startY, colorIndex, strokeWidth)
+                        curX = startX
+                        curY = startY
+                    }
+                }
+                else -> return
+            }
+            opIndex++
         }
     }
 
@@ -469,13 +628,97 @@ class AliasedVectorLayer(private val canvas: EngineCanvas) {
             .coerceIn(MIN_ARC_SEGMENTS, MAX_ARC_SEGMENTS)
     }
 
-    private fun estimateBezierSegments(lengthEstimate: Float): Int {
-        return (lengthEstimate / SAMPLE_INTERVAL_PIXELS).roundToInt()
-            .coerceIn(MIN_BEZIER_SEGMENTS, MAX_BEZIER_SEGMENTS)
+    private fun pushCubic(
+        stackCount: Int,
+        x0: Float,
+        y0: Float,
+        x1: Float,
+        y1: Float,
+        x2: Float,
+        y2: Float,
+        x3: Float,
+        y3: Float,
+        depth: Int
+    ): Int {
+        if (stackCount >= BEZIER_STACK_CAPACITY) return stackCount
+        val base = stackCount * CUBIC_CONTROL_POINTS
+        cubicX[base] = x0
+        cubicY[base] = y0
+        cubicX[base + 1] = x1
+        cubicY[base + 1] = y1
+        cubicX[base + 2] = x2
+        cubicY[base + 2] = y2
+        cubicX[base + 3] = x3
+        cubicY[base + 3] = y3
+        cubicDepth[stackCount] = depth
+        return stackCount + 1
     }
 
-    private fun distanceEstimate(x0: Float, y0: Float, x1: Float, y1: Float): Float {
-        return abs(x1 - x0) + abs(y1 - y0)
+    private fun pushQuad(
+        stackCount: Int,
+        x0: Float,
+        y0: Float,
+        x1: Float,
+        y1: Float,
+        x2: Float,
+        y2: Float,
+        depth: Int
+    ): Int {
+        if (stackCount >= BEZIER_STACK_CAPACITY) return stackCount
+        val base = stackCount * QUAD_CONTROL_POINTS
+        quadX[base] = x0
+        quadY[base] = y0
+        quadX[base + 1] = x1
+        quadY[base + 1] = y1
+        quadX[base + 2] = x2
+        quadY[base + 2] = y2
+        quadDepth[stackCount] = depth
+        return stackCount + 1
+    }
+
+    private fun cubicIsFlat(
+        x0: Float,
+        y0: Float,
+        x1: Float,
+        y1: Float,
+        x2: Float,
+        y2: Float,
+        x3: Float,
+        y3: Float
+    ): Boolean {
+        return controlIsFlat(x0, y0, x3, y3, x1, y1) && controlIsFlat(x0, y0, x3, y3, x2, y2)
+    }
+
+    private fun quadIsFlat(
+        x0: Float,
+        y0: Float,
+        x1: Float,
+        y1: Float,
+        x2: Float,
+        y2: Float
+    ): Boolean {
+        return controlIsFlat(x0, y0, x2, y2, x1, y1)
+    }
+
+    private fun controlIsFlat(
+        ax: Float,
+        ay: Float,
+        bx: Float,
+        by: Float,
+        px: Float,
+        py: Float
+    ): Boolean {
+        val dx = bx - ax
+        val dy = by - ay
+        val chordSq = dx * dx + dy * dy
+        val toleranceSq = BEZIER_FLATNESS_PIXELS * BEZIER_FLATNESS_PIXELS
+        if (chordSq <= 0f) {
+            val ox = px - ax
+            val oy = py - ay
+            return ox * ox + oy * oy <= toleranceSq
+        }
+        val cross = dy * px - dx * py + bx * ay - by * ax
+        return cross * cross <= toleranceSq * chordSq
     }
 
     private fun lerp(a: Float, b: Float, t: Float): Float {
