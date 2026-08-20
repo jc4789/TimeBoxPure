@@ -41,7 +41,7 @@ object TemplateCustomizerScene : Scene {
         val playAreaW = playW.toFloat()
         val playAreaH = playH.toFloat()
 
-        renderer.fillRectDither(playAreaStartX, 0f, playAreaStartX + playAreaW, playAreaH, PaletteIndices.BG, PaletteIndices.BG, SoftDitherPattern.SOLID)
+        renderer.paintPlayfield(playAreaStartX, 0f, playAreaStartX + playAreaW, playAreaH)
 
         val baseCardH = maxOf(playAreaH * 3f / 20f, ((U * 4) - (U / 4)).toFloat())
         val cardSpacing = maxOf(playAreaH * 3f / 100f, ((U / 4) + (U / 8)).toFloat())
@@ -128,7 +128,7 @@ object TemplateCustomizerScene : Scene {
         }
 
         // Draw solid background header cover to cover any scrolled cards at the top
-        renderer.fillRectDither(playAreaStartX, 0f, playAreaStartX + playAreaW, headerCoverH, PaletteIndices.BG, PaletteIndices.BG, SoftDitherPattern.SOLID)
+        renderer.paintPlayfield(playAreaStartX, 0f, playAreaStartX + playAreaW, headerCoverH)
 
         // Draw header over the cover
         val headerText = strings.presetsTitle

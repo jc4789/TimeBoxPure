@@ -58,7 +58,7 @@ object SettingsScene : Scene {
         renderer.drawRect(0f, 0f, logicalWidth, logicalHeight, PaletteIndices.BG)
         beginSettingsLayout(logicalWidth, logicalHeight)
         clampSettingsScroll(state, strings)
-        renderer.fillRectDither(playAreaStartX, 0f, playAreaStartX + playAreaW, playAreaH, PaletteIndices.BG, PaletteIndices.BG, SoftDitherPattern.SOLID)
+        renderer.paintPlayfield(playAreaStartX, 0f, playAreaStartX + playAreaW, playAreaH)
 
         currentY = safeTop + scrollY
         drawSettingsRows(renderer, state, strings)

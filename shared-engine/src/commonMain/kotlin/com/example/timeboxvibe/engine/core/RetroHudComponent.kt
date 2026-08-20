@@ -10,7 +10,6 @@ enum class HudAction {
 
 object RetroHudComponent {
     private const val U = CANONICAL_UI_UNIT
-    private val BUTTON_BORDER = (U / 8).toFloat()
     private val ICON_SIZE = (U * 2).toFloat()
     private const val ICON_SCALE = 1
     private const val NAV_TABS = 4
@@ -33,13 +32,6 @@ object RetroHudComponent {
             PaletteIndices.PANEL_DARK,
             PaletteIndices.PANEL_DARK,
             SoftDitherPattern.SOLID
-        )
-        renderer.drawLattice(
-            UiShellLayout.hudX,
-            UiShellLayout.hudY,
-            UiShellLayout.hudX + UiShellLayout.hudWidth,
-            UiShellLayout.hudY + UiShellLayout.hudHeight,
-            PaletteIndices.BG_ALT
         )
         if (UiShellLayout.placement == HudPlacement.LEFT) {
             renderer.strokeVerticalRule(
@@ -113,16 +105,16 @@ object RetroHudComponent {
         val surfaceColor = if (isActive) PaletteIndices.ACCENT_PRIMARY else PaletteIndices.PANEL_DARK
         if (isActive) {
             renderer.fillRectDither(
-                x + BUTTON_BORDER,
-                y + BUTTON_BORDER,
-                x + width - BUTTON_BORDER,
-                y + height - BUTTON_BORDER,
+                x,
+                y,
+                x + width,
+                y + height,
                 PaletteIndices.PANEL,
                 PaletteIndices.PANEL,
                 SoftDitherPattern.SOLID
             )
             renderer.strokeRectFrame(x, y, width, height, accentColorIndex, kind = VectorFrameKind.SMALL)
-            val radius = minOf(width, height) / 3f
+            val radius = minOf(width, height) / 4f
             renderer.strokeMedallion(x + width / 2f, y + height / 2f, radius, accentColorIndex)
         }
 

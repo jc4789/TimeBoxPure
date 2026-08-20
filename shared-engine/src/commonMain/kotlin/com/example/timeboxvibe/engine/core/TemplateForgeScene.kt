@@ -129,7 +129,7 @@ object TemplateForgeScene : Scene {
         val titleY = safeTop + (headerRowH - titleH) / 2f
         val cancelY = safeTop + (headerRowH - cancelH) / 2f
 
-        renderer.fillRectDither(playAreaStartX, 0f, playAreaStartX + playAreaW, playAreaH, PaletteIndices.BG, PaletteIndices.BG, SoftDitherPattern.SOLID)
+        renderer.paintPlayfield(playAreaStartX, 0f, playAreaStartX + playAreaW, playAreaH)
 
         scrollY = scrollY.coerceIn(contentMinScroll(playAreaH, logicalHeight), 0f)
         val headerCoverH = safeTop + headerRowH + gap
@@ -182,7 +182,7 @@ object TemplateForgeScene : Scene {
             }
         }
 
-        renderer.fillRectDither(playAreaStartX, 0f, playAreaStartX + playAreaW, headerCoverH, PaletteIndices.BG, PaletteIndices.BG, SoftDitherPattern.SOLID)
+        renderer.paintPlayfield(playAreaStartX, 0f, playAreaStartX + playAreaW, headerCoverH)
         ProceduralTextRenderer.drawHeading(renderer, strings.forgeTitle, contentX, titleY, titleW, PaletteIndices.PRIMARY, ScaledProceduralRenderer.TEXT_SCALE_HEADER)
         renderer.drawButton(strings.cancel, buttonX, cancelY, buttonW, cancelH, isClicked = false, allowTextStacking = true)
         renderer.drawLine(playAreaStartX + (U / 2).toFloat(), headerCoverH, playAreaStartX + playAreaW - (U / 2).toFloat(), headerCoverH, PaletteIndices.SECONDARY, 1f)

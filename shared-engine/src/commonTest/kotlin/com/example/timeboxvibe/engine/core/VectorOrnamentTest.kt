@@ -63,6 +63,94 @@ class VectorOrnamentTest {
         assertTrue(hasIndex(canvas, 10, 24, 12), "left petal")
     }
 
+    @Test
+    fun smallHooksStayNearCornersOnSkinnyButton() {
+        val canvas = SoftwareEngineCanvas(28, 56)
+        canvas.clear(0)
+        VectorOrnament.strokeRectFrame(AliasedVectorLayer(canvas), 2f, 2f, 20f, 48f, 7, 1f, VectorFrameKind.SMALL)
+
+        assertTrue(hasIndex(canvas, 2, 2, 7), "top-left stroke")
+        assertTrue(hasIndex(canvas, 21, 2, 7), "top-right sits on fill edge")
+        var centerHits = 0
+        var y = 16
+        while (y <= 36) {
+            var x = 8
+            while (x <= 14) {
+                if (canvas.framebuffer.colorIndexAt(x, y) == 7) centerHits++
+                x++
+            }
+            y++
+        }
+        assertTrue(centerHits == 0, "skinny button center stays empty ($centerHits)")
+    }
+
+    @Test
+    fun fillThenStrokeLeavesNoBackgroundGutter() {
+        val canvas = SoftwareEngineCanvas(100, 48)
+        canvas.clear(0)
+        canvas.fillRectDither(8f, 8f, 88f, 40f, 3, 3, SoftDitherPattern.SOLID)
+        VectorOrnament.strokeRectFrame(AliasedVectorLayer(canvas), 8f, 8f, 80f, 32f, 10, 1f, VectorFrameKind.PANEL)
+
+        assertTrue(canvas.framebuffer.colorIndexAt(8, 20) == 10, "left stroke on fill edge")
+        assertTrue(canvas.framebuffer.colorIndexAt(87, 20) == 10, "right stroke on last fill pixel")
+        assertTrue(canvas.framebuffer.colorIndexAt(88, 20) == 0, "outside the widget stays background")
+        val inside = canvas.framebuffer.colorIndexAt(20, 9)
+        assertTrue(inside == 3 || inside == 10, "just inside the top edge is fill or ink, not a gutter")
+    }
+
+    @Test
+    fun fieldPatternIsWavesNotDotLattice() {
+        val canvas = SoftwareEngineCanvas(96, 64)
+        canvas.clear(0)
+        VectorOrnament.strokeFieldPattern(AliasedVectorLayer(canvas), 0f, 0f, 96f, 64f, 1)
+
+        val ink = countIndex(canvas, 1)
+        assertTrue(ink > 80, "青海波 has a stroke, not a U-dot lattice ($ink)")
+
+        var isolatedOrigins = 0
+        var cells = 0
+        var gy = 0
+        while (gy < 64) {
+            var gx = 0
+            while (gx < 96) {
+                cells++
+                if (canvas.framebuffer.colorIndexAt(gx, gy) == 1 && cellInk(canvas, gx, gy, 1) <= 2) {
+                    isolatedOrigins++
+                }
+                gx += 16
+            }
+            gy += 16
+        }
+        assertTrue(isolatedOrigins < cells / 2, "field is not HUD dots ($isolatedOrigins/$cells)")
+    }
+
+    @Test
+    fun fieldPatternSnapsToWorldGrid() {
+        val full = SoftwareEngineCanvas(96, 48)
+        val inset = SoftwareEngineCanvas(96, 48)
+        full.clear(0)
+        inset.clear(0)
+        VectorOrnament.strokeFieldPattern(AliasedVectorLayer(full), 0f, 0f, 96f, 48f, 4)
+        VectorOrnament.strokeFieldPattern(AliasedVectorLayer(inset), 16f, 16f, 80f, 48f, 4)
+
+        var matches = 0
+        var samples = 0
+        var y = 16
+        while (y < 48) {
+            var x = 16
+            while (x < 80) {
+                if (full.framebuffer.colorIndexAt(x, y) == 4) {
+                    samples++
+                    if (inset.framebuffer.colorIndexAt(x, y) == 4) matches++
+                }
+                x++
+            }
+            y++
+        }
+        assertTrue(samples > 20, "full field has ink in the overlap ($samples)")
+        assertTrue(matches == samples, "header cover redraw lands on the same U tiles ($matches/$samples)")
+    }
+
     private fun hasIndex(canvas: SoftwareEngineCanvas, x: Int, y: Int, color: Int): Boolean {
         var dy = -1
         while (dy <= 1) {
@@ -92,6 +180,20 @@ class VectorOrnamentTest {
         while (y < top + 16) {
             var x = left
             while (x < left + 16) {
+                if (canvas.framebuffer.colorIndexAt(x, y) == color) count++
+                x++
+            }
+            y++
+        }
+        return count
+    }
+
+    private fun cellInk(canvas: SoftwareEngineCanvas, originX: Int, originY: Int, color: Int): Int {
+        var count = 0
+        var y = originY
+        while (y < originY + 4 && y < canvas.framebuffer.height) {
+            var x = originX
+            while (x < originX + 4 && x < canvas.framebuffer.width) {
                 if (canvas.framebuffer.colorIndexAt(x, y) == color) count++
                 x++
             }

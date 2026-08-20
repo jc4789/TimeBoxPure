@@ -90,6 +90,7 @@ object ActiveTimerScene : Scene {
         }
         val inputY = inputBaseY
         val reservedBtnY = timerControlRowY(playAreaH)
+        renderer.paintPlayfield(playAreaStartX, 0f, playAreaStartX + playAreaW, playAreaH)
         val calendarY = reservedBtnY - (U * CALENDAR_PANEL_GAP_CELLS).toFloat() - calendarPanelHeight(state, playAreaW)
         val graphicsBottomY = if (state.activeMode == "calendar") {
             calendarY - U.toFloat()
@@ -587,7 +588,7 @@ object ActiveTimerScene : Scene {
         drawIcon: Boolean
     ) {
         val fillColor = if (isClicked) PaletteIndices.PANEL else PaletteIndices.PANEL_DARK
-        renderer.fillRectDither(x + (U / 8), y + (U / 8), x + width - (U / 8), y + height - (U / 8), fillColor, fillColor, SoftDitherPattern.SOLID)
+        renderer.fillRectDither(x, y, x + width, y + height, fillColor, fillColor, SoftDitherPattern.SOLID)
         renderer.strokeRectFrame(x, y, width, height, PaletteIndices.SECONDARY, kind = VectorFrameKind.SMALL)
         if (!drawIcon) return
 

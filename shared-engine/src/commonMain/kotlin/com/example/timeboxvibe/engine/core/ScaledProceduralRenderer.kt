@@ -907,8 +907,9 @@ class ScaledProceduralRenderer(private val outputCanvas: EngineCanvas) {
         VectorOrnament.strokeVerticalRule(aliased, x, y0, y1, colorIndex, strokeWidth)
     }
 
-    fun drawLattice(x0: Float, y0: Float, x1: Float, y1: Float, colorIndex: Int) {
-        VectorOrnament.drawLattice(this, x0, y0, x1, y1, colorIndex)
+    fun paintPlayfield(x0: Float, y0: Float, x1: Float, y1: Float) {
+        fillRectDither(x0, y0, x1, y1, PaletteIndices.BG, PaletteIndices.BG, SoftDitherPattern.SOLID)
+        VectorOrnament.strokeFieldPattern(aliased, x0, y0, x1, y1, PaletteIndices.BG_ALT)
     }
 
 }

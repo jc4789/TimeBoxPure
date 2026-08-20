@@ -15,16 +15,7 @@ fun ScaledProceduralRenderer.drawButton(
     val textColor = if (isClicked || isHovered) PaletteIndices.TEXT_PRIMARY else PaletteIndices.SECONDARY
     val frameColor = if (isClicked || isHovered) PaletteIndices.BORDER_BRIGHT else PaletteIndices.SECONDARY
 
-    val border = CANONICAL_UI_UNIT / BUTTON_BORDER_CELLS_DEN
-    fillRectDither(
-        x + border,
-        y + border,
-        x + w - border,
-        y + h - border,
-        bgColor,
-        bgColor,
-        SoftDitherPattern.SOLID
-    )
+    fillRectDither(x, y, x + w, y + h, bgColor, bgColor, SoftDitherPattern.SOLID)
     strokeRectFrame(x, y, w, h, frameColor, kind = VectorFrameKind.SMALL)
 
     val textScale = ScaledProceduralRenderer.TEXT_SCALE_IDENTITY
@@ -75,4 +66,3 @@ fun ScaledProceduralRenderer.drawButton(
 }
 
 private const val ACTIVE_INDICATOR_GLYPH = '＞'
-private const val BUTTON_BORDER_CELLS_DEN = 8f

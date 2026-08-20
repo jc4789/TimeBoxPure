@@ -94,7 +94,7 @@ object EntropyScene : Scene {
         val playAreaW = playW.toFloat()
         val playAreaH = playH.toFloat()
         
-        renderer.fillRectDither(playAreaStartX, 0f, playAreaStartX + playAreaW, playAreaH, PaletteIndices.BG, PaletteIndices.BG, SoftDitherPattern.SOLID)
+        renderer.paintPlayfield(playAreaStartX, 0f, playAreaStartX + playAreaW, playAreaH)
 
         val padding = maxOf(U.toFloat(), playAreaW / (U + (U / 2)))
         val safeTop = maxOf(playAreaH / (U - (U / 4)), (U * 2).toFloat())

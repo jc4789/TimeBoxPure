@@ -4,7 +4,7 @@ package com.example.timeboxvibe.engine.core
 object VectorFrameKind {
     /** Single stroke + corner hooks. Buttons, steppers, fields. */
     const val SMALL = 0
-    /** Nested stroke + corner scrolls + sparse edge arches. Cards and sheets. */
+    /** Outer stroke + corner scrolls + sparse edge arches. Cards and sheets. */
     const val PANEL = 1
 }
 
@@ -14,14 +14,24 @@ object VectorFrameKind {
  */
 object VectorOrnament {
     private const val U = CANONICAL_UI_UNIT
-    private const val INNER_FRAME_DIVISOR = 6
     private const val INNER_PETAL_SCALE = 0.38f
     private const val HALF = 0.5f
+    /**
+     * fillRectDither is exclusive of x1/y1. A 1-pixel inset puts the stroke on the
+     * last filled logical pixel instead of a background gutter outside the fill.
+     */
+    private const val STROKE_ON_FILL = 1f
     private const val MIN_CORNER_PIXELS = 3f
-    private const val SMALL_CORNER_CELLS_DEN = 3
-    private const val PANEL_CORNER_CELLS_DEN = 2
-    private const val EDGE_ARCH_MIN_SPAN_CELLS = 3
-    private const val EDGE_ARCH_TRIPLE_SPAN_CELLS = 8
+    private const val SMALL_CORNER_CELLS_DEN = 4
+    private const val SMALL_HOOK_SPAN_DEN = 6f
+    private const val PANEL_CORNER_SHORT_DEN = 5f
+    private const val EDGE_ARCH_MIN_SPAN_CELLS = 4
+    private const val EDGE_ARCH_TRIPLE_SPAN_CELLS = 10
+    private const val EDGE_ARCH_INWARD_SCALE = 0.35f
+    private const val FIELD_TILE_CELLS = 4
+    private const val FIELD_ROW_CELLS = 2
+    private const val FIELD_INNER_RING_NUM = 2
+    private const val FIELD_INNER_RING_DEN = 3
     private const val EDGE_LEFT = 0
     private const val EDGE_TOP = 1
     private const val EDGE_RIGHT = 2
@@ -75,6 +85,17 @@ object VectorOrnament {
         0.72f, 0.55f, 0.78f, 0.00f, 1.00f, 0.00f
     )
 
+    private val waveOps = intArrayOf(
+        VectorPathOp.MOVE,
+        VectorPathOp.CUBIC,
+        VectorPathOp.CUBIC
+    )
+    private val waveCoords = floatArrayOf(
+        0.00f, 0.00f,
+        0.00f, 0.55f, 0.22f, 1.00f, 0.50f, 1.00f,
+        0.78f, 1.00f, 1.00f, 0.55f, 1.00f, 0.00f
+    )
+
     private val petalOps = intArrayOf(
         VectorPathOp.MOVE,
         VectorPathOp.CUBIC,
@@ -97,32 +118,32 @@ object VectorOrnament {
         strokeWidth: Float = 1f,
         kind: Int = VectorFrameKind.PANEL
     ) {
-        if (width <= 0f || height <= 0f) return
-        val right = x + width
-        val bottom = y + height
-        strokeRect(layer, x, y, width, height, colorIndex, strokeWidth)
+        if (width <= STROKE_ON_FILL || height <= STROKE_ON_FILL) return
+        val left = x
+        val top = y
+        val right = x + width - STROKE_ON_FILL
+        val bottom = y + height - STROKE_ON_FILL
+        strokeRectEdges(layer, left, top, right, bottom, colorIndex, strokeWidth)
 
         val shortest = minOf(width, height)
         if (kind == VectorFrameKind.SMALL) {
-            val hookSize = minOf((U / SMALL_CORNER_CELLS_DEN).toFloat(), shortest * HALF)
+            val hookSize = minOf((U / SMALL_CORNER_CELLS_DEN).toFloat(), shortest / SMALL_HOOK_SPAN_DEN)
             if (hookSize >= MIN_CORNER_PIXELS) {
-                strokeCorners(layer, x, y, right, bottom, hookSize, hookOps, hookCoords, colorIndex, strokeWidth)
+                strokeCorners(layer, left, top, right, bottom, hookSize, hookOps, hookCoords, colorIndex, strokeWidth)
             }
             return
         }
 
-        val cornerSize = minOf(U.toFloat(), shortest / PANEL_CORNER_CELLS_DEN)
+        val cornerSize = minOf(U.toFloat(), shortest / PANEL_CORNER_SHORT_DEN)
         if (cornerSize < MIN_CORNER_PIXELS) return
 
-        val inset = maxOf(2f, cornerSize / INNER_FRAME_DIVISOR)
-        if (width > inset * 2f && height > inset * 2f) {
-            strokeRect(layer, x + inset, y + inset, width - inset * 2f, height - inset * 2f, colorIndex, strokeWidth)
-        }
-        strokeCorners(layer, x, y, right, bottom, cornerSize, cornerOps, cornerCoords, colorIndex, strokeWidth)
-        strokeEdgeArches(layer, x + cornerSize, y, width - cornerSize * 2f, cornerSize, EDGE_TOP, colorIndex, strokeWidth)
-        strokeEdgeArches(layer, x + cornerSize, bottom, width - cornerSize * 2f, cornerSize, EDGE_BOTTOM, colorIndex, strokeWidth)
-        strokeEdgeArches(layer, x, y + cornerSize, height - cornerSize * 2f, cornerSize, EDGE_LEFT, colorIndex, strokeWidth)
-        strokeEdgeArches(layer, right, y + cornerSize, height - cornerSize * 2f, cornerSize, EDGE_RIGHT, colorIndex, strokeWidth)
+        strokeCorners(layer, left, top, right, bottom, cornerSize, cornerOps, cornerCoords, colorIndex, strokeWidth)
+        val innerW = right - left
+        val innerH = bottom - top
+        strokeEdgeArches(layer, left + cornerSize, top, innerW - cornerSize * 2f, cornerSize, EDGE_TOP, colorIndex, strokeWidth)
+        strokeEdgeArches(layer, left + cornerSize, bottom, innerW - cornerSize * 2f, cornerSize, EDGE_BOTTOM, colorIndex, strokeWidth)
+        strokeEdgeArches(layer, left, top + cornerSize, innerH - cornerSize * 2f, cornerSize, EDGE_LEFT, colorIndex, strokeWidth)
+        strokeEdgeArches(layer, right, top + cornerSize, innerH - cornerSize * 2f, cornerSize, EDGE_RIGHT, colorIndex, strokeWidth)
     }
 
     fun strokeMedallion(
@@ -183,44 +204,82 @@ object VectorOrnament {
         )
     }
 
-    fun drawLattice(
-        renderer: ScaledProceduralRenderer,
+    /**
+     * Faint 青海波 tiled in U cells. Origins snap to the world U grid so a header
+     * cover redraw matches the field underneath. Not a HUD lattice.
+     */
+    fun strokeFieldPattern(
+        layer: AliasedVectorLayer,
         x0: Float,
         y0: Float,
         x1: Float,
         y1: Float,
-        colorIndex: Int
+        colorIndex: Int,
+        strokeWidth: Float = 1f
     ) {
-        val step = U.toFloat()
-        if (x1 <= x0 || y1 <= y0 || step <= 0f) return
-        var gy = (y0 / step).toInt() * step
-        if (gy < y0) gy += step
+        if (x1 <= x0 || y1 <= y0) return
+        val tile = (U * FIELD_TILE_CELLS).toFloat()
+        val row = (U * FIELD_ROW_CELLS).toFloat()
+        val halfTile = tile * HALF
+        var gy = floorToStep(y0, row)
         while (gy < y1) {
-            var gx = (x0 / step).toInt() * step
-            if (gx < x0) gx += step
+            val rowIndex = (gy / row).toInt()
+            val xOff = if ((rowIndex and 1) != 0) halfTile else 0f
+            var gx = floorToStep(x0 - xOff, tile) + xOff
             while (gx < x1) {
-                renderer.drawRect(gx, gy, 1f, 1f, colorIndex)
-                gx += step
+                if (gx + tile > x0 && gy + halfTile > y0) {
+                    strokeSeigaiha(layer, gx, gy, tile, colorIndex, strokeWidth)
+                }
+                gx += tile
             }
-            gy += step
+            gy += row
         }
     }
 
-    private fun strokeRect(
+    private fun strokeSeigaiha(
         layer: AliasedVectorLayer,
         x: Float,
         y: Float,
-        width: Float,
-        height: Float,
+        tile: Float,
         colorIndex: Int,
         strokeWidth: Float
     ) {
-        val right = x + width
-        val bottom = y + height
-        layer.drawAliasedLine(x, y, right, y, colorIndex, strokeWidth)
-        layer.drawAliasedLine(right, y, right, bottom, colorIndex, strokeWidth)
-        layer.drawAliasedLine(right, bottom, x, bottom, colorIndex, strokeWidth)
-        layer.drawAliasedLine(x, bottom, x, y, colorIndex, strokeWidth)
+        val baseline = y + tile * HALF
+        layer.strokePath(
+            waveOps, waveCoords,
+            x, baseline, tile, 0f, 0f, -tile * HALF,
+            colorIndex, strokeWidth
+        )
+        val innerW = tile * FIELD_INNER_RING_NUM / FIELD_INNER_RING_DEN
+        val innerX = x + (tile - innerW) * HALF
+        layer.strokePath(
+            waveOps, waveCoords,
+            innerX, baseline, innerW, 0f, 0f, -innerW * HALF,
+            colorIndex, strokeWidth
+        )
+    }
+
+    private fun floorToStep(value: Float, step: Float): Float {
+        if (step <= 0f) return value
+        val cells = value / step
+        val floored = cells.toInt()
+        val aligned = if (cells < 0f && cells != floored.toFloat()) floored - 1 else floored
+        return aligned * step
+    }
+
+    private fun strokeRectEdges(
+        layer: AliasedVectorLayer,
+        left: Float,
+        top: Float,
+        right: Float,
+        bottom: Float,
+        colorIndex: Int,
+        strokeWidth: Float
+    ) {
+        layer.drawAliasedLine(left, top, right, top, colorIndex, strokeWidth)
+        layer.drawAliasedLine(right, top, right, bottom, colorIndex, strokeWidth)
+        layer.drawAliasedLine(right, bottom, left, bottom, colorIndex, strokeWidth)
+        layer.drawAliasedLine(left, bottom, left, top, colorIndex, strokeWidth)
     }
 
     private fun strokeCorners(
@@ -291,7 +350,7 @@ object VectorOrnament {
         colorIndex: Int,
         strokeWidth: Float
     ) {
-        val inward = size * HALF
+        val inward = size * EDGE_ARCH_INWARD_SCALE
         when (edge) {
             EDGE_TOP -> layer.strokePath(
                 archOps, archCoords,
