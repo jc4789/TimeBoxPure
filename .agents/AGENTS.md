@@ -575,7 +575,6 @@ Required before patching:
 4. State which old/debug/test code is still active.
 
 
-
 No direct scene calls to drawGlyphRaw.
 No drawGlyphRaw with omitted clip arguments if the function remains public/internal.
 No glyph clip default may depend on destX or destY.
@@ -586,7 +585,6 @@ drawGlyphRaw must be private, or must require explicit clipLeft/clipTop/clipRigh
 
 
 Our sound architecture has two main layers,    A Procedural, clean-room YM2608-based sound engine. And, a  Separate clean-room PMD-based MML language and performance model. 
-
 
 
 Tests, including human tests, mean nothing if the logic of our code is wrong.
@@ -700,7 +698,7 @@ production-only change. It does not mean every adjacent concern has been solved.
 
 
 
-### Uncertainty is a reason to preserve the baseline and investigate carefully—not to rewrite it.
+### Uncertainty is a reason to preserve the baseline and investigate carefully, It is not a reason to rewrite it.
 
 ## Safe Baseline Presumption
 
