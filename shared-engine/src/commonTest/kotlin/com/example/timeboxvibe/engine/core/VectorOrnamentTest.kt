@@ -99,21 +99,26 @@ class VectorOrnamentTest {
     }
 
     @Test
-    fun chromeBandIsFrameColorNotPlayfield() {
+    fun paintFrameIsHairlineOnFillNotGoldSlab() {
         val canvas = SoftwareEngineCanvas(120, 56)
         canvas.clear(0)
         val layer = AliasedVectorLayer(canvas)
         VectorOrnament.paintRectFrame(canvas, layer, 8f, 8f, 96f, 40f, 3, 10, VectorFrameKind.PANEL)
 
-        val band = VectorOrnament.chromeBand(VectorFrameKind.PANEL, 40f)
-        assertTrue(band >= 2f, "chrome has thickness")
-        val midY = 8 + (band / 2f).toInt()
-        val chrome = canvas.framebuffer.colorIndexAt(20, midY)
-        assertTrue(chrome == 10, "chrome band is the frame color ($chrome)")
-        val interior = canvas.framebuffer.colorIndexAt(40, 28)
-        assertTrue(interior == 3, "interior is the panel fill ($interior)")
+        assertTrue(canvas.framebuffer.colorIndexAt(8, 20) == 10, "outer hairline")
+        assertTrue(canvas.framebuffer.colorIndexAt(40, 28) == 3, "interior is panel fill")
         assertTrue(canvas.framebuffer.colorIndexAt(7, 20) == 0, "outside stays playfield")
-        assertTrue(cornerInk(canvas, 8, 8, 10) > 12, "corner scroll sits on the chrome")
+        val underStroke = canvas.framebuffer.colorIndexAt(40, 9)
+        assertTrue(underStroke == 3 || underStroke == 10, "just inside the stroke is fill, not a gutter")
+
+        var goldRun = 0
+        var y = 8
+        while (y < 16) {
+            if (canvas.framebuffer.colorIndexAt(40, y) == 10) goldRun++
+            y++
+        }
+        assertTrue(goldRun <= 3, "mid-edge is a hairline, not a filled slab ($goldRun)")
+        assertTrue(cornerInk(canvas, 8, 8, 10) > 12, "corner scroll sits on the fill")
     }
 
     @Test
@@ -140,6 +145,26 @@ class VectorOrnamentTest {
             gy += 16
         }
         assertTrue(isolatedOrigins < cells / 2, "field is not HUD dots ($isolatedOrigins/$cells)")
+    }
+
+    @Test
+    fun fieldPatternDoesNotInkOutsideRect() {
+        val canvas = SoftwareEngineCanvas(96, 80)
+        canvas.clear(0)
+        VectorOrnament.strokeFieldPattern(AliasedVectorLayer(canvas), 0f, 0f, 96f, 24f, 1)
+
+        assertTrue(countIndex(canvas, 1) > 10, "header strip still has 青海波")
+        var leaked = 0
+        var y = 24
+        while (y < 80) {
+            var x = 0
+            while (x < 96) {
+                if (canvas.framebuffer.colorIndexAt(x, y) == 1) leaked++
+                x++
+            }
+            y++
+        }
+        assertTrue(leaked == 0, "header cover must not paint over cards ($leaked)")
     }
 
     @Test

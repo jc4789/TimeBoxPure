@@ -2,9 +2,9 @@ package com.example.timeboxvibe.engine.core
 
 /** Which vector vocabulary to instance on a logical rectangle. */
 object VectorFrameKind {
-    /** Chrome band + compact corner scrolls. Buttons, steppers, fields. */
+    /** Hairline + compact corner scrolls. Buttons, steppers, fields. */
     const val SMALL = 0
-    /** Wider chrome + corner scrolls + sparse edge arches. Cards and sheets. */
+    /** Double hairline + corner scrolls + sparse edge arches. Cards and sheets. */
     const val PANEL = 1
 }
 
@@ -22,13 +22,11 @@ object VectorOrnament {
      */
     private const val STROKE_ON_FILL = 1f
     private const val MIN_CORNER_PIXELS = 3f
-    private const val MIN_CHROME_PIXELS = 2f
+    /** Panel double-line gap in logical pixels. Not a filled chrome slab. */
+    private const val INNER_LINE_INSET = 2f
     private const val SMALL_CORNER_CELLS_DEN = 2
     private const val SMALL_HOOK_SPAN_DEN = 3f
-    private const val SMALL_BAND_CELLS_DEN = 4
     private const val PANEL_CORNER_SHORT_DEN = 3f
-    private const val PANEL_BAND_CELLS_DEN = 3
-    private const val CHROME_SHORT_DEN = 6f
     private const val EDGE_ARCH_MIN_SPAN_CELLS = 3
     private const val EDGE_ARCH_TRIPLE_SPAN_CELLS = 8
     private const val EDGE_ARCH_INWARD_SCALE = 0.48f
@@ -134,9 +132,19 @@ object VectorOrnament {
         strokeRectEdges(layer, left, top, right, bottom, colorIndex, strokeWidth)
 
         val shortest = minOf(width, height)
-        val band = chromeBand(kind, shortest)
-        if (width > band * 2f && height > band * 2f) {
-            strokeRectEdges(layer, left + band, top + band, right - band, bottom - band, colorIndex, strokeWidth)
+        if (kind == VectorFrameKind.PANEL &&
+            width > INNER_LINE_INSET * 2f &&
+            height > INNER_LINE_INSET * 2f
+        ) {
+            strokeRectEdges(
+                layer,
+                left + INNER_LINE_INSET,
+                top + INNER_LINE_INSET,
+                right - INNER_LINE_INSET,
+                bottom - INNER_LINE_INSET,
+                colorIndex,
+                strokeWidth
+            )
         }
         if (kind == VectorFrameKind.SMALL) {
             val hookSize = minOf((U / SMALL_CORNER_CELLS_DEN).toFloat(), shortest / SMALL_HOOK_SPAN_DEN)
@@ -158,17 +166,6 @@ object VectorOrnament {
         strokeEdgeArches(layer, right, top + cornerSize, innerH - cornerSize * 2f, cornerSize, EDGE_RIGHT, colorIndex, strokeWidth)
     }
 
-    /**
-     * Width of the filled chrome band. Ornaments sit on this band, so the
-     * playfield never shows through the frame.
-     */
-    fun chromeBand(kind: Int, shortest: Float): Float {
-        if (shortest <= 0f) return 0f
-        val cells = if (kind == VectorFrameKind.SMALL) SMALL_BAND_CELLS_DEN else PANEL_BAND_CELLS_DEN
-        val wanted = (U / cells).toFloat()
-        return maxOf(MIN_CHROME_PIXELS, minOf(wanted, shortest / CHROME_SHORT_DEN))
-    }
-
     fun paintRectFrame(
         canvas: EngineCanvas,
         layer: AliasedVectorLayer,
@@ -181,13 +178,7 @@ object VectorOrnament {
         kind: Int = VectorFrameKind.PANEL
     ) {
         if (width <= 0f || height <= 0f) return
-        canvas.fillRectDither(x, y, x + width, y + height, frameIndex, frameIndex, SoftDitherPattern.SOLID)
-        val band = chromeBand(kind, minOf(width, height))
-        val innerRight = x + width - band
-        val innerBottom = y + height - band
-        if (innerRight > x + band && innerBottom > y + band) {
-            canvas.fillRectDither(x + band, y + band, innerRight, innerBottom, fillIndex, fillIndex, SoftDitherPattern.SOLID)
-        }
+        canvas.fillRectDither(x, y, x + width, y + height, fillIndex, fillIndex, SoftDitherPattern.SOLID)
         strokeRectFrame(layer, x, y, width, height, frameIndex, 1f, kind)
     }
 
@@ -263,6 +254,7 @@ object VectorOrnament {
         strokeWidth: Float = 1f
     ) {
         if (x1 <= x0 || y1 <= y0) return
+        layer.setClipRect(x0, y0, x1, y1)
         val tile = (U * FIELD_TILE_CELLS).toFloat()
         val row = (U * FIELD_ROW_CELLS).toFloat()
         val halfTile = tile * HALF
@@ -279,6 +271,7 @@ object VectorOrnament {
             }
             gy += row
         }
+        layer.clearClipRect()
     }
 
     private fun strokeSeigaiha(

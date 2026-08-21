@@ -43,6 +43,23 @@ class AliasedVectorLayer(private val canvas: EngineCanvas) {
     private val quadX = FloatArray(BEZIER_STACK_CAPACITY * QUAD_CONTROL_POINTS)
     private val quadY = FloatArray(BEZIER_STACK_CAPACITY * QUAD_CONTROL_POINTS)
     private val quadDepth = IntArray(BEZIER_STACK_CAPACITY)
+    private var clipActive = false
+    private var clipX0 = 0f
+    private var clipY0 = 0f
+    private var clipX1 = 0f
+    private var clipY1 = 0f
+
+    fun setClipRect(x0: Float, y0: Float, x1: Float, y1: Float) {
+        clipActive = true
+        clipX0 = minOf(x0, x1)
+        clipY0 = minOf(y0, y1)
+        clipX1 = maxOf(x0, x1)
+        clipY1 = maxOf(y0, y1)
+    }
+
+    fun clearClipRect() {
+        clipActive = false
+    }
 
     fun drawAliasedLine(
         x0: Float,
@@ -614,6 +631,11 @@ class AliasedVectorLayer(private val canvas: EngineCanvas) {
         val outputX = x * rasterStep
         val outputY = y * rasterStep
         if (outputX < 0f || outputX >= canvas.width || outputY < 0f || outputY >= canvas.height) return
+        if (clipActive &&
+            (outputX < clipX0 || outputX >= clipX1 || outputY < clipY0 || outputY >= clipY1)
+        ) {
+            return
+        }
         if (rasterStep <= 1f) {
             canvas.setPixel(outputX, outputY, colorIndex)
         } else {
